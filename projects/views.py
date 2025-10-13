@@ -1610,10 +1610,11 @@ def api_subprojects(request):
 @require_GET
 def get_allocations_for_iom(request):
     project_id = request.GET.get("project_id")
+    subproject_id = request.GET.get("subproject_id")
     iom_row_id = request.GET.get("iom_row_id")
     month_param = request.GET.get("month")  # YYYY-MM
     month_start_param = request.GET.get("month_start")  # YYYY-MM-DD
-
+    print("sub project id: " ,subproject_id)
     if not (project_id and iom_row_id):
         return JsonResponse({"ok": False, "error": "missing params"}, status=400)
 
@@ -1643,18 +1644,24 @@ def get_allocations_for_iom(request):
 
     try:
         with connection.cursor() as cur:
-            cur.execute("""
-                SELECT user_ldap, total_hours
-                FROM monthly_allocation_entries
-                WHERE project_id=%s AND iom_id=%s AND month_start=%s
-            """, (project_id, iom_row_id, billing_start))
+            if subproject_id:
+                cur.execute("""
+                    SELECT user_ldap, total_hours
+                    FROM monthly_allocation_entries
+                    WHERE project_id=%s AND subproject_id=%s AND iom_id=%s AND month_start=%s
+                """, (project_id, subproject_id, iom_row_id, billing_start))
+            else:
+                cur.execute("""
+                    SELECT user_ldap, total_hours
+                    FROM monthly_allocation_entries
+                    WHERE project_id=%s AND iom_id=%s AND month_start=%s
+                """, (project_id, iom_row_id, billing_start))
             rows = cur.fetchall() or []
     except Exception as exc:
         logger.exception("get_allocations_for_iom failed: %s", exc)
         return JsonResponse({"ok": False, "error": str(exc)}, status=500)
 
     # compute billing hours for this month (for FTE calculation)
-    # billing_start is a date like YYYY-MM-01 (canonical)
     try:
         bs_date = billing_start
         year = bs_date.year
@@ -1668,18 +1675,19 @@ def get_allocations_for_iom(request):
         user_ldap = r[0] or ''
         total_hours = float(r[1] or 0.0)
         fte = (total_hours / billing_hours) if billing_hours > 0 else 0.0
-        # round fte to 4 decimals
         fte = round(float(fte), 4)
         saved_items.append({"user_ldap": user_ldap, "total_hours": total_hours, "fte": fte})
 
-    return JsonResponse({"ok": True, "saved_items": saved_items, "billing_start": billing_start.strftime("%Y-%m-%d")})
+    return JsonResponse({
+        "ok": True,
+        "saved_items": saved_items,
+        "billing_start": billing_start.strftime("%Y-%m-%d")
+    })
 
 
 @require_POST
 def save_monthly_allocations(request):
-    # (existing parsing code for JSON/form remains — I'm showing the core saving + response part)
     try:
-        # read & parse JSON/form same as before (preserve your existing logic)
         body_raw = request.body.decode("utf-8").strip()
         data = {}
         if body_raw:
@@ -1689,10 +1697,10 @@ def save_monthly_allocations(request):
                 data = {}
 
         project_id = data.get("project_id") or request.POST.get("project_id") or request.GET.get("project_id")
+        subproject_id = data.get("subproject_id") or request.POST.get("subproject_id") or request.GET.get("subproject_id")
         month_param = data.get("month") or request.POST.get("month") or request.GET.get("month")
         month_start_param = data.get("month_start") or request.POST.get("month_start") or request.GET.get("month_start")
 
-        # resolve canonical billing_start (reuse same logic as get_allocations_for_iom)
         billing_start = None
         if month_param:
             year, mon = map(int, month_param.split("-"))
@@ -1712,10 +1720,8 @@ def save_monthly_allocations(request):
             today = date.today()
             billing_start, _ = get_billing_period(today.year, today.month)
 
-        # collect items from JSON payload or POST fields
         items = data.get("items") if isinstance(data.get("items"), list) else None
         if items is None:
-            # fallbacks: items_json or pattern-matching form fields (preserve your previous support)
             items_json = request.POST.get("items_json") or None
             if items_json:
                 try:
@@ -1723,7 +1729,6 @@ def save_monthly_allocations(request):
                 except Exception:
                     items = []
             else:
-                # attempt patterned fields (legacy). Example: iom_id1,user_ldap1,total_hours1,...
                 items = []
                 i = 1
                 while True:
@@ -1739,25 +1744,19 @@ def save_monthly_allocations(request):
                     items.append({"iom_id": iom_field, "user_ldap": user_field, "total_hours": hrs})
                     i += 1
 
-        # items is now a list of dicts with keys iom_id, user_ldap, total_hours
         if not project_id or items is None:
             return JsonResponse({"ok": False, "error": "project_id and items required"}, status=400)
 
-        # persist: delete/replace existing rows for this project+iom+month_start then upsert
-        # we will group by iom_id to minimize DB roundtrips
         with transaction.atomic():
             with connection.cursor() as cur:
-                # for simplicity: delete entries for each involved iom_id for given project and month_start,
-                # then insert provided items anew
                 iom_ids = sorted(set([it.get("iom_id") for it in items if it.get("iom_id")]))
                 if iom_ids:
                     for iom_id in iom_ids:
                         cur.execute("""
                             DELETE FROM monthly_allocation_entries
-                            WHERE project_id=%s AND iom_id=%s AND month_start=%s
-                        """, [project_id, iom_id, billing_start])
+                            WHERE project_id=%s AND iom_id=%s AND month_start=%s AND (subproject_id=%s OR (%s IS NULL AND subproject_id IS NULL))
+                        """, [project_id, iom_id, billing_start, subproject_id, subproject_id])
 
-                # insert each item
                 for it in items:
                     iom_id = it.get("iom_id")
                     user_ldap = (it.get("user_ldap") or "").strip()
@@ -1768,21 +1767,19 @@ def save_monthly_allocations(request):
                     if not iom_id or not user_ldap:
                         continue
                     cur.execute("""
-                        INSERT INTO monthly_allocation_entries (project_id, iom_id, month_start, user_ldap, total_hours, created_at)
-                        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                    """, [project_id, iom_id, billing_start, user_ldap, total_hours])
+                        INSERT INTO monthly_allocation_entries (project_id, subproject_id, iom_id, month_start, user_ldap, total_hours, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    """, [project_id, subproject_id, iom_id, billing_start, user_ldap, total_hours])
 
-        # after commit, read back saved rows for the canonical billing_start and compute fte
         saved_items = []
         with connection.cursor() as cur:
             cur.execute("""
                 SELECT user_ldap, total_hours
                 FROM monthly_allocation_entries
-                WHERE project_id=%s AND month_start=%s
-            """, [project_id, billing_start])
+                WHERE project_id=%s AND month_start=%s AND (subproject_id=%s OR (%s IS NULL AND subproject_id IS NULL))
+            """, [project_id, billing_start, subproject_id, subproject_id])
             rows = cur.fetchall() or []
 
-        # compute billing_hours based on billing_start month
         try:
             year = billing_start.year
             month = billing_start.month
@@ -2572,8 +2569,9 @@ def monthly_allocations(request):
     """
     Render monthly allocations page (billing-period aware). Accepts ?month=YYYY-MM
     and uses billing_start resolved via get_billing_period(year, month).
+    Now supports filtering by subproject_id.
     """
-    logger.debug("monthly_allocations called")
+    print("monthly_allocations called")
     session_ldap = request.session.get("ldap_username")
 
     # Parse month param (YYYY-MM) -> billing_start
@@ -2585,7 +2583,7 @@ def monthly_allocations(request):
         except Exception:
             logger.exception("monthly_allocations: invalid month param '%s'", month_str)
             from datetime import date
-            today = date.today();
+            today = date.today()
             month_start, month_end = get_billing_period(today.year, today.month)
     else:
         from datetime import date
@@ -2593,10 +2591,16 @@ def monthly_allocations(request):
         month_start, month_end = get_billing_period(today.year, today.month)
 
     project_id_param = request.GET.get("project_id")
+    subproject_id_param = request.GET.get("subproject_id")
+    print("project id param : ", project_id_param , "   Sub project id param : ", subproject_id_param)
     try:
         active_project_id = int(project_id_param) if project_id_param else 0
     except Exception:
         active_project_id = 0
+    try:
+        active_subproject_id = int(subproject_id_param) if subproject_id_param else None
+    except Exception:
+        active_subproject_id = None
 
     # Fetch projects user can allocate for
     projects = _get_user_projects_for_allocations(request)
@@ -2607,6 +2611,7 @@ def monthly_allocations(request):
         return render(request, "projects/monthly_allocations.html", {
             "projects": projects,
             "active_project_id": active_project_id,
+            "active_subproject_id": active_subproject_id,
             "month_start": month_start,
             "coes": [],
             "domains_map": {},
@@ -2639,13 +2644,13 @@ def monthly_allocations(request):
             logger.exception("Error fetching domains")
             domains_map = {}
 
-    # fetch allocation_items for this project/billing_start (canonical)
+    # fetch allocation_items for this project/subproject/billing_start (canonical)
     allocation_map = {}
     capacity_accumulator = {}
     allocation_ids = []
     try:
         with connection.cursor() as cur:
-            cur.execute("""
+            sql = """
                 SELECT ai.id AS item_id,
                        ai.allocation_id,
                        ai.coe_id,
@@ -2659,10 +2664,15 @@ def monthly_allocations(request):
                 LEFT JOIN users u ON ai.user_id = u.id
                 WHERE ai.project_id = %s
                   AND a.month_start = %s
-                ORDER BY ai.coe_id
-            """, [active_project_id, month_start])
+            """
+            params = [active_project_id, month_start]
+            if active_subproject_id:
+                sql += " AND ai.subproject_id = %s"
+                params.append(active_subproject_id)
+            sql += " ORDER BY ai.coe_id"
+            cur.execute(sql, params)
             items = dictfetchall(cur)
-
+        print("Items :", items)
         for it in items:
             coe_id = it.get("coe_id") or 0
             ldap_val = (it.get("user_ldap") or "").strip()
@@ -2738,12 +2748,17 @@ def monthly_allocations(request):
     # ensure every user in allocation_items has an entry in capacity_map
     try:
         with connection.cursor() as cur:
-            cur.execute("""
+            sql = """
                 SELECT DISTINCT COALESCE(ai.user_ldap, '') as user_ldap
                 FROM allocation_items ai
                 JOIN allocations a ON ai.allocation_id = a.id
                 WHERE ai.project_id = %s AND a.month_start = %s
-            """, [active_project_id, month_start])
+            """
+            params = [active_project_id, month_start]
+            if active_subproject_id:
+                sql += " AND ai.subproject_id = %s"
+                params.append(active_subproject_id)
+            cur.execute(sql, params)
             for row in cur.fetchall():
                 val = row[0] or ""
                 key = val.strip().lower()
@@ -2755,6 +2770,7 @@ def monthly_allocations(request):
     return render(request, "projects/monthly_allocations.html", {
         "projects": projects,
         "active_project_id": active_project_id,
+        "active_subproject_id": active_subproject_id,
         "month_start": month_start,
         "coes": coes,
         "domains_map": domains_map,
@@ -2778,13 +2794,22 @@ def _get_month_hours_limit(year, month):
         logger.exception("_get_month_hours_limit failed")
     return float(HOURS_AVAILABLE_PER_MONTH)
 
+# --- get_applicable_ioms (replace existing function) ---
 @require_GET
 def get_applicable_ioms(request):
+    """
+    Return list of IOM rows matching project/year/month and creator (PDL/creator filter).
+    Accepts optional `project_id`, `year`, `month`, `search`, and `subproject_id`.
+    If subproject_id is provided, load the subproject's mdm_code/bg_code and
+    restrict prism_wbs rows to those matching bg_code OR buyer_wbs_cc/seller_wbs_cc (LIKE).
+    This avoids referencing non-existent columns on prism_wbs (e.g. mdm_code).
+    """
     session_ldap = request.session.get("ldap_username")
     session_cn = request.session.get("cn")
 
     def _cn_to_creator(cn):
-        if not cn: return ""
+        if not cn:
+            return ""
         parts = str(cn).strip().split()
         if len(parts) >= 2:
             return " ".join(parts[1:]) + " " + parts[0]
@@ -2805,12 +2830,15 @@ def get_applicable_ioms(request):
     creator_lower_vals = [c.lower() for c in creator_candidates]
 
     project_id = request.GET.get("project_id")
+    subproject_id = request.GET.get("subproject_id")  # optional filter
+    search = (request.GET.get("search") or "").strip()
     try:
         year = int(request.GET.get("year") or datetime.now().year)
         month = int(request.GET.get("month") or datetime.now().month)
     except Exception:
         return HttpResponseBadRequest("Invalid year/month")
 
+    # map month -> columns
     _MONTH_MAP = {
         1: ("jan_fte", "jan_hours"),
         2: ("feb_fte", "feb_hours"),
@@ -2827,10 +2855,27 @@ def get_applicable_ioms(request):
     }
     fte_col, hrs_col = _MONTH_MAP.get(month, ("jan_fte", "jan_hours"))
 
+    # If subproject_id provided, attempt to fetch its mdm_code/bg_code (prefer mdm_code then bg_code)
+    sub_mdm = None
+    sub_bg = None
+    if subproject_id:
+        try:
+            with connection.cursor() as cur:
+                cur.execute("SELECT mdm_code, bg_code FROM subprojects WHERE id = %s LIMIT 1", [int(subproject_id)])
+                r = cur.fetchone()
+                if r:
+                    # r[0] -> mdm_code, r[1] -> bg_code
+                    sub_mdm = (r[0] or "").strip()
+                    sub_bg = (r[1] or "").strip()
+        except Exception:
+            logger.exception("get_applicable_ioms: cannot load subproject %s", subproject_id)
+            sub_mdm = sub_bg = None
+
+    # Build SQL (do NOT reference prism_wbs.mdm_code -- it doesn't exist)
     sql = f"""
         SELECT id, iom_id, department, site, `function`,
                {fte_col} as month_fte, {hrs_col} as month_hours,
-               buyer_wbs_cc, seller_wbs_cc
+               buyer_wbs_cc, seller_wbs_cc, project_id, creator
         FROM prism_wbs
         WHERE year = %s
           AND ( ({fte_col} IS NOT NULL AND {fte_col} > 0) OR ({hrs_col} IS NOT NULL AND {hrs_col} > 0) )
@@ -2839,10 +2884,27 @@ def get_applicable_ioms(request):
     if project_id:
         sql += " AND project_id = %s"
         params.append(project_id)
+
     if creator_lower_vals:
         placeholders = ",".join(["%s"] * len(creator_lower_vals))
         sql += f" AND LOWER(TRIM(creator)) IN ({placeholders})"
         params.extend(creator_lower_vals)
+
+    if search:
+        sql += " AND iom_id LIKE %s"
+        params.append(f"%{search}%")
+
+    # If we have a subproject code, restrict by matching prism_wbs.bg_code OR buyer/seller WBS columns
+    # NOTE: prism_wbs may not have mdm_code; avoid referencing it. Use bg_code (if present on prism_wbs)
+    if (sub_bg and sub_bg != "") or (sub_mdm and sub_mdm != ""):
+        # prefer matching bg_code exactly; also match buyer/seller WBS with LIKE against mdm or bg
+        # build a single grouped clause to avoid accidental column name references
+        match_val = sub_bg or sub_mdm or ''
+        like_val = f"%{match_val}%"
+        sql += " AND ( COALESCE(bg_code, '') = %s OR COALESCE(buyer_wbs_cc, '') LIKE %s OR COALESCE(seller_wbs_cc, '') LIKE %s )"
+        params.append(match_val)
+        params.append(like_val)
+        params.append(like_val)
 
     sql += " ORDER BY iom_id LIMIT 500"
 
@@ -2872,15 +2934,24 @@ def get_applicable_ioms(request):
             "seller_wbs_cc": rec.get("seller_wbs_cc"),
             "month_limit": float(month_limit),
         })
+
     return JsonResponse({"ok": True, "ioms": ioms})
 
 
 # --- get_iom_details: fetch by id OR iom_id, compute remaining hours (from monthly_allocation_entries),
 #     and remaining FTE = remaining_hours / month_limit(year,month) ---
+# --- get_iom_details (replace existing function) ---
 @require_GET
 def get_iom_details(request):
+    """
+    Returns canonical details for a prism_wbs row (lookup by id or iom_id).
+    Accepts: project_id, iom_row_id (id or iom_id), year, month, and optional subproject_id.
+    When computing used_hours, the subproject_id is respected (if present) so remaining_hours
+    reflect allocations for the selected subproject.
+    """
     iom_row_id = request.GET.get("iom_row_id")
     project_id = request.GET.get("project_id")
+    subproject_id = request.GET.get("subproject_id")  # NEW
     try:
         year = int(request.GET.get("year") or datetime.now().year)
         month = int(request.GET.get("month") or datetime.now().month)
@@ -2910,7 +2981,7 @@ def get_iom_details(request):
             cur.execute(f"""
                 SELECT id, iom_id, project_id, department, site, `function`,
                        {fte_col} as month_fte, {hrs_col} as month_hours,
-                       buyer_wbs_cc, seller_wbs_cc
+                       buyer_wbs_cc, seller_wbs_cc, total_fte, total_hours
                 FROM prism_wbs
                 WHERE id = %s OR iom_id = %s
                 LIMIT 1
@@ -2925,10 +2996,16 @@ def get_iom_details(request):
             billing_start, billing_end = get_billing_period(year, month)
 
             # compute used hours for this IOM from monthly_allocation_entries using canonical month_start
-            cur.execute("""
-                SELECT COALESCE(SUM(total_hours),0) FROM monthly_allocation_entries
-                WHERE project_id=%s AND iom_id=%s AND month_start=%s
-            """, [project_id, rec.get("iom_id"), billing_start])
+            if subproject_id:
+                cur.execute("""
+                    SELECT COALESCE(SUM(total_hours),0) FROM monthly_allocation_entries
+                    WHERE project_id=%s AND iom_id=%s AND month_start=%s AND subproject_id=%s
+                """, [project_id, rec.get("iom_id"), billing_start, subproject_id])
+            else:
+                cur.execute("""
+                    SELECT COALESCE(SUM(total_hours),0) FROM monthly_allocation_entries
+                    WHERE project_id=%s AND iom_id=%s AND month_start=%s
+                """, [project_id, rec.get("iom_id"), billing_start])
             used_hours = cur.fetchone()[0] or 0.0
 
     except Exception as ex:
@@ -2967,13 +3044,19 @@ def get_iom_details(request):
 
     return JsonResponse(resp)
 
+
+# --- export_allocations (replace existing function) ---
+@require_GET
 def export_allocations(request):
     """
     Export allocations for an IOM and billing month. Accepts:
       - project_id, iom_id, and either month=YYYY-MM (preferred) OR month_start=YYYY-MM-DD
+      - optional subproject_id (when provided, export only allocations for that subproject)
+    Produces an Excel workbook (openpyxl).
     """
     project_id = request.GET.get("project_id")
     iom_id = request.GET.get("iom_id")
+    subproject_id = request.GET.get("subproject_id")  # NEW: optional
     month_param = request.GET.get("month")  # YYYY-MM
     month_start_param = request.GET.get("month_start")
 
@@ -2982,27 +3065,28 @@ def export_allocations(request):
 
     # resolve canonical billing_start based on month param or month_start
     billing_start = None
-    if month_param:
-        try:
+    billing_end = None
+    try:
+        if month_param:
             year, mon = map(int, month_param.split("-"))
             billing_start, billing_end = get_billing_period(year, mon)
-        except Exception:
-            logger.exception("export_allocations: invalid month param %s", month_param)
-            from datetime import date
-            billing_start = date.today().replace(day=1)
-    elif month_start_param:
-        try:
-            dt = datetime.strptime(month_start_param, "%Y-%m-%d").date()
-            # find billing period containing dt; if not found fallback to dt.replace(day=1)
+        elif month_start_param:
             try:
-                billing_start, billing_end = get_billing_period_for_date(dt)
+                dt = datetime.strptime(month_start_param, "%Y-%m-%d").date()
             except Exception:
-                billing_start = dt.replace(day=1)
-        except Exception:
-            billing_start = date.today().replace(day=1)
-    else:
-        today = date.today()
-        billing_start, billing_end = get_billing_period(today.year, today.month)
+                dt = None
+            if dt:
+                try:
+                    billing_start, billing_end = get_billing_period_for_date(dt)
+                except Exception:
+                    billing_start = dt.replace(day=1)
+            else:
+                billing_start = date.today().replace(day=1)
+        else:
+            today = date.today()
+            billing_start, billing_end = get_billing_period(today.year, today.month)
+    except Exception:
+        billing_start = date.today().replace(day=1)
 
     # fetch iom basic details
     iom = None
@@ -3025,15 +3109,28 @@ def export_allocations(request):
                 "total_hours": row[6],
             }
 
+    # fetch allocations (respect subproject_id when present)
     with connection.cursor() as cur:
-        cur.execute("""
-            SELECT user_ldap, total_hours
-            FROM monthly_allocation_entries
-            WHERE project_id=%s AND iom_id=%s AND month_start=%s
-        """, [project_id, iom_id, billing_start])
+        if subproject_id:
+            cur.execute("""
+                SELECT user_ldap, total_hours
+                FROM monthly_allocation_entries
+                WHERE project_id=%s AND iom_id=%s AND month_start=%s AND subproject_id=%s
+                ORDER BY user_ldap
+            """, [project_id, iom_id, billing_start, subproject_id])
+        else:
+            cur.execute("""
+                SELECT user_ldap, total_hours
+                FROM monthly_allocation_entries
+                WHERE project_id=%s AND iom_id=%s AND month_start=%s
+                ORDER BY user_ldap
+            """, [project_id, iom_id, billing_start])
         allocations = cur.fetchall() or []
 
-    # Build excel as before
+    # Build excel workbook (uses openpyxl, as before)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Allocations"
@@ -3061,55 +3158,48 @@ def export_allocations(request):
         details = [
             ("IOM ID", iom["iom_id"]),
             ("Department", iom["department"]),
-            ("WBS", f'{iom["buyer_wbs_cc"] or "-"} / {iom["seller_wbs_cc"] or "-"}'),
-            ("Site", iom["site"] or "-"),
-            ("Function", iom["function"] or "-"),
-            ("Total Hours", iom["total_hours"] or 0),
+            ("WBS (Buyer)", iom.get("buyer_wbs_cc") or ""),
+            ("WBS (Seller)", iom.get("seller_wbs_cc") or ""),
+            ("Site", iom.get("site") or ""),
+            ("Function", iom.get("function") or ""),
+            ("IOM Total Hours", iom.get("total_hours") or 0),
+            ("Billing Month Start", billing_start.strftime("%Y-%m-%d") if billing_start else "")
         ]
-        for key, val in details:
-            ws.cell(row=row_idx, column=1, value=key).font = bold_font
-            ws.cell(row=row_idx, column=1).fill = fill_gray
-            ws.cell(row=row_idx, column=1).border = border
-            ws.cell(row=row_idx, column=2, value=val).font = normal_font
-            ws.cell(row=row_idx, column=2).border = border
+        for k, v in details:
+            ws.cell(row=row_idx, column=1, value=k).font = bold_font
+            ws.cell(row=row_idx, column=2, value=v).font = normal_font
             row_idx += 1
         row_idx += 1
 
-    ws.cell(row=row_idx, column=1, value="Resource (LDAP)").font = header_font
-    ws.cell(row=row_idx, column=1).fill = fill_blue
-    ws.cell(row=row_idx, column=1).alignment = center
-    ws.cell(row=row_idx, column=1).border = border
+    # header
+    ws.cell(row=row_idx, column=1, value="Resource").font = header_font
     ws.cell(row=row_idx, column=2, value="Total Hours").font = header_font
-    ws.cell(row=row_idx, column=2).fill = fill_blue
-    ws.cell(row=row_idx, column=2).alignment = center
-    ws.cell(row=row_idx, column=2).border = border
+    # style header
+    for c in range(1, 3):
+        cell = ws.cell(row=row_idx, column=c)
+        cell.alignment = center
+        cell.fill = fill_blue
+        cell.font = header_font
     row_idx += 1
 
-    for alloc in allocations:
-        ws.cell(row=row_idx, column=1, value=alloc[0]).font = normal_font
-        ws.cell(row=row_idx, column=1).alignment = left
-        ws.cell(row=row_idx, column=1).border = border
-        ws.cell(row=row_idx, column=2, value=float(alloc[1] or 0)).font = normal_font
-        ws.cell(row=row_idx, column=2).alignment = right
-        ws.cell(row=row_idx, column=2).border = border
+    # rows
+    for r in allocations:
+        uname = r[0] or ''
+        hrs = float(r[1] or 0.0)
+        ws.cell(row=row_idx, column=1, value=uname).font = normal_font
+        ws.cell(row=row_idx, column=2, value=hrs).font = normal_font
         row_idx += 1
 
-    for idx, col in enumerate(ws.columns, 1):
-        max_length = 0
-        col_letter = get_column_letter(idx)
-        for cell in col:
-            if cell.value:
-                try:
-                    max_length = max(max_length, len(str(cell.value)))
-                except Exception:
-                    pass
-        ws.column_dimensions[col_letter].width = max_length + 4
-
-    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    filename = f"allocations_{iom_id}_{billing_start}.xlsx"
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
-    wb.save(response)
+    # finalize workbook into HttpResponse
+    from io import BytesIO
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"allocations_{project_id}_{iom_id}_{billing_start.strftime('%Y%m%d')}.xlsx" if billing_start else f"allocations_{project_id}_{iom_id}.xlsx"
+    response = HttpResponse(buf.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
+
 
 
 def export_my_punches_pdf(request):

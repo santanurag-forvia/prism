@@ -1,4 +1,3 @@
-{# templates/projects/monthly_allocations.html #}
 {% extends "base.html" %}
 {% load static %}
 {% block title %}Monthly Allocations{% endblock %}
@@ -122,26 +121,54 @@
     </div>
 
     <!-- IOM Detail Card -->
-    <div id="iomDetailWrap" style="display:none;">
-      <div class="iom-card" role="region" aria-live="polite">
-        <div class="iom-left">
-          <div id="iomTitle" class="iom-title">IOM: —</div>
-          <div id="iomSubproject" class="iom-meta">Project: <strong id="iomSubprojectName">—</strong></div>
-          <div id="iomDept" class="iom-meta">Department: —</div>
-          <div id="iomWbs" class="iom-meta">WBS: —</div>
-          <div id="iomSite" class="iom-meta">Site: —</div>
-          <div id="iomFunction" class="iom-meta">Function: —</div>
-        </div>
+<div id="iomDetailWrap" style="display:none;">
+  <div class="iom-card" role="region" aria-live="polite"
+       style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:20px; padding:15px 20px;
+              border:1px solid var(--border-color,#ddd); border-radius:10px; background:var(--card-bg,#fafafa);">
 
-        <div class="iom-right" aria-hidden="false">
-          <div class="stat">Month FTE: <strong id="iomMonthFte">0.00</strong></div>
-          <div class="stat">Month Hrs: <strong id="iomMonthHrs">0.00</strong></div>
-          <div class="stat">Remaining FTE: <strong id="iomRemFte">0.00</strong></div>
-          <div class="stat">Remaining Hrs: <strong id="iomRemHrs">0.00</strong></div>
-          <div class="badge-remaining" id="remainingBadge">Remaining: 0.00h</div>
-        </div>
+    <!-- Left side: Project metadata -->
+    <div class="iom-left" style="flex:1 1 55%; min-width:300px;">
+      <div id="iomTitle" class="iom-title" style="font-weight:600; font-size:1.1rem; margin-bottom:8px;">IOM: —</div>
+
+      <div class="iom-meta" style="margin-bottom:4px;">Project:
+        <strong id="iomProjectName">—</strong>
+      </div>
+
+      <div class="iom-meta" style="margin-bottom:4px;">Department:
+        <strong id="iomDept">—</strong>
+      </div>
+
+      <div class="iom-meta" style="margin-bottom:4px;">Buyer WBS:
+        <strong id="iomBuyerWbs">—</strong>
+      </div>
+
+      <div class="iom-meta" style="margin-bottom:4px;">Seller WBS:
+        <strong id="iomSellerWbs">—</strong>
+      </div>
+
+      <div class="iom-meta" style="margin-bottom:4px;">Site:
+        <strong id="iomSite">—</strong>
+      </div>
+
+      <div class="iom-meta" style="margin-bottom:4px;">Function:
+        <strong id="iomFunction">—</strong>
       </div>
     </div>
+
+    <!-- Right side: Stats -->
+    <div class="iom-right" style="flex:1 1 40%; min-width:260px; border-left:1px solid var(--border-color,#ddd);
+                                   padding-left:15px; display:flex; flex-direction:column; gap:6px;">
+      <div class="stat">Month FTE: <strong id="iomMonthFte">0.00</strong></div>
+      <div class="stat">Month Hrs: <strong id="iomMonthHrs">0.00</strong></div>
+      <div class="stat">Remaining FTE: <strong id="iomRemFte">0.00</strong></div>
+      <div class="stat">Remaining Hrs: <strong id="iomRemHrs">0.00</strong></div>
+      <div class="badge-remaining" id="remainingBadge" style="font-weight:600; margin-top:6px;">
+        Remaining: 0.00h
+      </div>
+    </div>
+  </div>
+</div>
+
 
     <!-- Allocations -->
     <div class="alloc-section">
@@ -182,22 +209,23 @@
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
-/* Monthly Allocations - Complete client-side JS */
+/* Monthly Allocations — complete, hardened client-side JS
+   Replace existing script block with this one.
+   Ensure the template defines the URL constants used below (or replace them with literal URLs).
+*/
 
-(function() {
-  // URLs (adjust names if your urls.py uses different names)
+(function () {
+  // ----- Configure these URL tokens to match your Django url names in the template -----
   const GET_SUBPROJECTS_URL = '{% url "projects:api_subprojects" %}';
   const GET_IOMS_URL = '{% url "projects:get_applicable_ioms" %}';
   const GET_IOM_DETAILS_URL = '{% url "projects:get_iom_details" %}';
   const GET_SAVED_ALLOC_URL = '{% url "projects:get_allocations_for_iom" %}';
   const SAVE_ALLOC_URL = '{% url "projects:save_monthly_allocations" %}';
   const EXPORT_URL = '{% url "projects:export_allocations" %}';
+  // LDAP search url if you have one (optional)
   const LDAP_ENDPOINT = '{% url "projects:allocations_ldap_search" %}';
 
-  // Defaults
-  const DEFAULT_BILLING_HOURS = parseFloat("{{ hours_available|default:183.75 }}") || 183.75;
-
-  // DOM elements
+  // ----- DOM references -----
   const projectSelect = document.getElementById('projectSelect');
   const subprojectSelect = document.getElementById('subprojectSelect');
   const yearInput = document.getElementById('yearInput');
@@ -209,7 +237,7 @@
 
   const iomDetailWrap = document.getElementById('iomDetailWrap');
   const iomTitle = document.getElementById('iomTitle');
-  const iomSubprojectName = document.getElementById('iomSubprojectName');
+  const iomProjectName = document.getElementById('iomProjectName');
   const iomDept = document.getElementById('iomDept');
   const iomWbs = document.getElementById('iomWbs');
   const iomSite = document.getElementById('iomSite');
@@ -228,373 +256,148 @@
 
   const toast = document.getElementById('toast');
 
-  // state
-  let CURRENT_IOM = null; // canonical object returned by server for get_iom_details
-  let BILLING_HOURS = DEFAULT_BILLING_HOURS;
+  // ----- State -----
+  let CURRENT_IOM = null; // server canonical object from get_iom_details
+  let BILLING_HOURS = parseFloat("{{ hours_available|default:'183.75' }}") || 183.75;
+  const DEFAULT_BILLING_HOURS = BILLING_HOURS;
 
-  // CSRF token helper
+  // ----- Utilities -----
   function getCsrfToken() {
     const el = document.querySelector('[name="csrfmiddlewaretoken"]');
     return el ? el.value : '';
   }
-
-  function showToast(msg, timeout=3000) {
+  function showToast(msg, timeout = 2500) {
+    if (!toast) return console.log('toast:', msg);
     toast.textContent = msg;
     toast.style.display = 'block';
     setTimeout(() => { toast.style.display = 'none'; }, timeout);
   }
-
   function escapeHtml(s) {
     if (s === undefined || s === null) return '';
     return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
+  function safeText(node, text) { if (!node) return; node.textContent = (text !== undefined && text !== null) ? String(text) : '—'; }
 
-  // --- SUBPROJECTS ---
-
-  async function loadSubprojects(project_id, preserveValue) {
-    if (!project_id) {
-      subprojectSelect.innerHTML = '<option value="">-- Select Project --</option>';
-      return;
-    }
-    try {
-      // Prefer bg_code from selected option
-      const selectedOpt = projectSelect.selectedOptions && projectSelect.selectedOptions[0];
-      const bgCode = selectedOpt ? (selectedOpt.dataset.bg || '').trim() : '';
-      const params = new URLSearchParams();
-      if (bgCode) params.set('bg_code', bgCode);
-      else params.set('project_id', project_id);
-
-      const res = await fetch(GET_SUBPROJECTS_URL + '?' + params.toString(), { credentials: 'same-origin' });
-      const data = await res.json();
-      subprojectSelect.innerHTML = '<option value="">-- Select Project --</option>';
-      if (data && data.subprojects && data.subprojects.length) {
-        data.subprojects.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = s.id;
-          opt.text = (s.name || '') + (s.mdm_code ? (' · ' + s.mdm_code) : '');
-          subprojectSelect.appendChild(opt);
-        });
-        if (preserveValue) {
-          try { subprojectSelect.value = preserveValue; } catch(e){}
-        }
-      } else {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.text = '-- No subprojects found --';
-        subprojectSelect.appendChild(opt);
-      }
-    } catch (err) {
-      console.error('loadSubprojects', err);
-      showToast('Failed to load subprojects');
-    }
-  }
-
-  // load on project change
-  projectSelect.addEventListener('change', () => {
-    const pid = projectSelect.value;
-    // user intentionally changed project: do not preserve previous subproject
-    loadSubprojects(pid, '');
-    // clear current IOM & allocations, since project changed
-    CURRENT_IOM = null;
-    iomDetailWrap.style.display = 'none';
-    clearAllocRows();
-    iomsDropdown.innerHTML = '<option value="">-- Load IOMs then select --</option>';
-  });
-
-  // initial load of subprojects for pre-selected project
-  if (projectSelect.value) {
-    loadSubprojects(projectSelect.value, subprojectSelect.value || '');
-  }
-
-  // --- IOMs loading ---
-
-  async function loadIoms() {
-    const project_id = projectSelect.value;
-    if (!project_id) { showToast('Select a project first'); return; }
-    const year = yearInput.value || (new Date()).getFullYear();
-    const month = monthSelect.value;
-    const search = (searchIom.value || '').trim();
-    const subproject_id = subprojectSelect.value || '';
-
-    // preserve subproject selection across load
-    const preserve = subprojectSelect.value || '';
-
-    const params = new URLSearchParams({ project_id, year, month });
-    if (search) params.set('search', search);
-    if (subproject_id) params.set('subproject_id', subproject_id);
-
-    try {
-      const url = GET_IOMS_URL + '?' + params.toString();
-      const res = await fetch(url, { credentials: 'same-origin' });
-      const data = await res.json();
-      if (!data.ok) { showToast('Failed to load IOMs'); console.warn(data); return; }
-      iomsDropdown.innerHTML = '<option value="">-- Choose IOM --</option>';
-      (data.ioms || []).forEach(iom => {
-        const opt = document.createElement('option');
-        opt.value = JSON.stringify(iom);
-        opt.text = `${iom.iom_id} · Dept:${iom.department || '-'} · Hrs:${(parseFloat(iom.month_hours||0)).toFixed(2)}`;
-        iomsDropdown.appendChild(opt);
-      });
-
-      // re-load subprojects and preserve selection
-      await loadSubprojects(project_id, preserve);
-      showToast('IOMs loaded', 1200);
-    } catch (err) {
-      console.error('loadIoms', err);
-      showToast('Error loading IOMs');
-    }
-  }
-
-  loadIomsBtn.addEventListener('click', loadIoms);
-
-  // when user selects an IOM from dropdown, fetch canonical details
-  iomsDropdown.addEventListener('change', function() {
-    if (!this.value) { CURRENT_IOM = null; iomDetailWrap.style.display = 'none'; clearAllocRows(); return; }
-    const obj = JSON.parse(this.value);
-    fetchIomDetails(obj.iom_id);
-  });
-
-  // Add Selected IOM -> show details and load saved allocations
-  addIomBtn.addEventListener('click', function() {
-    if (!iomsDropdown.value) { showToast('Choose an IOM to add'); return; }
-    const obj = JSON.parse(iomsDropdown.value);
-    fetchIomDetails(obj.iom_id);
-  });
-
-  // --- fetch IOM details (server authoritative) ---
-  async function fetchIomDetails(iom_row_id) {
-    const project_id = projectSelect.value;
-    const year = yearInput.value || (new Date()).getFullYear();
-    const month = monthSelect.value;
-    if (!project_id || !iom_row_id) return;
-    try {
-      const params = new URLSearchParams({ project_id, iom_row_id, year, month });
-      const res = await fetch(GET_IOM_DETAILS_URL + '?' + params.toString(), { credentials: 'same-origin' });
-      const data = await res.json();
-      if (!data.ok) { showToast('Could not fetch IOM details'); console.warn(data); return; }
-      CURRENT_IOM = data.iom || null;
-      // billing hours for FTE calculation - use month_limit if provided, else default
-      BILLING_HOURS = parseFloat(CURRENT_IOM.month_limit || "{{ hours_available|default:'183.75' }}") || DEFAULT_BILLING_HOURS;
-      // show IOM
-      showIomPreview(CURRENT_IOM);
-      // load saved allocations for this IOM; server will return canonical month_start/billing_start
-      await loadSavedAllocations(project_id, CURRENT_IOM.iom_id, CURRENT_IOM.billing_start || null);
-    } catch (err) {
-      console.error('fetchIomDetails', err);
-      showToast('Error fetching IOM details');
-    }
-  }
-
-  function showIomPreview(iom) {
-    if (!iom) { iomDetailWrap.style.display = 'none'; return; }
-    iomDetailWrap.style.display = 'block';
-    iomTitle.textContent = 'IOM: ' + (iom.iom_id || '');
-    iomSubprojectName.textContent = (subprojectSelect.selectedOptions[0] && subprojectSelect.selectedOptions[0].text) ? subprojectSelect.selectedOptions[0].text : '';
-    iomDept.textContent = 'Department: ' + (iom.department || '-');
-    iomWbs.textContent = 'WBS: ' + (iom.buyer_wbs_cc || '-') + ' / ' + (iom.seller_wbs_cc || '-');
-    iomSite.textContent = 'Site: ' + (iom.site || '-');
-    iomFunction.textContent = 'Function: ' + (iom.function || '-');
-
-    iomMonthFte.textContent = Number(iom.month_fte || 0).toFixed(2);
-    iomMonthHrs.textContent = Number(iom.month_hours || 0).toFixed(2);
-    iomRemFte.textContent = Number(iom.remaining_fte || 0).toFixed(2);
-    iomRemHrs.textContent = Number(iom.remaining_hours || 0).toFixed(2);
-    remainingBadge.textContent = 'Remaining: ' + (Number(iom.remaining_hours || 0)).toFixed(2) + 'h';
-  }
-
-  // --- ALLOCATIONS table helpers ---
-
+  // ----- Clear / helpers for allocation rows -----
   function clearAllocRows() {
+    if (!allocBody) return;
     allocBody.innerHTML = '<tr class="empty-state"><td colspan="4" class="small-muted">No resources added yet. Add Selected IOM or use Add Resource.</td></tr>';
-    saveBtn.disabled = true;
-    saveBtn.setAttribute('aria-disabled', 'true');
-    saveHint.textContent = '';
   }
 
-  function createAllocRow(user_ldap='', total_hours='') {
-    const tr = document.createElement('tr');
-
-    // resource cell with LDAP input
-    const tdUser = document.createElement('td');
-    const inpUser = document.createElement('input');
-    inpUser.type = 'text';
-    inpUser.className = 'form-control user-ldap';
-    inpUser.placeholder = 'type 3+ chars to search';
-    inpUser.value = user_ldap || '';
-    tdUser.appendChild(inpUser);
-    tr.appendChild(tdUser);
-
-    // total hours
-    const tdHours = document.createElement('td');
-    const inpHours = document.createElement('input');
-    inpHours.type = 'number';
-    inpHours.className = 'form-control hours-input';
-    inpHours.step = '0.25';
-    inpHours.min = '0';
-    inpHours.value = (total_hours !== undefined && total_hours !== null) ? Number(total_hours).toFixed(2) : '';
-    tdHours.appendChild(inpHours);
-    tr.appendChild(tdHours);
-
-    // FTE read-only
-    const tdFte = document.createElement('td');
-    const inpFte = document.createElement('input');
-    inpFte.type = 'text';
-    inpFte.className = 'form-control fte-display readonly';
-    inpFte.readOnly = true;
-    inpFte.value = computeFteForValue(inpHours.value || 0);
-    tdFte.appendChild(inpFte);
-    tr.appendChild(tdFte);
-
-    // actions
-    const tdActions = document.createElement('td');
-    const rmBtn = document.createElement('button');
-    rmBtn.type = 'button';
-    rmBtn.className = 'btn btn-link text-danger remove-row';
-    rmBtn.textContent = 'Remove';
-    tdActions.appendChild(rmBtn);
-    tr.appendChild(tdActions);
-
-    // events
-    rmBtn.addEventListener('click', () => { tr.remove(); if (!allocBody.querySelector('tr')) clearAllocRows(); validateAll(); });
-    inpHours.addEventListener('input', () => {
-      inpFte.value = computeFteForValue(inpHours.value || 0);
-      validateAll();
-    });
-
-    // LDAP autocomplete (simple): call LDAP_ENDPOINT?q=...
-    let ldapTimer = null;
-    let suggestionBox = null;
-    inpUser.addEventListener('input', (ev) => {
-      const q = inpUser.value.trim();
-      if (ldapTimer) clearTimeout(ldapTimer);
-      if (!q || q.length < 3) {
-        if (suggestionBox) suggestionBox.remove();
-        return;
-      }
-      ldapTimer = setTimeout(async () => {
-        try {
-          // create suggestion box if not exists
-          if (!suggestionBox) {
-            suggestionBox = document.createElement('div');
-            suggestionBox.style.position = 'absolute';
-            suggestionBox.style.background = '#fff';
-            suggestionBox.style.border = '1px solid #eef2f7';
-            suggestionBox.style.zIndex = 1200;
-            suggestionBox.style.maxHeight = '220px';
-            suggestionBox.style.overflow = 'auto';
-            suggestionBox.style.width = inpUser.offsetWidth + 'px';
-            suggestionBox.style.borderRadius = '6px';
-            suggestionBox.style.boxShadow = '0 8px 24px rgba(2,6,23,0.08)';
-            inpUser.parentElement.style.position = 'relative';
-            inpUser.parentElement.appendChild(suggestionBox);
-          }
-          suggestionBox.innerHTML = '<div style="padding:8px;color:#6b7280;">Searching...</div>';
-          const u = new URL(LDAP_ENDPOINT, window.location.origin);
-          u.searchParams.set('q', q);
-          const r = await fetch(u.toString(), { credentials: 'same-origin' });
-          const d = await r.json();
-          suggestionBox.innerHTML = '';
-          if (!d || !Array.isArray(d.results) || d.results.length === 0) {
-            suggestionBox.innerHTML = '<div style="padding:8px;color:#6b7280;">No results</div>';
-            return;
-          }
-          d.results.slice(0, 25).forEach(uinfo => {
-            const a = document.createElement('div');
-            a.style.padding = '8px 10px';
-            a.style.borderBottom = '1px solid #f1f5f9';
-            a.style.cursor = 'pointer';
-            a.textContent = (uinfo.cn || uinfo.displayName || uinfo.sAMAccountName || '') + (uinfo.mail ? ' <' + uinfo.mail + '>' : '');
-            a.addEventListener('click', (ev) => {
-              inpUser.value = uinfo.mail || uinfo.sAMAccountName || uinfo.cn || '';
-              if (suggestionBox) suggestionBox.remove();
-              suggestionBox = null;
-              validateAll();
-            });
-            suggestionBox.appendChild(a);
-          });
-        } catch (err) {
-          console.error('ldap search', err);
-          if (suggestionBox) suggestionBox.innerHTML = '<div style="padding:8px;color:#6b7280;">Error</div>';
-        }
-      }, 200);
-    });
-
-    // remove suggestion box when clicking outside
-    document.addEventListener('click', (ev) => {
-      if (suggestionBox && !inpUser.parentElement.contains(ev.target)) {
-        suggestionBox.remove();
-        suggestionBox = null;
-      }
-    });
-
-    return tr;
+  function computeFteForValue(hours) {
+    const bh = parseFloat(BILLING_HOURS) || DEFAULT_BILLING_HOURS;
+    if (!bh || bh <= 0) return 0.0;
+    return parseFloat(hours) / bh;
   }
 
-  addResourceBtn.addEventListener('click', () => {
-    // if empty-state row present, remove it
-    const empty = allocBody.querySelector('.empty-state');
-    if (empty) empty.remove();
-    allocBody.appendChild(createAllocRow('', ''));
+  // Replace your existing createAllocRow() with this entire function
+function createAllocRow(user_ldap = '', hours = 0) {
+  const tr = document.createElement('tr');
+  tr.className = 'alloc-row';
+
+  // Build HTML structure
+  tr.innerHTML = `
+    <td>
+      <div class="input-group">
+        <input type="text" class="user-ldap form-control"
+               placeholder="Type 3+ chars to search"
+               list="ldap-${Date.now()}-${Math.floor(Math.random()*1000)}"
+               value="${escapeHtml(user_ldap)}" />
+        <datalist id=""></datalist>
+      </div>
+    </td>
+    <td style="width:160px;">
+      <input type="number" step="0.25" min="0"
+             class="hours-input form-control"
+             value="${Number(hours || 0).toFixed(2)}" />
+    </td>
+    <td style="width:160px;">
+      <input type="text" class="fte-display form-control" readonly />
+    </td>
+    <td style="width:110px;">
+      <button type="button" class="remove-row btn btn-outline-danger btn-sm">Remove</button>
+    </td>
+  `;
+
+  const userInput = tr.querySelector('.user-ldap');
+  const dataList = tr.querySelector('datalist');
+  const hoursInput = tr.querySelector('.hours-input');
+  const fteDisplay = tr.querySelector('.fte-display');
+  const removeBtn = tr.querySelector('.remove-row');
+
+  // Link datalist id correctly (random to avoid duplicates)
+  const dlId = `ldap-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+  dataList.id = dlId;
+  userInput.setAttribute('list', dlId);
+
+  // Initial FTE display
+  fteDisplay.value = computeFteForValue(hours).toFixed(4);
+
+  // Hours → recompute FTE
+  hoursInput.addEventListener('input', () => {
+    const hrs = parseFloat(hoursInput.value || 0) || 0;
+    fteDisplay.value = computeFteForValue(hrs).toFixed(4);
     validateAll();
   });
 
-  // compute FTE = hours / BILLING_HOURS
-  function computeFteForValue(hoursVal) {
-    const h = parseFloat(hoursVal) || 0;
-    const b = parseFloat(BILLING_HOURS || DEFAULT_BILLING_HOURS) || DEFAULT_BILLING_HOURS;
-    const f = b > 0 ? (h / b) : 0;
-    // round to 4 decimals
-    const r = Math.round(f * 10000) / 10000;
-    return r.toFixed(4);
-  }
+  // Remove row
+  removeBtn.addEventListener('click', () => {
+    tr.remove();
+    if (!allocBody.querySelectorAll('tr.alloc-row').length) clearAllocRows();
+    validateAll();
+  });
 
-  // load saved allocations for iom
-  async function loadSavedAllocations(project_id, iom_id, month_start) {
-    clearAllocRows();
-    if (!project_id || !iom_id) return;
-    try {
-      const params = new URLSearchParams({ project_id, iom_row_id: iom_id });
-      if (month_start) params.set('month_start', month_start);
-      const res = await fetch(GET_SAVED_ALLOC_URL + '?' + params.toString(), { credentials: 'same-origin' });
-      const data = await res.json();
-      if (!data.ok) { console.warn('get_allocations_for_iom', data); return; }
-      const saved = data.saved_items || [];
-      if (!saved.length) {
-        clearAllocRows();
-        return;
-      }
-      // clear and add rows
-      allocBody.innerHTML = '';
-      saved.forEach(item => {
-        const row = createAllocRow(item.user_ldap || '', item.total_hours || 0);
-        const fteInput = row.querySelector('.fte-display');
-        if (item.fte !== undefined && item.fte !== null) {
-          fteInput.value = parseFloat(item.fte).toFixed(4);
-        } else {
-          fteInput.value = computeFteForValue(item.total_hours || 0);
+  // --- LDAP Autocomplete (local) ---
+  if (typeof LDAP_ENDPOINT === 'string' && LDAP_ENDPOINT) {
+    let timer = null;
+    userInput.addEventListener('input', (ev) => {
+      const q = ev.target.value.trim();
+      if (q.length < 3) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          const res = await fetch(LDAP_ENDPOINT + '?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+          const data = await res.json();
+          if (!data || !data.results || !Array.isArray(data.results)) return;
+          // Clear old options
+          dataList.innerHTML = '';
+          data.results.forEach(item => {
+            // Support dict or string
+            const mail = item.mail || item.email || '';
+            const cn = item.cn || item.name || '';
+            const title = item.title || '';
+            const text = mail || cn;
+            const label = cn
+              ? `${cn}${mail ? ' - ' + mail : ''}${title ? ' (' + title + ')' : ''}`
+              : mail;
+            const opt = document.createElement('option');
+            opt.value = text;
+            opt.label = label;
+            dataList.appendChild(opt);
+          });
+        } catch (err) {
+          console.warn('LDAP fetch failed', err);
         }
-        allocBody.appendChild(row);
-      });
-      validateAll();
-    } catch (err) {
-      console.error('loadSavedAllocations', err);
-      showToast('Failed to load saved allocations');
-    }
+      }, 400);
+    });
   }
 
-  // validate totals: compare sum of hours to CURRENT_IOM.month_hours
-  function validateAll() {
-    const rows = Array.from(allocBody.querySelectorAll('tr')).filter(r => !r.classList.contains('empty-state'));
-    let sum = 0;
-    rows.forEach(r => {
-      const v = parseFloat((r.querySelector('.hours-input') || {}).value || 0) || 0;
-      sum += v;
-      r.classList.remove('row-over');
-    });
+  return tr;
+}
 
-    // default: valid
+
+  // ----- Validation -----
+  function validateAll() {
+    if (!allocBody) return false;
+    const rows = Array.from(allocBody.querySelectorAll('tr.alloc-row'));
+    let sum = 0;
     let valid = true;
     let hint = '';
+
+    rows.forEach(r => {
+      const hours = parseFloat((r.querySelector('.hours-input') || {}).value || 0) || 0;
+      sum += hours;
+    });
 
     let iomTotal = 0;
     if (CURRENT_IOM && (CURRENT_IOM.month_hours !== undefined)) {
@@ -602,52 +405,215 @@
     }
 
     if (iomTotal > 0 && sum > iomTotal + 0.0001) {
-      // exceed
-      rows.forEach(r => r.classList.add('row-over'));
       valid = false;
       hint = `Total allocated ${sum.toFixed(2)}h exceeds IOM total ${iomTotal.toFixed(2)}h`;
+      rows.forEach(r => r.classList.add('row-over'));
+    } else {
+      rows.forEach(r => r.classList.remove('row-over'));
     }
 
-    // per-row checks: ensure username present and hours > 0 (optional)
-    rows.forEach(r => {
-      const u = (r.querySelector('.user-ldap') || {}).value || '';
-      const h = parseFloat((r.querySelector('.hours-input') || {}).value || 0) || 0;
-      if (!u || !(h > 0)) {
+    // per-row validations: user present and hours > 0
+    for (const r of rows) {
+      const user = (r.querySelector('.user-ldap') || {}).value || '';
+      const hours = parseFloat((r.querySelector('.hours-input') || {}).value || 0) || 0;
+      if (!user || !(hours > 0)) {
         valid = false;
         hint = hint || 'Each row must have a resource and hours > 0';
       }
-    });
+    }
 
     saveBtn.disabled = !valid;
     saveBtn.setAttribute('aria-disabled', (!valid).toString());
-    saveHint.textContent = hint;
+    if (saveHint) saveHint.textContent = hint;
     return valid;
   }
 
-  // save allocations to server
-  async function saveAllocations() {
-    if (!CURRENT_IOM) { showToast('Select IOM first'); return; }
-    if (!validateAll()) { alert('Fix validation errors before saving'); return; }
-
-    const project_id = projectSelect.value;
-    const subproject_id = subprojectSelect.value || null;
-    const month_start = (CURRENT_IOM && CURRENT_IOM.billing_start) ? CURRENT_IOM.billing_start : null;
-
-    const items = [];
-    const rows = Array.from(allocBody.querySelectorAll('tr')).filter(r => !r.classList.contains('empty-state'));
-    rows.forEach(r => {
-      const user = (r.querySelector('.user-ldap') || {}).value || '';
-      const hrs = parseFloat((r.querySelector('.hours-input') || {}).value || 0) || 0;
-      if (user && hrs > 0) {
-        items.push({ iom_id: CURRENT_IOM.iom_id, user_ldap: user, total_hours: hrs });
-      }
-    });
-
-    if (!items.length) { showToast('Add at least one resource'); return; }
-
-    const payload = { project_id: project_id, subproject_id: subproject_id, month_start: month_start, items: items };
-
+  // ----- Load Subprojects -----
+  async function loadSubprojects(project_id, preserveValue) {
     try {
+      subprojectSelect.innerHTML = '<option value="">Loading...</option>';
+      if (!project_id) {
+        subprojectSelect.innerHTML = '<option value="">-- Select Project --</option>';
+        return;
+      }
+      const params = new URLSearchParams({ project_id });
+      const res = await fetch(GET_SUBPROJECTS_URL + '?' + params.toString(), { credentials: 'same-origin' });
+      const data = await res.json();
+      subprojectSelect.innerHTML = '<option value="">-- Select Project --</option>';
+      if (data && Array.isArray(data.subprojects) && data.subprojects.length) {
+        for (const s of data.subprojects) {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = (s.name || '') + (s.mdm_code ? (' · ' + s.mdm_code) : '');
+          subprojectSelect.appendChild(opt);
+        }
+        if (preserveValue) subprojectSelect.value = preserveValue;
+      } else {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '-- No subprojects found --';
+        subprojectSelect.appendChild(opt);
+      }
+    } catch (err) {
+      console.error('loadSubprojects', err);
+      subprojectSelect.innerHTML = '<option value="">-- Error loading --</option>';
+      showToast('Failed to load subprojects');
+    }
+  }
+
+  // ----- Load IOMs -----
+  async function loadIoms() {
+    try {
+      const project_id = projectSelect.value;
+      if (!project_id) { showToast('Select a project first'); return; }
+      const year = yearInput.value || new Date().getFullYear();
+      const month = monthSelect.value || (new Date()).getMonth() + 1;
+      const search = (searchIom && searchIom.value) ? searchIom.value.trim() : '';
+      const subproject_id = subprojectSelect.value || '';
+
+      const params = new URLSearchParams({ project_id, year, month });
+      if (search) params.set('search', search);
+      if (subproject_id) params.set('subproject_id', subproject_id);
+
+      iomsDropdown.innerHTML = '<option value="">Loading IOMs...</option>';
+      const res = await fetch(GET_IOMS_URL + '?' + params.toString(), { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!data || !data.ok) {
+        iomsDropdown.innerHTML = '<option value="">-- Failed to load --</option>';
+        showToast('Failed to load IOMs');
+        return;
+      }
+      iomsDropdown.innerHTML = '<option value="">-- Choose IOM --</option>';
+      (data.ioms || []).forEach(iom => {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify(iom);
+        opt.textContent = `${iom.iom_id} · Dept:${iom.department || '-'} · Hrs:${(parseFloat(iom.month_hours||0)).toFixed(2)}`;
+        iomsDropdown.appendChild(opt);
+      });
+
+      // reload subprojects for the chosen project and preserve selection
+      await loadSubprojects(project_id, subprojectSelect.value || '');
+      showToast('IOMs loaded', 1200);
+    } catch (err) {
+      console.error('loadIoms', err);
+      iomsDropdown.innerHTML = '<option value="">-- Error loading --</option>';
+      showToast('Error loading IOMs');
+    }
+  }
+
+  // ----- Fetch canonical IOM details (server authoritative) -----
+  async function fetchIomDetails(iom_row_id) {
+    try {
+      const project_id = projectSelect.value;
+      if (!project_id || !iom_row_id) { showToast('Select project and IOM'); return; }
+      const year = yearInput.value || (new Date()).getFullYear();
+      const month = monthSelect.value || (new Date()).getMonth() + 1;
+      const subproject_id = subprojectSelect.value || '';
+
+      const params = new URLSearchParams({ project_id, iom_row_id, year, month });
+      if (subproject_id) params.set('subproject_id', subproject_id);
+
+      const res = await fetch(GET_IOM_DETAILS_URL + '?' + params.toString(), { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!data || !data.ok || !data.iom) {
+        showToast('Could not fetch IOM details');
+        console.warn('get_iom_details', data);
+        return;
+      }
+
+      CURRENT_IOM = data.iom;
+      BILLING_HOURS = parseFloat(CURRENT_IOM.month_limit || DEFAULT_BILLING_HOURS) || DEFAULT_BILLING_HOURS;
+
+      // populate header UI - preserve consistent fallback '—'
+      iomDetailWrap.style.display = 'block';
+      safeText(iomTitle, CURRENT_IOM.iom_id || '—');
+      // project name displayed from selected project option text if available
+      safeText(iomProjectName, projectSelect.selectedOptions?.[0]?.text || '—');
+      safeText(iomProjectName, projectSelect.selectedOptions?.[0]?.text || '—');
+        safeText(iomDept, CURRENT_IOM.department || '—');
+        safeText(iomBuyerWbs, CURRENT_IOM.buyer_wbs_cc || '—');
+        safeText(iomSellerWbs, CURRENT_IOM.seller_wbs_cc || '—');
+        safeText(iomSite, CURRENT_IOM.site || '—');
+        safeText(iomFunction, CURRENT_IOM.function || '—');
+
+
+      safeText(iomMonthFte, (CURRENT_IOM.month_fte || 0).toFixed ? (CURRENT_IOM.month_fte || 0).toFixed(2) : String(CURRENT_IOM.month_fte || 0));
+      safeText(iomMonthHrs, (CURRENT_IOM.month_hours || 0).toFixed(2));
+      safeText(iomRemFte, (CURRENT_IOM.remaining_fte || 0).toFixed(2));
+      safeText(iomRemHrs, (CURRENT_IOM.remaining_hours || 0).toFixed(2));
+      safeText(remainingBadge, `Remaining: ${(CURRENT_IOM.remaining_hours || 0).toFixed(2)}h`);
+
+      // load saved allocations for this IOM (include subproject)
+      await loadSavedAllocations(CURRENT_IOM.iom_id);
+    } catch (err) {
+      console.error('fetchIomDetails', err);
+      showToast('Failed to fetch IOM details');
+    }
+  }
+
+  // ----- Load saved allocations for an IOM (respects subproject_id) -----
+  async function loadSavedAllocations(iom_id) {
+    try {
+      if (!iom_id) return;
+      const project_id = projectSelect.value;
+      const month_start = (CURRENT_IOM && CURRENT_IOM.billing_start) ? CURRENT_IOM.billing_start : '';
+      const subproject_id = subprojectSelect.value || '';
+
+      const params = new URLSearchParams({ project_id, iom_row_id: iom_id, month_start });
+      if (subproject_id) params.set('subproject_id', subproject_id);
+
+      const res = await fetch(GET_SAVED_ALLOC_URL + '?' + params.toString(), { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!data || !data.ok) {
+        showToast('Failed to load saved allocations');
+        console.warn('get_allocations_for_iom', data);
+        return;
+      }
+
+      // populate allocation table
+      allocBody.innerHTML = '';
+      if (data.saved_items && Array.isArray(data.saved_items) && data.saved_items.length) {
+        for (const it of data.saved_items) {
+          const row = createAllocRow(it.user_ldap || '', it.total_hours || 0);
+          // set fte if server provided
+          const fteInput = row.querySelector('.fte-display');
+          if (fteInput && (it.fte !== undefined && it.fte !== null)) {
+            fteInput.value = parseFloat(it.fte).toFixed(4);
+          }
+          allocBody.appendChild(row);
+        }
+      } else {
+        clearAllocRows();
+      }
+      validateAll();
+    } catch (err) {
+      console.error('loadSavedAllocations', err);
+      showToast('Failed to load saved allocations');
+    }
+  }
+
+  // ----- Save allocations -----
+  async function saveAllocations() {
+    try {
+      if (!CURRENT_IOM) { showToast('Select IOM first'); return; }
+      if (!validateAll()) { alert('Fix validation errors before saving'); return; }
+
+      const project_id = projectSelect.value;
+      const subproject_id = subprojectSelect.value || null;
+      const month_start = (CURRENT_IOM && CURRENT_IOM.billing_start) ? CURRENT_IOM.billing_start : null;
+
+      const rows = Array.from(allocBody.querySelectorAll('tr.alloc-row'));
+      const items = [];
+      for (const r of rows) {
+        const user = (r.querySelector('.user-ldap') || {}).value || '';
+        const hrs = parseFloat((r.querySelector('.hours-input') || {}).value || 0) || 0;
+        if (user && hrs > 0) {
+          items.push({ iom_id: CURRENT_IOM.iom_id, user_ldap: user, total_hours: hrs });
+        }
+      }
+      if (!items.length) { showToast('Add at least one resource'); return; }
+
+      const payload = { project_id, subproject_id, month_start, items };
       const res = await fetch(SAVE_ALLOC_URL, {
         method: 'POST',
         credentials: 'same-origin',
@@ -658,64 +624,135 @@
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (!data.ok) {
+      if (!data || !data.ok) {
         console.warn('save_monthly_allocations', data);
         alert('Save failed: ' + (data.error || 'server error'));
         return;
       }
-      // update UI with saved items (server returns saved_items list with fte)
+
+      // If server returns saved items, refresh table from it; otherwise reload from server
       if (data.saved_items && Array.isArray(data.saved_items)) {
         allocBody.innerHTML = '';
-        data.saved_items.forEach(it => {
+        for (const it of data.saved_items) {
           const row = createAllocRow(it.user_ldap || '', it.total_hours || 0);
           const fteInput = row.querySelector('.fte-display');
-          if (it.fte !== undefined && it.fte !== null) {
-            fteInput.value = parseFloat(it.fte).toFixed(4);
-          } else {
-            fteInput.value = computeFteForValue(it.total_hours || 0);
-          }
+          if (fteInput && (it.fte !== undefined && it.fte !== null)) fteInput.value = parseFloat(it.fte).toFixed(4);
           allocBody.appendChild(row);
-        });
+        }
+      } else {
+        await loadSavedAllocations(CURRENT_IOM.iom_id);
       }
-      showToast('Allocations saved', 1800);
+
+      showToast('Allocations saved', 1400);
       validateAll();
-      // refresh iom details
-      if (CURRENT_IOM && CURRENT_IOM.iom_id) {
-        fetchIomDetails(CURRENT_IOM.iom_id);
-      }
+
+      // refresh header (remaining hours/fte) by refetching iom details
+      await fetchIomDetails(CURRENT_IOM.iom_id);
     } catch (err) {
       console.error('saveAllocations', err);
       alert('Save failed (see console)');
     }
   }
 
-  saveBtn.addEventListener('click', saveAllocations);
-
-  // export
-  exportBtn.addEventListener('click', () => {
+  // ----- Export allocations -----
+  function exportAllocations() {
     if (!CURRENT_IOM) { showToast('Select IOM first'); return; }
     const params = new URLSearchParams({
       project_id: projectSelect.value,
       iom_id: CURRENT_IOM.iom_id,
       month_start: (CURRENT_IOM.billing_start || '')
     });
+    if (subprojectSelect.value) params.set('subproject_id', subprojectSelect.value);
+    // open export in new tab to trigger file download
     window.open(EXPORT_URL + '?' + params.toString(), '_blank');
-  });
+  }
 
-  // initial state
-  clearAllocRows();
+  // ----- Event bindings -----
+  // Load subprojects on project change
+  if (projectSelect) {
+    projectSelect.addEventListener('change', async () => {
+      const pid = projectSelect.value;
+      // clear current IOM selections/UI
+      CURRENT_IOM = null;
+      iomDetailWrap.style.display = 'none';
+      clearAllocRows();
+      iomsDropdown.innerHTML = '<option value="">-- Load IOMs then select --</option>';
+      await loadSubprojects(pid, '');
+    });
+  }
 
-  // recompute validation on month change (billing may change)
-  monthSelect.addEventListener('change', () => {
-    if (CURRENT_IOM && CURRENT_IOM.iom_id) {
-      // re-fetch to get canonical billing_limit for new month
-      fetchIomDetails(CURRENT_IOM.iom_id);
-    } else {
-      validateAll();
+  if (loadIomsBtn) loadIomsBtn.addEventListener('click', loadIoms);
+  if (iomsDropdown) {
+    iomsDropdown.addEventListener('change', function () {
+      if (!this.value) {
+        CURRENT_IOM = null;
+        iomDetailWrap.style.display = 'none';
+        clearAllocRows();
+        return;
+      }
+      try {
+        const obj = JSON.parse(this.value);
+        fetchIomDetails(obj.iom_id);
+      } catch (err) {
+        console.error('invalid iom dropdown value', err);
+      }
+    });
+  }
+  if (addIomBtn) addIomBtn.addEventListener('click', () => {
+    if (!iomsDropdown.value) { showToast('Choose an IOM to add'); return; }
+    try {
+      const obj = JSON.parse(iomsDropdown.value);
+      fetchIomDetails(obj.iom_id);
+    } catch (err) {
+      console.error('addIomBtn', err);
     }
   });
 
+  // Add Resource button — now works: appends an editable row and focuses user input
+  if (addResourceBtn) {
+    addResourceBtn.addEventListener('click', (e) => {
+      // if empty-state present, remove it
+      const empty = allocBody.querySelector('tr.empty-state');
+      if (empty) empty.remove();
+      const row = createAllocRow('', 0);
+      allocBody.appendChild(row);
+      const u = row.querySelector('.user-ldap');
+      if (u) {
+        u.focus();
+        u.select && u.select();
+      }
+      validateAll();
+    });
+  }
+
+  // Save / Export
+  if (saveBtn) saveBtn.addEventListener('click', saveAllocations);
+  if (exportBtn) exportBtn.addEventListener('click', exportAllocations);
+
+  // Recompute when month changed (billing may differ)
+  if (monthSelect) monthSelect.addEventListener('change', () => {
+    if (CURRENT_IOM && CURRENT_IOM.iom_id) fetchIomDetails(CURRENT_IOM.iom_id);
+    else validateAll();
+  });
+
+  // initial setup: clear rows and ensure save disabled until valid
+  clearAllocRows();
+  saveBtn.disabled = true;
+  saveBtn.setAttribute('aria-disabled', 'true');
+
+  // Load subprojects for pre-selected project on page load
+  (async function init() {
+    try {
+      if (projectSelect && projectSelect.value) {
+        await loadSubprojects(projectSelect.value, subprojectSelect.value || '');
+      }
+    } catch (err) {
+      console.error('init', err);
+    }
+  })();
+
 })();
 </script>
+
 
 {% endblock %}
