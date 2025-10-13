@@ -60,7 +60,7 @@
       <div class="control">
         <label for="projectSelect">Project</label>
         <select id="projectSelect" class="form-select">
-          <option value="">-- Select Project --</option>
+          <option value="">-- Select Program --</option>
           {% for p in projects %}
             {# include bg_code in data-bg if available in project dict #}
             <option value="{{ p.id }}" data-bg="{{ p.bg_code|default:''|escape }}">{{ p.name }}</option>
@@ -69,9 +69,9 @@
       </div>
 
       <div class="control">
-        <label for="subprojectSelect">Subproject</label>
+        <label for="subprojectSelect">Project</label>
         <select id="subprojectSelect" class="form-select">
-          <option value="">-- Select Subproject (optional) --</option>
+          <option value="">-- Select Project --</option>
         </select>
       </div>
 
@@ -126,7 +126,7 @@
       <div class="iom-card" role="region" aria-live="polite">
         <div class="iom-left">
           <div id="iomTitle" class="iom-title">IOM: —</div>
-          <div id="iomSubproject" class="iom-meta">Subproject: <strong id="iomSubprojectName">—</strong></div>
+          <div id="iomSubproject" class="iom-meta">Project: <strong id="iomSubprojectName">—</strong></div>
           <div id="iomDept" class="iom-meta">Department: —</div>
           <div id="iomWbs" class="iom-meta">WBS: —</div>
           <div id="iomSite" class="iom-meta">Site: —</div>
@@ -253,7 +253,7 @@
 
   async function loadSubprojects(project_id, preserveValue) {
     if (!project_id) {
-      subprojectSelect.innerHTML = '<option value="">-- Select Subproject (optional) --</option>';
+      subprojectSelect.innerHTML = '<option value="">-- Select Project --</option>';
       return;
     }
     try {
@@ -266,7 +266,7 @@
 
       const res = await fetch(GET_SUBPROJECTS_URL + '?' + params.toString(), { credentials: 'same-origin' });
       const data = await res.json();
-      subprojectSelect.innerHTML = '<option value="">-- Select Subproject (optional) --</option>';
+      subprojectSelect.innerHTML = '<option value="">-- Select Project --</option>';
       if (data && data.subprojects && data.subprojects.length) {
         data.subprojects.forEach(s => {
           const opt = document.createElement('option');
