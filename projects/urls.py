@@ -52,4 +52,7 @@ urlpatterns = [
     path('my-allocations/save-daily/', views.save_my_alloc_daily, name='save_my_alloc_daily'),
     path('my-allocations/export/excel/', views.export_my_punches_excel, name='export_my_punches_excel'),
     path('my-allocations/export/pdf/', views.export_my_punches_pdf, name='export_my_punches_pdf'),
+    path("team-allocations/save-distribution/", views.save_team_distribution_using_team_table, name="save_team_distribution"),
+    path("team-allocations/apply-distributions/", views.apply_team_distributions_view, name="apply_team_distributions"),
+
 ]

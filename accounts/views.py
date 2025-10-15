@@ -201,18 +201,11 @@ def login_view(request):
             # ===== IMPORTANT: save session BEFORE launching DB init or redirect =====
             try:
                 request.session.save()
+                initialize_database();  # ensure DB init is done at least once
                 print("[DEBUG] Session saved successfully after LDAP login. Session keys:", dict(request.session.items()))
             except Exception as e:
                 print(f"[DEBUG] Error saving session after LDAP login: {e}")
 
-            # ===== Start DB init AFTER session saved (or better: move it out of login entirely) =====
-            # If initialize_database modifies the same DB backing sessions, it can race with writes.
-            # Start it after session save (or remove it from the request path entirely).
-            try:
-                threading.Thread(target=initialize_database, daemon=True).start()
-                print("[DEBUG] Started DB initializer thread (after session save).")
-            except Exception as e:
-                print(f"[DEBUG] Could not start DB initializer thread: {e}")
 
             # Safe redirect: prefer validated next param, else dashboard home
             next_url = request.POST.get('next') or request.GET.get('next')

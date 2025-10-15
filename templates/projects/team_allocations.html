@@ -6,217 +6,313 @@
 <link rel="stylesheet" href="{% static 'projects/css/projects.css' %}">
 <link rel="stylesheet" href="{% static 'projects/css/team_allocations.css' %}">
 <style>
-.container { max-width:1200px; margin:18px auto; }
-.resource-block { background:#fff; border-radius:10px; padding:14px; margin-bottom:18px; box-shadow:0 6px 18px rgba(2,6,23,0.04); }
-.resource-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-.resource-title { font-weight:800; font-size:16px; color:#0b2447; }
+/* Compact layout to match the small screenshot */
+.container { max-width:1100px; margin:20px auto 60px; }
+.header-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 .small-muted { color:#6b7280; font-size:13px; }
-.team-table { width:100%; border-collapse:collapse; }
-.team-table th, .team-table td { padding:10px 12px; border-bottom:1px solid #eef2f7; text-align:left; vertical-align:middle; }
-.team-table thead th { background:#f8fafc; font-weight:700; color:#374151; }
-.week-input { width:100px; padding:6px 8px; border-radius:6px; border:1px solid #e6eaf0; }
-.actions { display:flex; gap:8px; align-items:center; }
-.btn { padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:700; }
-.btn-save { background:linear-gradient(90deg,#2563eb,#1e40af); color:#fff; border:none; }
-.btn-reset { background:#fff; border:1px solid rgba(10,30,80,0.08); color:#0b1320; }
+.table-summary { width:100%; border-collapse:collapse; margin-bottom:18px; background:#fff; border-radius:8px; overflow:hidden; box-shadow:0 6px 18px rgba(2,6,23,0.04); }
+.table-summary th, .table-summary td { padding:10px 12px; border-bottom:1px solid #eef2f7; text-align:left; }
+.table-summary thead th { background:#f8fafc; font-weight:700; }
 
-/* Add/Remove row buttons styling */
-.btn-add-resource { background:#0b5ed7; color:#fff; padding:8px 12px; border-radius:8px; border:none; font-weight:700; }
-.btn-remove-row { background:#ef4444; color:#fff; padding:6px 10px; border-radius:6px; border:none; font-weight:700; }
+/* Summary color classes (restored) */
+.light-green { background: #ecfdf5; }   /* very light green */
+.light-yellow { background: #fffbeb; }  /* very light yellow */
+.light-orange { background: #fff7ed; }  /* very light orange */
+.light-red { background: #fff1f2; }     /* very light red */
 
-/* small helper */
-.controls { display:flex; gap:12px; align-items:center; margin-bottom:12px; }
-.control-item { display:flex; gap:8px; align-items:center; }
+/* Compact resource allocation card */
+.alloc-card { background:#fff; border-radius:8px; padding:12px; margin-bottom:12px; box-shadow:0 6px 18px rgba(2,6,23,0.03); display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.alloc-left { flex:1; }
+.alloc-right { width:260px; display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
 
-.no-allocs { background: #fff5f5; border: 1px solid #fde3e3; border-radius: 10px; padding: 12px; margin-top: 20px; }
-.no-allocs table { width:100%; border-collapse:collapse; }
-.no-allocs th, .no-allocs td { padding:8px 10px; border-bottom:1px solid #f8dcdc; text-align:left; vertical-align:middle; }
-.no-allocs thead th { font-weight:700; color:#7f1d1d; background: transparent; }
-.muted { color:#6b7280; font-size:12px; }
+.alloc-title { font-weight:700; color:#0b2447; margin-bottom:6px; }
+.alloc-sub { font-size:13px; color:#475569; margin-bottom:8px; }
 
-/* ======= New FTE Summary Table ======= */
-.table-summary { width:100%; border-collapse:collapse; margin:18px 0; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.05); }
-.table-summary th, .table-summary td { padding:10px 14px; border-bottom:1px solid #e5e7eb; text-align:left; }
-.table-summary th { background:#f9fafb; font-weight:700; color:#111827; }
-.light-green { background:#dcfce7; }
-.light-yellow { background:#fef9c3; }
-.light-orange { background:#ffedd5; }
-.light-red { background:#fee2e2; }
+/* tiny table inside card */
+.alloc-table { width:100%; border-collapse:collapse; font-size:14px; }
+.alloc-table th, .alloc-table td { padding:6px 8px; border-bottom:1px solid #f2f6fa; text-align:left; vertical-align:middle; }
+.alloc-table thead th { background:#fbfdff; font-weight:700; font-size:13px; color:#374151; }
+
+.form-select { padding:6px 8px; border-radius:6px; border:1px solid #e6eaf0; width:100%; box-sizing:border-box; font-size:13px; }
+.form-input { padding:6px 8px; border-radius:6px; border:1px solid #e6eaf0; width:90px; box-sizing:border-box; font-size:13px; }
+
+.btn { padding:7px 10px; border-radius:8px; cursor:pointer; font-weight:700; border:none; font-size:13px; }
+.btn-add { background:#0b5ed7; color:#fff; }
+.btn-remove { background:#ef4444; color:#fff; padding:6px 8px; border-radius:6px; border:none; }
+.btn-save { background:#2563eb; color:#fff; }
+.btn-export { background:#fff; border:1px solid #e6eaf0; color:#0b1320; }
+
+/* footer small */
+.footer-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
+.total-assigned { font-weight:700; color:#0b2447; }
+.muted { color:#6b7280; font-size:13px; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-    <h2 style="margin:0;">Team Allocation — {{ month_start|date:"F Y" }}</h2>
+  <div class="header-row">
+    <div>
+      <h2 style="margin:0;">Team Allocations — {{ month_start|date:"F Y" }}</h2>
+      <div class="small-muted">Distribute your assigned monthly hours to your direct reportees (compact view).</div>
+    </div>
 
     <form method="get" style="display:flex;gap:8px;align-items:center;">
-      <div class="control-item">
-        <label class="ctrl-label" style="margin-right:6px;">Select month</label>
-        <input type="month" class="input-month" name="month" value="{{ month_start|date:'Y-m' }}" style="padding:8px;border-radius:8px;border:1px solid #e6eaf0;">
-      </div>
-      <button class="btn-load" type="submit">Load</button>
+      <label style="font-size:13px;color:#374151;">Month</label>
+      <input type="month" name="month" value="{{ month_start|date:'Y-m' }}" style="padding:8px;border-radius:8px;border:1px solid #e6eaf0;">
+      <button class="btn btn-export" type="submit">Load</button>
     </form>
   </div>
 
+  {# Top summary table with color coding restored #}
   {% if summary %}
-  <h3>FTE Allocation Summary</h3>
-  <table class="table-summary">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Email</th>
-        <th>Month %Allocated</th>
-        <th>FTE Allocated</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for s in summary.values %}
-      <tr class="{{ s.color }}">
-        <td>{{ s.name }}</td>
-        <td>{{ s.email }}</td>
-        <td>{{ s.percent|floatformat:2 }}%</td>
-        <td>{{ s.fte|floatformat:2 }}</td>
-        <td>
-          {% if s.no_allocation %}
-            <a href="{% url 'projects:monthly_allocations' %}?month={{ month_start|date:'Y-m' }}" class="btn btn-reset">Create Allocation</a>
-          {% else %}
-            <a href="{% url 'projects:monthly_allocations' %}?month={{ month_start|date:'Y-m' }}" class="btn btn-reset">View</a>
-          {% endif %}
-        </td>
-
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <table class="table-summary">
+      <thead>
+        <tr>
+          <th>Lead Name / Resource</th>
+          <th style="width:160px">Total Hours</th>
+          <th style="width:120px">FTE</th>
+          <th style="width:160px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for key, s in summary.items %}
+        <tr class="{{ s.color }}" data-email="{{ s.email|default:s.name }}" data-total-hours="{{ s.total_hours|default:0 }}">
+          <td>
+            <div style="font-weight:700">{{ s.name }}</div>
+            <div style="font-size:12px;color:#6b7280;">{{ s.email }}</div>
+          </td>
+          <td class="summary-hours">{{ s.total_hours|floatformat:2 }}</td>
+          <td class="summary-fte">{{ s.fte|floatformat:2 }}</td>
+          <td>
+            {% if s.no_allocation %}
+              <a class="btn btn-export" href="{% url 'projects:monthly_allocations' %}?month={{ month_start|date:'Y-m' }}">Create Allocation</a>
+            {% else %}
+              <a class="btn btn-export" href="{% url 'projects:monthly_allocations' %}?month={{ month_start|date:'Y-m' }}">View</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   {% endif %}
 
-  {% if not rows %}
-    <div class="panel" style="padding:18px;border-radius:10px;background:#fff;">
-      No allocations found for your reportees for this month.
-    </div>
-  {% else %}
-    {% regroup rows by user_ldap as resources %}
-    {% for res in resources %}
-      <div class="resource-block">
-        <div class="resource-header">
-          <div>
-            <div class="resource-title">
-              {{ res.grouper }} — {% if res.list.0.display_name %}{{ res.list.0.display_name }}{% else %}{{ res.list.0.username }}{% endif %}
-            </div>
-            <div class="small-muted">Reportee</div>
+  {# ========== Compact resource allocation cards (per subproject) ========== #}
+  <div id="compact-distribution">
+    {% if lead_allocations %}
+      {% for alloc in lead_allocations %}
+        <div class="alloc-card" data-subproject="{{ alloc.subproject_id }}" data-total-hours="{{ alloc.total_hours }}">
+          <div class="alloc-left">
+            <div class="alloc-title">{{ alloc.project_name }} — {{ alloc.subproject_name }}</div>
+            <div class="alloc-sub muted">Allocated to you: <strong>{{ alloc.total_hours|floatformat:2 }}</strong> hrs</div>
+
+            <table class="alloc-table">
+              <thead>
+                <tr><th style="width:65%;">Reportee</th><th style="width:20%;">Hours</th><th style="width:15%;"> </th></tr>
+              </thead>
+              <tbody class="alloc-rows">
+                {% for d in alloc.distribution %}
+                <tr data-ldap="{{ d.reportee_ldap|default:'' }}">
+                  <td>
+                    <select class="form-select dist-reportee">
+                      <option value="{{ d.reportee_ldap }}">{{ d.reportee_name|default:d.reportee_ldap }}</option>
+                    </select>
+                  </td>
+                  <td><input type="number" class="form-input dist-hours" min="0" step="0.25" value="{{ d.hours|default:0 }}"></td>
+                  <td><button class="btn-remove" type="button">Remove</button></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
           </div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <button type="button" class="btn-add-resource" aria-label="Add reportee row">➕ Add Resource</button>
-            <div class="small-muted">Tip: enter weekly % values (0-100). Save per-row.</div>
+
+          <div class="alloc-right">
+            <div style="text-align:right;">
+              <div class="muted">Assigned</div>
+              <div style="font-size:18px;"><span class="total-assigned">0.00</span> / <strong>{{ alloc.total_hours|floatformat:2 }}</strong></div>
+            </div>
+
+            <div class="footer-actions">
+              <button class="btn btn-add" type="button">Add Resource</button>
+              <button class="btn btn-save btn-save-card" type="button">Save</button>
+            </div>
           </div>
         </div>
+      {% endfor %}
 
-        <table class="team-table">
-          <thead>
-            <tr>
-              <th>Project</th>
-              <th>Domain</th>
-              <th>Allocated Hrs</th>
-              <th>Week 1 %</th>
-              <th>Week 2 %</th>
-              <th>Week 3 %</th>
-              <th>Week 4 %</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in res.list %}
-              {% with w=weekly_map|dict_get:r.allocation_id %}
-              <tr data-allocation="{{ r.allocation_id }}">
-                <td>{{ r.project_name }}</td>
-                <td>{{ r.domain_name }}</td>
-                <td>{{ r.total_hours|floatformat:2 }}</td>
-                <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                           value="{{ w|dict_get:1|dict_get:'percent'|default:0|floatformat:2 }}"
-                           data-week="1"></td>
-                <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                           value="{{ w|dict_get:2|dict_get:'percent'|default:0|floatformat:2 }}"
-                           data-week="2"></td>
-                <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                           value="{{ w|dict_get:3|dict_get:'percent'|default:0|floatformat:2 }}"
-                           data-week="3"></td>
-                <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                           value="{{ w|dict_get:4|dict_get:'percent'|default:0|floatformat:2 }}"
-                           data-week="4"></td>
-                <td class="actions">
-                  <button class="btn btn-save" type="button">Save</button>
-                  <button class="btn btn-reset" type="button">Reset</button>
-                </td>
-              </tr>
-              {% endwith %}
-            {% endfor %}
-          </tbody>
-        </table>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+        <button id="btn-save-all" class="btn btn-save">💾 Save All</button>
+        <button id="btn-export-excel" class="btn btn-export" type="button">Export Excel</button>
       </div>
-    {% endfor %}
-  {% endif %}
+    {% else %}
+      <div class="no-allocs" style="padding:12px;border-radius:8px;background:#fff;box-shadow:0 6px 18px rgba(2,6,23,0.03);">
+        No personal allocations found for you this month. Create allocations first in Monthly Allocations.
+      </div>
+    {% endif %}
+  </div>
 
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-function getCookie(name){ const v=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)'); return v?v.pop():''; }
+/* Compact distribution script
+   Expects:
+     - reportees_json (array of {ldap, mail, cn})
+     - SAVE endpoint: {% url 'projects:save_team_distribution' %}
+*/
+const SAVE_URL = "{% url 'projects:save_team_distribution' %}";
+const REPORTEES = {{ reportees_json|safe }};
+function getCookie(name){ const v=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)'); return v? v.pop():''; }
 
-const SAVE_TEAM_ALLOCATION_URL = "{% url 'projects:save_team_allocation' %}";
+/* build options for a given allowed array */
+function buildOptions(arr) {
+  return arr.map(r => `<option value="${r.ldap}">${(r.cn || r.mail || r.ldap)}</option>`).join('');
+}
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.btn-save').forEach(hookSave);
-  document.querySelectorAll('.btn-reset').forEach(btn => btn.addEventListener('click', () => location.reload()));
+/* return set of used ldap (lower) in this card */
+function usedInCard(card) {
+  const s = new Set();
+  card.querySelectorAll('.dist-reportee').forEach(sel => {
+    const v = (sel.value || '').trim().toLowerCase();
+    if (v) s.add(v);
+  });
+  card.querySelectorAll('tbody tr[data-ldap]').forEach(tr => {
+    const v = (tr.dataset.ldap || '').trim().toLowerCase();
+    if (v) s.add(v);
+  });
+  return s;
+}
 
-  document.querySelectorAll('.btn-add-resource').forEach(btn => {
-    btn.addEventListener('click', function(){
-      const block = this.closest('.resource-block');
-      const tbody = block.querySelector('tbody');
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><input type="text" class="form-control new-project" placeholder="Project / WBS"></td>
-        <td><input type="text" class="form-control new-domain" placeholder="Domain"></td>
-        <td><input class="form-control new-allocated-hrs" type="number" step="0.25" min="0" value="0"></td>
-        <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="1" value="0"></td>
-        <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="2" value="0"></td>
-        <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="3" value="0"></td>
-        <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="4" value="0"></td>
-        <td class="actions">
-          <button class="btn btn-save new-save" type="button">Save</button>
-          <button class="btn btn-remove-row" type="button">Remove</button>
-        </td>`;
-      tbody.appendChild(tr);
-
-      tr.querySelector('.btn-remove-row').addEventListener('click', () => tr.remove());
-      tr.querySelector('.new-save').addEventListener('click', async () => {
-        alert('Backend endpoint for creating new resource not yet implemented.');
-      });
+/* refresh dropdowns for a card (exclude used except current select value) */
+function refreshDropdowns(card) {
+  const used = usedInCard(card);
+  card.querySelectorAll('.dist-reportee').forEach(sel => {
+    const current = (sel.value || '').trim().toLowerCase();
+    const allowed = REPORTEES.filter(r => {
+      const l = (r.ldap || r.mail || '').toLowerCase();
+      return (!used.has(l) || l === current);
     });
+    const prev = sel.value;
+    sel.innerHTML = buildOptions(allowed);
+    if (prev) {
+      sel.value = prev;
+      if (sel.value !== prev && sel.options.length) sel.selectedIndex = 0;
+    }
+  });
+}
+
+/* update totals display on a card */
+function updateCardTotals(card) {
+  const total = [...card.querySelectorAll('.dist-hours')].reduce((s, el) => s + (Number(el.value || 0)), 0);
+  const span = card.querySelector('.total-assigned');
+  if (span) span.textContent = total.toFixed(2);
+}
+
+/* add a new empty row to a card */
+function addRowToCard(card) {
+  const used = usedInCard(card);
+  const available = REPORTEES.filter(r => !used.has((r.ldap||r.mail||'').toLowerCase()));
+  if (available.length === 0) {
+    alert('All reportees already assigned in this subproject.');
+    return;
+  }
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select class="form-select dist-reportee">${buildOptions(available)}</select></td>
+    <td><input class="form-input dist-hours" type="number" min="0" step="0.25" value="0"></td>
+    <td><button class="btn-remove" type="button">Remove</button></td>
+  `;
+  const tbody = card.querySelector('.alloc-rows');
+  tbody.appendChild(tr);
+
+  // wire events
+  tr.querySelector('.dist-reportee').addEventListener('change', () => { refreshDropdowns(card); updateCardTotals(card); });
+  tr.querySelector('.dist-hours').addEventListener('input', () => updateCardTotals(card));
+  tr.querySelector('.btn-remove').addEventListener('click', () => { tr.remove(); refreshDropdowns(card); updateCardTotals(card); });
+  refreshDropdowns(card);
+  updateCardTotals(card);
+}
+
+/* initialize all cards: wire add buttons, remove, inputs, selects */
+function initCards() {
+  document.querySelectorAll('.alloc-card').forEach(card => {
+    // wire Add button
+    const addBtn = card.querySelector('.btn-add');
+    if (addBtn) addBtn.addEventListener('click', () => addRowToCard(card));
+
+    // wire Save single-card button
+    const saveBtn = card.querySelector('.btn-save-card');
+    if (saveBtn) saveBtn.addEventListener('click', async () => {
+      const subprojectId = card.dataset.subproject;
+      const rows = [...card.querySelectorAll('tbody tr')].map(tr => {
+        const sel = tr.querySelector('.dist-reportee');
+        const ldap = sel ? (sel.value || '').trim() : (tr.dataset.ldap||'').trim();
+        const hrs = Number(tr.querySelector('.dist-hours') ? tr.querySelector('.dist-hours').value || 0 : tr.dataset.hours || 0);
+        return { reportee: ldap, hours: hrs };
+      });
+      const payload = { month: "{{ month_start|date:'Y-m' }}", allocations: [ { subproject_id: subprojectId, items: rows } ] };
+      await postSave(payload);
+    });
+
+    // wire existing remove and inputs/selects
+    card.querySelectorAll('.btn-remove').forEach(b => b.addEventListener('click', () => { b.closest('tr').remove(); refreshDropdowns(card); updateCardTotals(card); }));
+    card.querySelectorAll('.dist-hours').forEach(inp => inp.addEventListener('input', () => updateCardTotals(card)));
+    card.querySelectorAll('.dist-reportee').forEach(sel => sel.addEventListener('change', () => { refreshDropdowns(card); updateCardTotals(card); }));
+
+    // initial refresh & totals
+    refreshDropdowns(card);
+    updateCardTotals(card);
+  });
+}
+
+/* Gather whole-page payload and POST to server */
+async function postSave(payload) {
+  try {
+    const resp = await fetch(SAVE_URL, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      alert('Saved successfully.');
+      location.reload();
+    } else {
+      alert('Save error: ' + (data.error || 'unknown'));
+    }
+  } catch (err) {
+    alert('Network or server error: ' + err);
+  }
+}
+
+/* Save All button (gathers all cards) */
+document.addEventListener('DOMContentLoaded', () => {
+  initCards();
+
+  const saveAll = document.getElementById('btn-save-all');
+  if (saveAll) saveAll.addEventListener('click', () => {
+    const allocations = [];
+    document.querySelectorAll('.alloc-card').forEach(card => {
+      const subp = card.dataset.subproject;
+      const items = [...card.querySelectorAll('tbody tr')].map(tr => {
+        const sel = tr.querySelector('.dist-reportee');
+        const ldap = sel ? (sel.value || '').trim() : (tr.dataset.ldap||'').trim();
+        const hours = Number(tr.querySelector('.dist-hours') ? tr.querySelector('.dist-hours').value || 0 : tr.dataset.hours || 0);
+        return { reportee: ldap, hours: hours };
+      });
+      allocations.push({ subproject_id: subp, items: items });
+    });
+    const payload = { month: "{{ month_start|date:'Y-m' }}", allocations: allocations };
+    postSave(payload);
   });
 
-  function hookSave(btn){
-    btn.addEventListener('click', function(){
-      const tr = this.closest('tr');
-      const allocation_id = tr.dataset.allocation;
-      if (!allocation_id) { alert('This row is unsaved.'); return; }
-      const weekly = {};
-      tr.querySelectorAll('.week-input').forEach(inp => weekly[inp.dataset.week] = Number(inp.value || 0));
-      let totalPct = 0; Object.values(weekly).forEach(v => totalPct += Number(v));
-      if (totalPct > 100 && !confirm('Total % > 100. Continue saving?')) return;
-
-      fetch(SAVE_TEAM_ALLOCATION_URL, {
-        method:'POST', credentials:'same-origin',
-        headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
-        body:JSON.stringify({allocation_id:Number(allocation_id), weekly:weekly})
-      }).then(r=>r.json()).then(data=>{
-        if(data.ok){ alert('Saved successfully!'); location.reload(); }
-        else alert('Error: '+(data.error||'Server error'));
-      }).catch(err=>alert('Save failed: '+err));
-    });
-  }
+  // Export Excel placeholder - you can wire to your export endpoint
+  const exportBtn = document.getElementById('btn-export-excel');
+  if (exportBtn) exportBtn.addEventListener('click', () => {
+    alert('Export Excel not implemented in this snippet. Wire to your export endpoint.');
+  });
 });
 </script>
 {% endblock %}

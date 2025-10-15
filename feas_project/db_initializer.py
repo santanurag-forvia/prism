@@ -2,14 +2,7 @@
 feas_project/db_initializer.py
 
 Class-based DB initializer for FEAS using mysql.connector (same style as your reference).
-Place inside the `feas_project/` package (next to settings.py).
-
-Behavior:
- - Reads DB connection info from Django settings.DATABASES['default'].
- - Creates schema using raw SQL (idempotent).
- - Seeds 'roles' lookup table.
- - Stores a one-time init flag in `system_settings` (configurable via settings.DB_INIT_DONE_TABLE).
- - Safe to call multiple times; real work runs only on the first call.
+Idempotent; creates tables in dependency-safe order and seeds roles.
 """
 
 import os
@@ -31,7 +24,7 @@ try:
                 "DJANGO_SETTINGS_MODULE not set. Set it or call this from inside Django."
             )
         django.setup()
-except Exception as exc:
+except Exception:
     settings = None  # allow import even if running standalone
 
 
@@ -51,6 +44,7 @@ class DatabaseInitializer:
             else self.DEFAULT_INIT_TABLE
         )
 
+        # Build DDLs in dependency-aware order
         self.ddl_statements = self._build_ddls(self.init_table)
 
         self.role_inserts = [
@@ -80,7 +74,23 @@ class DatabaseInitializer:
         return cfg
 
     def _build_ddls(self, init_table_name: str) -> Tuple[str, ...]:
+        """
+        Build DDLs in an order that respects foreign-key dependencies.
+        Order summary (top-down):
+         1. init table (system_settings)
+         2. lookup tables (roles)
+         3. users and LDAP-related tables
+         4. projects & prism_wbs & subprojects (core project metadata)
+         5. COEs, domains (which reference users/projects)
+         6. project link tables (project_coes, project_contacts)
+         7. monthly/prism/holidays/monthly_hours_limit
+         8. allocations and allocation_items (depends on users/projects)
+         9. monthly_allocation_entries then weekly_allocations (weekly -> mae)
+        10. notifications, audit_log, ldap_sync_jobs
+        """
         ddls = []
+
+        # 1) Initialization table (stores init flag)
         print(f"Adding DDL for table: {init_table_name}")
         ddls.append(f"""
             CREATE TABLE IF NOT EXISTS `{init_table_name}` (
@@ -92,6 +102,17 @@ class DatabaseInitializer:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
+        # 2) Roles (lookup) - no dependencies
+        print("Adding DDL for table: roles")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `roles` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `role_key` VARCHAR(64) NOT NULL UNIQUE,
+                `display_name` VARCHAR(128) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        # 3) Users & LDAP tables (users used by many others)
         print("Adding DDL for table: users")
         ddls.append("""
             CREATE TABLE IF NOT EXISTS `users` (
@@ -102,149 +123,6 @@ class DatabaseInitializer:
                 `role` VARCHAR(32) NOT NULL DEFAULT 'EMPLOYEE',
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: coes")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `coes` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `name` VARCHAR(255) NOT NULL UNIQUE,
-                `leader_user_id` BIGINT,
-                `description` TEXT,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (`leader_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: domains")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `domains` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `coe_id` BIGINT NOT NULL,
-                `name` VARCHAR(255) NOT NULL,
-                `lead_user_id` BIGINT,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_domain_coe_name` (`coe_id`, `name`),
-                FOREIGN KEY (`coe_id`) REFERENCES `coes`(`id`) ON DELETE CASCADE,
-                FOREIGN KEY (`lead_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: project_coes")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `project_coes` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `project_id` BIGINT NOT NULL,
-                `coe_id` BIGINT NOT NULL,
-                `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_project_coe` (`project_id`, `coe_id`),
-                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE,
-                FOREIGN KEY (`coe_id`) REFERENCES `coes`(`id`) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: allocations")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `allocations` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `user_id` BIGINT NOT NULL,
-                `project_id` BIGINT NOT NULL,
-                `month_start` DATE NOT NULL,
-                `total_hours` INT UNSIGNED NOT NULL DEFAULT 0,
-                `pending_hours` INT UNSIGNED NOT NULL DEFAULT 0,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_alloc_user_project_month` (`user_id`, `project_id`, `month_start`),
-                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
-                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: weekly_allocations")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `weekly_allocations` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                -- allocation_id now points to monthly_allocation_entries (canonical allocation rows)
-                `allocation_id` BIGINT NOT NULL,
-                `week_number` TINYINT NOT NULL,
-                -- store fractional hours (two decimals)
-                `hours` DECIMAL(10,2) UNSIGNED NOT NULL DEFAULT '0.00',
-                -- store the percentage value user sets (0.00 - 100.00)
-                `percent` DECIMAL(5,2) NOT NULL DEFAULT '0.00',
-                `status` VARCHAR(16) NOT NULL DEFAULT 'PENDING',
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_week_alloc` (`allocation_id`, `week_number`),
-                -- foreign key points to monthly_allocation_entries.id (not allocations.id)
-                CONSTRAINT `fk_weekly_alloc_mae`
-                    FOREIGN KEY (`allocation_id`) REFERENCES `monthly_allocation_entries` (`id`)
-                    ON DELETE CASCADE ON UPDATE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-        """)
-
-        print("Adding DDL for table: notifications")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `notifications` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `user_id` BIGINT NOT NULL,
-                `message` TEXT NOT NULL,
-                `is_read` TINYINT(1) NOT NULL DEFAULT 0,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: audit_log")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `audit_log` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `user_id` BIGINT,
-                `action` VARCHAR(255) NOT NULL,
-                `meta` JSON,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: ldap_sync_history")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `ldap_sync_history` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `synced_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `synced_by` VARCHAR(255),
-                `details` TEXT
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: roles")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `roles` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                `role_key` VARCHAR(64) NOT NULL UNIQUE,
-                `display_name` VARCHAR(128) NOT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: allocation_items")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `allocation_items` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `allocation_id` BIGINT NOT NULL,
-                `project_id` BIGINT NOT NULL,
-                `coe_id` BIGINT NOT NULL,
-                `domain_id` BIGINT,
-                `user_id` BIGINT,
-                `user_ldap` VARCHAR(255) NOT NULL,
-                `total_hours` INT UNSIGNED NOT NULL DEFAULT 0,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_alloc_item (allocation_id, coe_id, user_id),
-                FOREIGN KEY (`allocation_id`) REFERENCES `allocations`(`id`) ON DELETE CASCADE,
-                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE,
-                FOREIGN KEY (`coe_id`) REFERENCES `coes`(`id`) ON DELETE CASCADE,
-                FOREIGN KEY (`domain_id`) REFERENCES `domains`(`id`) ON DELETE SET NULL,
-                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
@@ -272,6 +150,16 @@ class DatabaseInitializer:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
+        print("Adding DDL for table: ldap_sync_history")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `ldap_sync_history` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `synced_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `synced_by` VARCHAR(255),
+                `details` TEXT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
         print("Adding DDL for table: ldap_sync_jobs")
         ddls.append("""
             CREATE TABLE IF NOT EXISTS `ldap_sync_jobs` (
@@ -289,19 +177,7 @@ class DatabaseInitializer:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
-        print("Adding DDL for table: prism_master_wor_meta")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `prism_master_wor_meta` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `table_name` VARCHAR(128) NOT NULL,
-                `col_order` INT NOT NULL,
-                `col_name` VARCHAR(255) NOT NULL,
-                `orig_header` VARCHAR(1024),
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_prism_master_meta` (`table_name`,`col_name`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
+        # 4) Projects and Prism WBS (projects referenced by many tables)
         print("Adding DDL for table: projects")
         ddls.append("""
             CREATE TABLE IF NOT EXISTS `projects` (
@@ -317,58 +193,6 @@ class DatabaseInitializer:
                 UNIQUE KEY `uq_project_name` (`name`),
                 FOREIGN KEY (`pdl_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
                 FOREIGN KEY (`pm_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-        # NEW: subprojects table (one-to-many from projects)
-        print("Adding DDL for table: subprojects")
-        ddls.append("""
-       CREATE TABLE IF NOT EXISTS `subprojects` (
-              `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-              `project_id` BIGINT NOT NULL,
-              `name` VARCHAR(512) NOT NULL,
-              `mdm_code` VARCHAR(128) DEFAULT NULL,
-              `bg_code` VARCHAR(128) DEFAULT NULL,
-              `mdm_code_norm` VARCHAR(128) GENERATED ALWAYS AS (UPPER(TRIM(COALESCE(`mdm_code`,'')))) STORED,
-              `bg_code_norm`  VARCHAR(128) GENERATED ALWAYS AS (UPPER(TRIM(COALESCE(`bg_code`,'')))) STORED,
-              `priority` INT DEFAULT 0, -- optional: higher -> prefer when resolving single match
-              `description` TEXT,
-              `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY `uq_subproject_project_name` (`project_id`, `name`),
-              KEY `idx_subprojects_mdm_code_norm` (`mdm_code_norm`),
-              KEY `idx_subprojects_bg_code_norm` (`bg_code_norm`),
-              CONSTRAINT `fk_subproj_project` FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-
-        print("Adding DDL for table: monthly_hours_limit")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS monthly_hours_limit (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                year SMALLINT NOT NULL,
-                month TINYINT NOT NULL,
-                start_date DATE NULL,        -- billing cycle start date for this (year,month)
-                end_date DATE NULL,          -- billing cycle end date for this (year,month)
-                max_hours DECIMAL(7,2) NOT NULL DEFAULT 183.75,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_year_month (year, month)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-        """)
-
-        print("Adding DDL for table: project_contacts")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `project_contacts` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `project_id` BIGINT NOT NULL,
-                `contact_type` VARCHAR(16) NOT NULL,
-                `contact_name` VARCHAR(512),
-                `user_id` BIGINT NULL,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_proj_contact` (`project_id`,`contact_type`,`contact_name`),
-                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE,
-                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
@@ -424,6 +248,154 @@ class DatabaseInitializer:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
+        # 5) Subprojects (depends on projects)
+        print("Adding DDL for table: subprojects")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `subprojects` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `project_id` BIGINT NOT NULL,
+                `name` VARCHAR(512) NOT NULL,
+                `mdm_code` VARCHAR(128) DEFAULT NULL,
+                `bg_code` VARCHAR(128) DEFAULT NULL,
+                `mdm_code_norm` VARCHAR(128) GENERATED ALWAYS AS (UPPER(TRIM(COALESCE(`mdm_code`,'')))) STORED,
+                `bg_code_norm`  VARCHAR(128) GENERATED ALWAYS AS (UPPER(TRIM(COALESCE(`bg_code`,'')))) STORED,
+                `priority` INT DEFAULT 0,
+                `description` TEXT,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_subproject_project_name` (`project_id`, `name`),
+                KEY `idx_subprojects_mdm_code_norm` (`mdm_code_norm`),
+                KEY `idx_subprojects_bg_code_norm` (`bg_code_norm`),
+                CONSTRAINT `fk_subproj_project` FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        # 6) COEs and Domains (COEs references users; domains references coes)
+        print("Adding DDL for table: coes")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `coes` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `name` VARCHAR(255) NOT NULL UNIQUE,
+                `leader_user_id` BIGINT,
+                `description` TEXT,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (`leader_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        print("Adding DDL for table: domains")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `domains` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `coe_id` BIGINT NOT NULL,
+                `name` VARCHAR(255) NOT NULL,
+                `lead_user_id` BIGINT,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_domain_coe_name` (`coe_id`, `name`),
+                FOREIGN KEY (`coe_id`) REFERENCES `coes`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`lead_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        # 7) Project-level link tables (project_coes, project_contacts)
+        print("Adding DDL for table: project_coes")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `project_coes` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `project_id` BIGINT NOT NULL,
+                `coe_id` BIGINT NOT NULL,
+                `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_project_coe` (`project_id`, `coe_id`),
+                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`coe_id`) REFERENCES `coes`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        print("Adding DDL for table: project_contacts")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `project_contacts` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `project_id` BIGINT NOT NULL,
+                `contact_type` VARCHAR(16) NOT NULL,
+                `contact_name` VARCHAR(512),
+                `user_id` BIGINT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_proj_contact` (`project_id`,`contact_type`,`contact_name`),
+                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        # 8) monthly_hours_limit and holidays (independent)
+        print("Adding DDL for table: monthly_hours_limit")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS monthly_hours_limit (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                year SMALLINT NOT NULL,
+                month TINYINT NOT NULL,
+                start_date DATE NULL,
+                end_date DATE NULL,
+                max_hours DECIMAL(7,2) NOT NULL DEFAULT 183.75,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_year_month (year, month)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        print("Prepping holidays table")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `holidays` (
+              `id` BIGINT NOT NULL AUTO_INCREMENT,
+              `holiday_date` DATE NOT NULL,
+              `name` VARCHAR(255) NOT NULL,
+              `created_by` VARCHAR(255) DEFAULT NULL,
+              `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              PRIMARY KEY (`id`),
+              UNIQUE KEY `uq_holiday_date` (`holiday_date`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
+
+        # 9) Allocations and allocation_items (allocations references users & projects)
+        print("Adding DDL for table: allocations")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `allocations` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `user_id` BIGINT NOT NULL,
+                `project_id` BIGINT NOT NULL,
+                `month_start` DATE NOT NULL,
+                `total_hours` INT UNSIGNED NOT NULL DEFAULT 0,
+                `pending_hours` INT UNSIGNED NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_alloc_user_project_month` (`user_id`, `project_id`, `month_start`),
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        print("Adding DDL for table: allocation_items")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `allocation_items` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `allocation_id` BIGINT NOT NULL,
+                `project_id` BIGINT NOT NULL,
+                `coe_id` BIGINT NOT NULL,
+                `domain_id` BIGINT,
+                `user_id` BIGINT,
+                `user_ldap` VARCHAR(255) NOT NULL,
+                `total_hours` INT UNSIGNED NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_alloc_item (allocation_id, coe_id, user_id),
+                FOREIGN KEY (`allocation_id`) REFERENCES `allocations`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`coe_id`) REFERENCES `coes`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`domain_id`) REFERENCES `domains`(`id`) ON DELETE SET NULL,
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        # 10) monthly_allocation_entries (depends on projects and prism_wbs)
         print("Adding DDL for table: monthly_allocation_entries")
         ddls.append("""
             CREATE TABLE IF NOT EXISTS `monthly_allocation_entries` (
@@ -450,18 +422,85 @@ class DatabaseInitializer:
               DEFAULT CHARSET=utf8mb4
               COLLATE=utf8mb4_0900_ai_ci;
         """)
-        print("Prepping holidays table")
+
+        # 11) weekly_allocations (references monthly_allocation_entries.id)
+        print("Adding DDL for table: weekly_allocations")
         ddls.append("""
-        CREATE TABLE IF NOT EXISTS `holidays` (
-          `id` BIGINT NOT NULL AUTO_INCREMENT,
-          `holiday_date` DATE NOT NULL,
-          `name` VARCHAR(255) NOT NULL,
-          `created_by` VARCHAR(255) DEFAULT NULL,
-          `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (`id`),
-          UNIQUE KEY `uq_holiday_date` (`holiday_date`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            CREATE TABLE IF NOT EXISTS `weekly_allocations` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `allocation_id` BIGINT NOT NULL,
+                `week_number` TINYINT NOT NULL,
+                `hours` DECIMAL(10,2) UNSIGNED NOT NULL DEFAULT '0.00',
+                `percent` DECIMAL(5,2) NOT NULL DEFAULT '0.00',
+                `status` VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_week_alloc` (`allocation_id`, `week_number`),
+                CONSTRAINT `fk_weekly_alloc_mae`
+                    FOREIGN KEY (`allocation_id`) REFERENCES `monthly_allocation_entries` (`id`)
+                    ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
         """)
+
+        # 12) team_distributions (recommended) - depends on monthly_allocation_entries optionally
+        print("Adding DDL for table: team_distributions")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `team_distributions` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `month_start` DATE NOT NULL,
+                `lead_ldap` VARCHAR(255) NOT NULL,
+                `project_id` BIGINT NULL,
+                `subproject_id` BIGINT NOT NULL,
+                `reportee_ldap` VARCHAR(255) NOT NULL,
+                `hours` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_lead_month_subp_reportee (lead_ldap, month_start, subproject_id, reportee_ldap),
+                INDEX idx_month_reportee (month_start, reportee_ldap),
+                INDEX idx_lead_month (lead_ldap, month_start)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+        """)
+
+        # 13) Notifications and Audit (these reference users)
+        print("Adding DDL for table: notifications")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `notifications` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `user_id` BIGINT NOT NULL,
+                `message` TEXT NOT NULL,
+                `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        print("Adding DDL for table: audit_log")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `audit_log` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `user_id` BIGINT,
+                `action` VARCHAR(255) NOT NULL,
+                `meta` JSON,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        # 14) prism_master_wor_meta (low-dependency metadata)
+        print("Adding DDL for table: prism_master_wor_meta")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `prism_master_wor_meta` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `table_name` VARCHAR(128) NOT NULL,
+                `col_order` INT NOT NULL,
+                `col_name` VARCHAR(255) NOT NULL,
+                `orig_header` VARCHAR(1024),
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_prism_master_meta` (`table_name`,`col_name`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        # Final summary print
         print(f"Total tables to create: {len(ddls)}")
         return tuple(ddls)
 
@@ -540,12 +579,16 @@ class DatabaseInitializer:
         conn = None
         try:
             conn = self.connect()
+            # create init table first
             self._execute_statements(conn, [self.ddl_statements[0]])
             if self._is_already_initialized(conn):
                 print("FEAS: Database already initialized. Skipping.")
                 return True
+            # create all other tables in the pre-determined safe order
             self._execute_statements(conn, list(self.ddl_statements[1:]))
+            # seed roles
             self._seed_roles(conn)
+            # set init flag
             self._set_initialized_flag(conn)
             print("FEAS: Database initialization completed successfully.")
             return True
