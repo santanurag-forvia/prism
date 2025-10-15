@@ -33,6 +33,15 @@
 .no-allocs th, .no-allocs td { padding:8px 10px; border-bottom:1px solid #f8dcdc; text-align:left; vertical-align:middle; }
 .no-allocs thead th { font-weight:700; color:#7f1d1d; background: transparent; }
 .muted { color:#6b7280; font-size:12px; }
+
+/* ======= New FTE Summary Table ======= */
+.table-summary { width:100%; border-collapse:collapse; margin:18px 0; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.05); }
+.table-summary th, .table-summary td { padding:10px 14px; border-bottom:1px solid #e5e7eb; text-align:left; }
+.table-summary th { background:#f9fafb; font-weight:700; color:#111827; }
+.light-green { background:#dcfce7; }
+.light-yellow { background:#fef9c3; }
+.light-orange { background:#ffedd5; }
+.light-red { background:#fee2e2; }
 </style>
 {% endblock %}
 
@@ -42,7 +51,6 @@
     <h2 style="margin:0;">Team Allocation — {{ month_start|date:"F Y" }}</h2>
 
     <form method="get" style="display:flex;gap:8px;align-items:center;">
-      {# HTML5 month input produces YYYY-MM, aligns with server parsing #}
       <div class="control-item">
         <label class="ctrl-label" style="margin-right:6px;">Select month</label>
         <input type="month" class="input-month" name="month" value="{{ month_start|date:'Y-m' }}" style="padding:8px;border-radius:8px;border:1px solid #e6eaf0;">
@@ -51,12 +59,44 @@
     </form>
   </div>
 
+  {% if summary %}
+  <h3>FTE Allocation Summary</h3>
+  <table class="table-summary">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Month %Allocated</th>
+        <th>FTE Allocated</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in summary.values %}
+      <tr class="{{ s.color }}">
+        <td>{{ s.name }}</td>
+        <td>{{ s.email }}</td>
+        <td>{{ s.percent|floatformat:2 }}%</td>
+        <td>{{ s.fte|floatformat:2 }}</td>
+        <td>
+          {% if s.no_allocation %}
+            <a href="{% url 'projects:monthly_allocations' %}?month={{ month_start|date:'Y-m' }}" class="btn btn-reset">Create Allocation</a>
+          {% else %}
+            <a href="{% url 'projects:monthly_allocations' %}?month={{ month_start|date:'Y-m' }}" class="btn btn-reset">View</a>
+          {% endif %}
+        </td>
+
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
   {% if not rows %}
     <div class="panel" style="padding:18px;border-radius:10px;background:#fff;">
       No allocations found for your reportees for this month.
     </div>
   {% else %}
-    {# Group rows by user_ldap (resource) #}
     {% regroup rows by user_ldap as resources %}
     {% for res in resources %}
       <div class="resource-block">
@@ -68,7 +108,6 @@
             <div class="small-muted">Reportee</div>
           </div>
           <div style="display:flex;align-items:center;gap:12px;">
-            {# NEW: Add Resource button visible to Team Lead so they can add reportees under their allocation #}
             <button type="button" class="btn-add-resource" aria-label="Add reportee row">➕ Add Resource</button>
             <div class="small-muted">Tip: enter weekly % values (0-100). Save per-row.</div>
           </div>
@@ -77,14 +116,14 @@
         <table class="team-table">
           <thead>
             <tr>
-              <th style="width:260px">Project</th>
-              <th style="width:180px">Domain</th>
-              <th style="width:120px">Allocated Hrs</th>
-              <th style="width:100px">Week 1 %</th>
-              <th style="width:100px">Week 2 %</th>
-              <th style="width:100px">Week 3 %</th>
-              <th style="width:100px">Week 4 %</th>
-              <th style="width:160px">Actions</th>
+              <th>Project</th>
+              <th>Domain</th>
+              <th>Allocated Hrs</th>
+              <th>Week 1 %</th>
+              <th>Week 2 %</th>
+              <th>Week 3 %</th>
+              <th>Week 4 %</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -94,24 +133,18 @@
                 <td>{{ r.project_name }}</td>
                 <td>{{ r.domain_name }}</td>
                 <td>{{ r.total_hours|floatformat:2 }}</td>
-
-                {# weekly_map stores 'percent' per week in the view; show percent here #}
                 <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                             value="{{ w|dict_get:1|dict_get:'percent'|default:0|floatformat:2 }}"
-                             data-week="1"></td>
-
+                           value="{{ w|dict_get:1|dict_get:'percent'|default:0|floatformat:2 }}"
+                           data-week="1"></td>
                 <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                             value="{{ w|dict_get:2|dict_get:'percent'|default:0|floatformat:2 }}"
-                             data-week="2"></td>
-
+                           value="{{ w|dict_get:2|dict_get:'percent'|default:0|floatformat:2 }}"
+                           data-week="2"></td>
                 <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                             value="{{ w|dict_get:3|dict_get:'percent'|default:0|floatformat:2 }}"
-                             data-week="3"></td>
-
+                           value="{{ w|dict_get:3|dict_get:'percent'|default:0|floatformat:2 }}"
+                           data-week="3"></td>
                 <td><input class="week-input" type="number" min="0" max="100" step="0.01"
-                             value="{{ w|dict_get:4|dict_get:'percent'|default:0|floatformat:2 }}"
-                             data-week="4"></td>
-
+                           value="{{ w|dict_get:4|dict_get:'percent'|default:0|floatformat:2 }}"
+                           data-week="4"></td>
                 <td class="actions">
                   <button class="btn btn-save" type="button">Save</button>
                   <button class="btn btn-reset" type="button">Reset</button>
@@ -125,36 +158,6 @@
     {% endfor %}
   {% endif %}
 
-  {# Reportees with no allocation — shown at bottom in a light-red table #}
-  {% if reportees_no_alloc %}
-    <div class="no-allocs">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div style="font-weight:800;color:#7f1d1d;">Reportees without allocations — {{ month_start|date:"F Y" }}</div>
-        <div class="small-muted">You may want to create allocations for them.</div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Resource (LDAP)</th>
-            <th>Name / Email</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in reportees_no_alloc %}
-          <tr>
-            <td>{{ r.ldap }}</td>
-            <td>{% if r.display %}{{ r.display }}{% else %}—{% endif %}{% if r.email %} &lt;{{ r.email }}&gt;{% endif %}</td>
-            <td>
-              <a class="btn btn-reset" href="{% url 'projects:monthly_allocations' %}?project_id=&month={{ month_start|date:'Y-m' }}">Create allocation</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% endif %}
-
 </div>
 {% endblock %}
 
@@ -162,21 +165,16 @@
 <script>
 function getCookie(name){ const v=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)'); return v?v.pop():''; }
 
-// URLs used by this template
 const SAVE_TEAM_ALLOCATION_URL = "{% url 'projects:save_team_allocation' %}";
-//const CREATE_MONTHLY_ENTRY_URL = "#"; // optional: backend endpoint to create new monthly allocation (if implemented)
 
 document.addEventListener('DOMContentLoaded', () => {
-  // hook existing rows' actions
   document.querySelectorAll('.btn-save').forEach(hookSave);
   document.querySelectorAll('.btn-reset').forEach(btn => btn.addEventListener('click', () => location.reload()));
 
-  // hook Add Resource buttons (one per resource-block)
   document.querySelectorAll('.btn-add-resource').forEach(btn => {
     btn.addEventListener('click', function(){
       const block = this.closest('.resource-block');
       const tbody = block.querySelector('tbody');
-      // append a new editable row (no allocation id yet)
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><input type="text" class="form-control new-project" placeholder="Project / WBS"></td>
@@ -189,122 +187,36 @@ document.addEventListener('DOMContentLoaded', () => {
         <td class="actions">
           <button class="btn btn-save new-save" type="button">Save</button>
           <button class="btn btn-remove-row" type="button">Remove</button>
-        </td>
-      `;
+        </td>`;
       tbody.appendChild(tr);
 
-      // hook remove for this row
       tr.querySelector('.btn-remove-row').addEventListener('click', () => tr.remove());
-
-      // hook save for this new row
       tr.querySelector('.new-save').addEventListener('click', async () => {
-        // gather data
-        const projectName = tr.querySelector('.new-project').value || '';
-        const domain = tr.querySelector('.new-domain').value || '';
-        const allocatedHrs = Number(tr.querySelector('.new-allocated-hrs').value || 0);
-        const weekly = {};
-        tr.querySelectorAll('.week-input').forEach(w => weekly[w.dataset.week] = Number(w.value || 0));
-
-        // optional client-side validation: weekly % sum
-        let totalPct = 0;
-        Object.values(weekly).forEach(v => totalPct += Number(v));
-        if (totalPct > 100 && !confirm('Total % > 100. Continue saving?')) return;
-
-        // Create monthly allocation entry on server (if you have endpoint). If not present, this JS will attempt and fallback to alert.
-        try {
-          const csrftoken = getCookie('csrftoken');
-          const resp = await fetch(CREATE_MONTHLY_ENTRY_URL, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {'Content-Type':'application/json','X-CSRFToken': csrftoken},
-            body: JSON.stringify({
-              // minimal info; adjust on backend as required
-              project_name: projectName,
-              domain_name: domain,
-              allocated_hours: allocatedHrs,
-              weekly_percent: weekly,
-              // pass month or reportee id if needed; this template expects backend to infer from current page context or accept fields
-              month_start: "{{ month_start|date:'Y-m-d' }}",
-              user_ldap: "{{ request.user.username|default:'' }}"
-            })
-          });
-          const data = await resp.json();
-          if (data && data.ok && data.allocation_id) {
-            // replace the editable row with server-saved row (server should return saved fields)
-            tr.dataset.allocation = data.allocation_id;
-            // replace columns with server values (or keep submitted)
-            tr.innerHTML = `
-              <td>${projectName}</td>
-              <td>${domain}</td>
-              <td>${allocatedHrs.toFixed(2)}</td>
-              <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="1" value="${weekly[1]||0}"></td>
-              <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="2" value="${weekly[2]||0}"></td>
-              <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="3" value="${weekly[3]||0}"></td>
-              <td><input class="week-input" type="number" min="0" max="100" step="0.01" data-week="4" value="${weekly[4]||0}"></td>
-              <td class="actions">
-                <button class="btn btn-save" type="button">Save</button>
-                <button class="btn btn-reset" type="button">Reset</button>
-              </td>
-            `;
-            // hook newly created row save/reset
-            const newSave = tr.querySelector('.btn-save');
-            const newReset = tr.querySelector('.btn-reset');
-            hookSave(newSave);
-            if (newReset) newReset.addEventListener('click', () => location.reload());
-            alert('Created allocation row successfully.');
-          } else {
-            alert('Create failed: ' + (data && data.error ? data.error : 'server did not return id'));
-            console.warn('create_monthly_allocation_entry response', data);
-          }
-        } catch (err) {
-          console.error('create_monthly_allocation_entry', err);
-          alert('Create failed (see console). If you do not have CREATE endpoint, implement projects:create_monthly_allocation_entry or save rows from Monthly Allocations and reload this page.');
-        }
+        alert('Backend endpoint for creating new resource not yet implemented.');
       });
     });
   });
 
-  // existing Save handler for rows that already have allocation_id
   function hookSave(btn){
-    btn.addEventListener('click', function(e){
+    btn.addEventListener('click', function(){
       const tr = this.closest('tr');
       const allocation_id = tr.dataset.allocation;
-      if (!allocation_id) {
-        alert('This row was not created on server yet; please use Add Resource -> Save to create it.');
-        return;
-      }
+      if (!allocation_id) { alert('This row is unsaved.'); return; }
       const weekly = {};
-      tr.querySelectorAll('.week-input').forEach(inp=>{
-        weekly[inp.dataset.week] = Number(inp.value || 0);
-      });
-
-      // validate total percentage per allocation row
-      let totalPct = 0;
-      Object.values(weekly).forEach(v=> totalPct += Number(v));
-      if(totalPct > 100 && !confirm("Total % > 100. Continue anyway?")) return;
+      tr.querySelectorAll('.week-input').forEach(inp => weekly[inp.dataset.week] = Number(inp.value || 0));
+      let totalPct = 0; Object.values(weekly).forEach(v => totalPct += Number(v));
+      if (totalPct > 100 && !confirm('Total % > 100. Continue saving?')) return;
 
       fetch(SAVE_TEAM_ALLOCATION_URL, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': getCookie('csrftoken')
-        },
-        body: JSON.stringify({allocation_id: Number(allocation_id), weekly: weekly})
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body:JSON.stringify({allocation_id:Number(allocation_id), weekly:weekly})
       }).then(r=>r.json()).then(data=>{
-        if(data.ok) {
-          alert("Saved successfully!");
-          // reload to show server-calculated amounts / validations
-          location.reload();
-        } else alert("Error: " + (data.error || JSON.stringify(data)));
-      }).catch(err=>{
-        alert("Save failed: " + err);
-      });
+        if(data.ok){ alert('Saved successfully!'); location.reload(); }
+        else alert('Error: '+(data.error||'Server error'));
+      }).catch(err=>alert('Save failed: '+err));
     });
   }
-
-  // Hook all currently existing save buttons (already done earlier)
-  // (hookSave was called during DOMContentLoaded for each existing .btn-save)
-
+});
 </script>
 {% endblock %}

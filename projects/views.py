@@ -1862,186 +1862,237 @@ def is_pdl_user(ldap_entry):
 
 # ---- Main view ---------------------------------------------------------
 
+
 def team_allocations(request):
     """
-    Team Allocation page (billing-period aware). Uses get_billing_period(year, month)
-    when `month` query param provided (YYYY-MM). If no monthly_hours_limit entry exists
-    it falls back to calendar month. Builds rows from monthly_allocation_entries where
-    mae.month_start = billing_start (canonical).
+    Team Allocations (LDAP-based):
+      - Resolve direct reportees from live LDAP via get_user_entry_by_username
+        and get_reportees_for_user_dn(...)
+      - Show allocations ONLY for those direct reportees for the selected billing month
+      - Exclude the logged-in user
+      - Compute FTE summary (hours -> FTE using monthly_hours_limit)
+      - Build weekly_map for per-allocation weekly % values
+      - Provide reportees_no_alloc for UI rows that have no allocations this month
     """
-    # SINGLE source of truth for LDAP username/password from session
     session_ldap = request.session.get("ldap_username")
     session_pwd = request.session.get("ldap_password")
-    print("team_allocations - session_ldap: ", session_ldap)
-    logger.debug("team_allocations - session_ldap: %s", session_ldap)
-
-    # require login
-    if not request.session.get("is_authenticated"):
+    if not request.session.get("is_authenticated") or not session_ldap:
         return redirect("accounts:login")
+
     creds = (session_ldap, session_pwd)
 
-    # --- month param parsing (use YYYY-MM) ---
+    # 1) Resolve billing month
     month_str = request.GET.get("month")
-    if month_str:
-        try:
-            year, mon = map(int, month_str.split("-"))
-            month_start, month_end = get_billing_period(year, mon)
-        except Exception:
-            logger.exception("team_allocations: invalid month param '%s'", month_str)
+    try:
+        if month_str:
+            y, m = map(int, month_str.split("-"))
+            month_start, month_end = get_billing_period(y, m)
+        else:
             today = date.today()
             month_start, month_end = get_billing_period(today.year, today.month)
-
-    else:
-        # default - current month billing period fallback
+    except Exception:
+        # fallback to current month
         today = date.today()
         month_start, month_end = get_billing_period(today.year, today.month)
 
-    # --- get LDAP user entry -----------------------------------------------------
-    user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
-    if not user_entry:
-        logger.warning("team_allocations: user_entry not found for %s", session_ldap)
-        return redirect("accounts:login")
-
-    # --- get reportees via LDAP --------------------------------------------------
-    reportees_entries = get_reportees_for_user_dn(getattr(user_entry, "entry_dn", None),
-                                                 username_password_for_conn=creds) or []
-    reportees_ldaps = []
-    for ent in reportees_entries:
-        val = None
-        if isinstance(ent, dict):
-            val = ent.get("userPrincipalName") or ent.get("mail") or ent.get("userid") or ent.get("sAMAccountName")
-        else:
-            for attr in ("userPrincipalName", "mail", "sAMAccountName", "uid"):
-                val = getattr(ent, attr, None) or val
-        if val:
-            reportees_ldaps.append(str(val).strip())
-
-    # include manager themselves if PDL
+    # 2) Get the LDAP user entry (server) for current user
     try:
-        if is_pdl_user(user_entry):
-            if session_ldap not in reportees_ldaps:
-                reportees_ldaps.append(session_ldap)
-                logger.debug("team_allocations: user is PDL, added own ldap to reportees list")
-    except Exception:
-        logger.exception("team_allocations: error checking PDL role for %s", session_ldap)
+        user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
+        if not user_entry:
+            logger.warning("team_allocations: no LDAP entry for session user %s", session_ldap)
+            return render(request, "projects/team_allocations.html", {
+                "month_start": month_start,
+                "rows": [],
+                "summary": {},
+                "weekly_map": {},
+                "reportees_no_alloc": [],
+            })
+    except Exception as ex:
+        logger.exception("team_allocations: error fetching own LDAP entry: %s", ex)
+        return render(request, "projects/team_allocations.html", {
+            "month_start": month_start,
+            "rows": [],
+            "summary": {},
+            "weekly_map": {},
+            "reportees_no_alloc": [],
+        })
 
+    # 3) Use LDAP to fetch direct reportees (server-side)
+    try:
+        reportees_entries = get_reportees_for_user_dn(getattr(user_entry, "entry_dn", None),
+                                                      username_password_for_conn=creds) or []
+    except Exception as ex:
+        logger.exception("team_allocations: get_reportees_for_user_dn failed: %s", ex)
+        reportees_entries = []
+
+    # Normalize reportee identifiers (prefer mail, then sAMAccountName)
+    reportees_ldaps = []
+    reportees_map = {}  # ldap -> entry dict (for display)
+    for ent in reportees_entries:
+        # ent might be dict-like or object-like; try common fields
+        mail = None
+        cn = None
+        sam = None
+        try:
+            # support dict or attribute-based objects
+            if isinstance(ent, dict):
+                mail = ent.get("mail") or ent.get("email") or ent.get("userPrincipalName")
+                cn = ent.get("cn") or ent.get("displayName")
+                sam = ent.get("sAMAccountName")
+            else:
+                mail = getattr(ent, "mail", None) or getattr(ent, "email", None) or getattr(ent, "userPrincipalName", None)
+                cn = getattr(ent, "cn", None) or getattr(ent, "displayName", None)
+                sam = getattr(ent, "sAMAccountName", None)
+        except Exception:
+            continue
+
+        identifier = (mail or sam or "").strip()
+        if not identifier:
+            continue
+        # canonicalize
+        identifier_lower = identifier.lower()
+        if identifier_lower not in reportees_ldaps:
+            reportees_ldaps.append(identifier_lower)
+            reportees_map[identifier_lower] = {
+                "ldap": identifier,
+                "mail": mail or "",
+                "cn": cn or "",
+                "sAMAccountName": sam or ""
+            }
+
+    # Exclude self if present
+    session_ldap_l = (session_ldap or "").lower()
+    if session_ldap_l in reportees_ldaps:
+        reportees_ldaps.remove(session_ldap_l)
+        reportees_map.pop(session_ldap_l, None)
+
+    # If no direct reportees, render early with empty data
+    if not reportees_ldaps:
+        return render(request, "projects/team_allocations.html", {
+            "month_start": month_start,
+            "rows": [],
+            "summary": {},
+            "weekly_map": {},
+            "reportees_no_alloc": [],
+        })
+
+    # 4) Query monthly_allocation_entries for these reportees only (for selected month_start)
     rows = []
-    if reportees_ldaps:
-        in_clause, in_params = _sql_in_clause(reportees_ldaps)
+    try:
+        placeholders = ",".join(["%s"] * len(reportees_ldaps))
         sql = f"""
-            SELECT mae.id AS item_id,
-                   mae.id AS allocation_id,
+            SELECT mae.id AS allocation_id,
                    mae.user_ldap,
-                   u.username, u.email,
+                   COALESCE(u.username, mae.user_ldap) AS username,
+                   COALESCE(u.email, mae.user_ldap) AS email,
                    p.name AS project_name,
                    pw.department AS domain_name,
-                   COALESCE(mae.total_hours, 0.00) AS total_hours
+                   COALESCE(mae.total_hours, 0) AS total_hours
             FROM monthly_allocation_entries mae
-            LEFT JOIN users u ON u.email = mae.user_ldap
+            LEFT JOIN users u ON LOWER(u.email) = LOWER(mae.user_ldap)
             LEFT JOIN projects p ON mae.project_id = p.id
             LEFT JOIN prism_wbs pw ON mae.iom_id = pw.iom_id
             WHERE mae.month_start = %s
-              AND mae.user_ldap IN {in_clause}
-            ORDER BY u.username, p.name
+              AND LOWER(mae.user_ldap) IN ({placeholders})
+            ORDER BY LOWER(mae.user_ldap), p.name
         """
-        params = [month_start] + in_params
-        try:
-            with connection.cursor() as cur:
-                cur.execute(sql, params)
-                rows = dictfetchall(cur) or []
-                logger.debug("team_allocations: fetched %d allocation rows", len(rows))
-        except Exception as exc:
-            logger.exception("team_allocations: DB query failed: %s", exc)
-            rows = []
-    else:
-        logger.debug("team_allocations: no reportees to fetch for %s", session_ldap)
+        params = [month_start] + reportees_ldaps
+        with connection.cursor() as cur:
+            cur.execute(sql, params)
+            rows = dictfetchall(cur)
+    except Exception as ex:
+        logger.exception("team_allocations: allocations query failed: %s", ex)
+        rows = []
 
-    # deduplicate and attach weekly allocations as before (existing code)
-    dedup = {}
-    for r in rows:
-        key = r.get("item_id") or (r.get("allocation_id"), r.get("user_ldap"), r.get("project_name"))
-        if key not in dedup:
-            dedup[key] = r
-    all_rows = list(dedup.values())
-
-    allocation_ids = list({r["allocation_id"] for r in all_rows if r.get("allocation_id")})
-    weekly_map = {}
-    if allocation_ids:
-        in_clause, in_params = _sql_in_clause(allocation_ids)
-        sql = f"""
-            SELECT allocation_id, week_number, percent, hours, status
-            FROM weekly_allocations
-            WHERE allocation_id IN {in_clause}
-        """
-        try:
-            with connection.cursor() as cur:
-                cur.execute(sql, in_params)
-                for r in dictfetchall(cur) or []:
-                    try:
-                        alloc = r.get("allocation_id")
-                        wk = int(r.get("week_number") or 0)
-                        pct = float(r.get("percent") or 0.0)
-                        hrs_raw = r.get("hours") or 0.0
-                        try:
-                            hrs = float(hrs_raw)
-                        except Exception:
-                            hrs = 0.0
-                        status = r.get("status") or ""
-                        if alloc is None or wk <= 0:
-                            continue
-                        weekly_map.setdefault(alloc, {})[wk] = {"percent": pct, "hours": hrs, "status": status}
-                    except Exception:
-                        logger.exception("team_allocations: bad weekly row %r", r)
-        except Exception as exc:
-            logger.exception("team_allocations: weekly allocations query failed: %s", exc)
-            weekly_map = {}
-
-    # attach weekly attrs and compute display_name
-    for r in all_rows:
-        aid = r.get("allocation_id")
-        wk = weekly_map.get(aid, {})
-        r["w1"] = wk.get(1, {}).get("percent", 0)
-        r["w2"] = wk.get(2, {}).get("percent", 0)
-        r["w3"] = wk.get(3, {}).get("percent", 0)
-        r["w4"] = wk.get(4, {}).get("percent", 0)
-        r["s1"] = wk.get(1, {}).get("status", "")
-        r["s2"] = wk.get(2, {}).get("status", "")
-        r["s3"] = wk.get(3, {}).get("status", "")
-        r["s4"] = wk.get(4, {}).get("status", "")
-
-        display = (r.get("username") or r.get("user_ldap") or "")
-        if r.get("email"):
-            display += f" <{r['email']}>"
-        r["display_name"] = display
-
-    # Determine reportees with no allocations
-    allocated_ldaps = {(r.get("user_ldap") or "").strip().lower() for r in all_rows if (r.get("user_ldap") or "").strip()}
-    reportees_no_alloc = []
+    # 5) Compute monthly hours limit (billing)
     try:
-        for ld in reportees_ldaps:
-            key = (ld or "").strip()
-            if not key:
-                continue
-            if key.lower() not in allocated_ldaps:
-                local = _get_local_ldap_entry(key)
-                display_name = local.get("cn") if local and local.get("cn") else (local.get("username") if local else "")
-                email_val = local.get("email") if local and local.get("email") else (key if "@" in key else "")
-                reportees_no_alloc.append({
-                    "ldap": key,
-                    "display": display_name,
-                    "email": email_val
-                })
+        month_hours = _get_month_hours_limit(month_start.year, month_start.month)
     except Exception:
-        logger.exception("team_allocations: error building reportees_no_alloc")
-        reportees_no_alloc = []
+        month_hours = 183.75  # safe fallback
 
-    return render(request, "projects/team_allocations.html", {
-        "rows": all_rows,
-        "weekly_map": weekly_map,
+    # 6) Aggregate summary by resource (only reportees)
+    summary = {}
+    for r in rows:
+        u = (r.get("user_ldap") or "").strip()
+        if not u:
+            continue
+        u_lower = u.lower()
+        summary.setdefault(u_lower, {
+            "name": r.get("username") or reportees_map.get(u_lower, {}).get("cn") or u,
+            "email": r.get("email") or reportees_map.get(u_lower, {}).get("mail") or u,
+            "total_hours": 0.0
+        })
+        summary[u_lower]["total_hours"] += float(r.get("total_hours") or 0.0)
+
+    # Derive FTE and colors for each summary entry
+    for key, s in summary.items():
+        hrs = s["total_hours"]
+        fte = (hrs / month_hours) if month_hours else 0.0
+        pct = round(fte * 100, 2)
+        s["fte"] = round(fte, 2)
+        s["percent"] = pct
+        if pct >= 100:
+            s["color"] = "light-green"
+        elif pct >= 80:
+            s["color"] = "light-yellow"
+        elif pct >= 50:
+            s["color"] = "light-orange"
+        else:
+            s["color"] = "light-red"
+
+    # 7) Weekly allocations lookup (weekly_allocations table) for found allocation ids
+    weekly_map = {}
+    allocation_ids = [r["allocation_id"] for r in rows if r.get("allocation_id")]
+    if allocation_ids:
+        try:
+            placeholders = ",".join(["%s"] * len(allocation_ids))
+            with connection.cursor() as cur:
+                cur.execute(f"""
+                    SELECT allocation_id, week_number, percent
+                    FROM weekly_allocations
+                    WHERE allocation_id IN ({placeholders})
+                """, allocation_ids)
+                wrows = dictfetchall(cur)
+                for w in wrows:
+                    aid = w["allocation_id"]
+                    weekly_map.setdefault(aid, {})[int(w["week_number"])] = {"percent": float(w["percent"] or 0)}
+        except Exception as ex:
+            logger.exception("team_allocations: weekly_allocations read failed: %s", ex)
+
+    # 8) reportees_no_alloc: those direct reportees with ZERO allocations this month
+    reportees_no_alloc = []
+    for rldap in reportees_ldaps:
+        if rldap not in summary:
+            entry = reportees_map.get(rldap, {"ldap": rldap, "mail": rldap, "cn": rldap})
+            reportees_no_alloc.append({
+                "ldap": entry.get("ldap") or entry.get("mail") or rldap,
+                "email": entry.get("mail") or "",
+                "display": entry.get("cn") or ""
+            })
+
+    # --- NEW LOGIC: Merge no-allocation users into summary ---
+    for r in reportees_no_alloc:
+        key = r["ldap"].lower()
+        summary[key] = {
+            "name": r.get("display") or r["ldap"],
+            "email": r.get("email") or r["ldap"],
+            "fte": 0.0,
+            "percent": 0.0,
+            "color": "light-red",
+            "no_allocation": True,  # flag for template
+        }
+
+    # 9) Render template with context keys expected by the HTML
+    context = {
         "month_start": month_start,
-        "reportees": reportees_ldaps,
+        "rows": rows,
+        "summary": summary,
+        "weekly_map": weekly_map,
         "reportees_no_alloc": reportees_no_alloc,
-    })
+    }
+    return render(request, "projects/team_allocations.html", context)
+
+
 
 # -------------------------
 # save_team_allocation
