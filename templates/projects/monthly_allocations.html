@@ -556,7 +556,8 @@ function createAllocRow(user_ldap = '', hours = 0) {
     try {
       if (!iom_id) return;
       const project_id = projectSelect.value;
-      const month_start = (CURRENT_IOM && CURRENT_IOM.billing_start) ? CURRENT_IOM.billing_start : '';
+      // If CURRENT_IOM.billing_start is set, use it; fall back to the month input if needed
+      const month_start = (CURRENT_IOM && CURRENT_IOM.billing_start) ? CURRENT_IOM.billing_start : (monthSelect ? monthSelect.value : '');
       const subproject_id = subprojectSelect.value || '';
 
       const params = new URLSearchParams({ project_id, iom_row_id: iom_id, month_start });
@@ -564,18 +565,50 @@ function createAllocRow(user_ldap = '', hours = 0) {
 
       const res = await fetch(GET_SAVED_ALLOC_URL + '?' + params.toString(), { credentials: 'same-origin' });
       const data = await res.json();
+
       if (!data || !data.ok) {
-        showToast('Failed to load saved allocations');
-        console.warn('get_allocations_for_iom', data);
-        return;
+        // Support both styles where server may return ok:false or HTTP 200 with rows
+        // If server returned rows without ok flag, continue below (we will normalize)
+        if (!data || (data.ok === false && !data.rows && !data.saved_items)) {
+          showToast('Failed to load saved allocations');
+          console.warn('get_allocations_for_iom', data);
+          return;
+        }
+      }
+
+      // Normalize server response: allow either { saved_items: [...] } OR { rows: [...] }
+      // rows[] may contain full row objects; convert to expected { user_ldap, total_hours, fte }
+      let saved = [];
+      if (Array.isArray(data.saved_items)) {
+        saved = data.saved_items;
+      } else if (Array.isArray(data.rows)) {
+        // rows may have month_start as ISO string; total_hours may be Decimal or string
+        for (const r of data.rows) {
+          const user = r.user_ldap || r.user || '';
+          let th = r.total_hours;
+          if (th === null || th === undefined) th = 0;
+          // ensure numeric
+          th = (typeof th === 'string') ? parseFloat(th) || 0 : (Number(th) || 0);
+          // compute FTE if server didn't include it but returned month_start
+          let fte = r.fte;
+          if ((fte === undefined || fte === null) && r.month_start) {
+            const billingHours = parseFloat(BILLING_HOURS) || DEFAULT_BILLING_HOURS;
+            fte = billingHours > 0 ? (th / billingHours) : 0;
+            fte = Number(fte.toFixed(4));
+          }
+          saved.push({ user_ldap: user, total_hours: th, fte: fte });
+        }
+      } else if (data.saved_items && typeof data.saved_items === 'object') {
+        // defensive: saved_items might be object with keys — convert values to array
+        saved = Object.values(data.saved_items).flat();
       }
 
       // populate allocation table
       allocBody.innerHTML = '';
-      if (data.saved_items && Array.isArray(data.saved_items) && data.saved_items.length) {
-        for (const it of data.saved_items) {
+      if (saved.length) {
+        for (const it of saved) {
           const row = createAllocRow(it.user_ldap || '', it.total_hours || 0);
-          // set fte if server provided
+          // set fte if server provided or computed above
           const fteInput = row.querySelector('.fte-display');
           if (fteInput && (it.fte !== undefined && it.fte !== null)) {
             fteInput.value = parseFloat(it.fte).toFixed(4);
@@ -592,7 +625,7 @@ function createAllocRow(user_ldap = '', hours = 0) {
     }
   }
 
-  // ----- Save allocations -----
+  // ----- Save allocations ----- (small addition to handle different response shapes)
   async function saveAllocations() {
     try {
       if (!CURRENT_IOM) { showToast('Select IOM first'); return; }
@@ -624,36 +657,28 @@ function createAllocRow(user_ldap = '', hours = 0) {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (!data || !data.ok) {
+      if (!data || (data.ok === false && !data.saved_items && !data.rows)) {
         console.warn('save_monthly_allocations', data);
         alert('Save failed: ' + (data.error || 'server error'));
         return;
       }
 
-      // If server returns saved items, refresh table from it; otherwise reload from server
-      if (data.saved_items && Array.isArray(data.saved_items)) {
-        allocBody.innerHTML = '';
-        for (const it of data.saved_items) {
-          const row = createAllocRow(it.user_ldap || '', it.total_hours || 0);
-          const fteInput = row.querySelector('.fte-display');
-          if (fteInput && (it.fte !== undefined && it.fte !== null)) fteInput.value = parseFloat(it.fte).toFixed(4);
-          allocBody.appendChild(row);
-        }
+      // Normalize response and refresh UI from server data (use the newer loadSavedAllocations to re-fetch)
+      // If server returned saved_items or rows directly, populate immediately; otherwise re-fetch canonical data.
+      if (Array.isArray(data.saved_items) || Array.isArray(data.rows)) {
+        // Use the same normalization as loadSavedAllocations (we can reuse it by calling loadSavedAllocations)
+        await loadSavedAllocations(CURRENT_IOM.iom_id);
       } else {
+        // fallback: re-fetch server canonical response
         await loadSavedAllocations(CURRENT_IOM.iom_id);
       }
 
-      showToast('Allocations saved', 1400);
-      validateAll();
-
-      // refresh header (remaining hours/fte) by refetching iom details
-      await fetchIomDetails(CURRENT_IOM.iom_id);
+      showToast('Allocations saved', 2000);
     } catch (err) {
       console.error('saveAllocations', err);
-      alert('Save failed (see console)');
+      alert('Save failed: ' + (err && err.message ? err.message : 'unknown error'));
     }
   }
-
   // ----- Export allocations -----
   function exportAllocations() {
     if (!CURRENT_IOM) { showToast('Select IOM first'); return; }
