@@ -54,5 +54,5 @@ urlpatterns = [
     path('my-allocations/export/pdf/', views.export_my_punches_pdf, name='export_my_punches_pdf'),
     path("team-allocations/save-distribution/", views.save_team_distribution_using_team_table, name="save_team_distribution"),
     path("team-allocations/apply-distributions/", views.apply_team_distributions_view, name="apply_team_distributions"),
-
+    path("team-allocations/delete-distribution/", views.delete_team_distribution, name="delete_team_distribution"),
 ]

@@ -436,19 +436,25 @@ class DatabaseInitializer:
         print("Adding DDL for table: weekly_allocations")
         ddls.append("""
             CREATE TABLE IF NOT EXISTS `weekly_allocations` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `allocation_id` BIGINT NOT NULL,
-                `week_number` TINYINT NOT NULL,
-                `hours` DECIMAL(10,2) UNSIGNED NOT NULL DEFAULT '0.00',
-                `percent` DECIMAL(5,2) NOT NULL DEFAULT '0.00',
-                `status` VARCHAR(16) NOT NULL DEFAULT 'PENDING',
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_week_alloc` (`allocation_id`, `week_number`),
-                CONSTRAINT `fk_weekly_alloc_mae`
-                    FOREIGN KEY (`allocation_id`) REFERENCES `monthly_allocation_entries` (`id`)
-                    ON DELETE CASCADE ON UPDATE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+            `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+            `allocation_id` BIGINT NULL,                -- existing monthly_allocation_entries link (nullable)
+            `team_distribution_id` BIGINT NULL,         -- new link to team_distributions (nullable)
+            `week_number` TINYINT NOT NULL,
+            `hours` DECIMAL(10,2) UNSIGNED NOT NULL DEFAULT '0.00',
+            `percent` DECIMAL(5,2) NOT NULL DEFAULT '0.00',
+            `status` VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_week_alloc_allocation` (`allocation_id`, `week_number`),
+            UNIQUE KEY `uq_week_alloc_team_dist` (`team_distribution_id`, `week_number`),
+            CONSTRAINT `fk_weekly_alloc_mae`
+                FOREIGN KEY (`allocation_id`) REFERENCES `monthly_allocation_entries` (`id`)
+                ON DELETE CASCADE ON UPDATE CASCADE,
+            CONSTRAINT `fk_weekly_alloc_team_dist`
+                FOREIGN KEY (`team_distribution_id`) REFERENCES `team_distributions` (`id`)
+                ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
         """)
 
         # 12) team_distributions (recommended) - depends on monthly_allocation_entries optionally

@@ -2190,7 +2190,7 @@ def team_allocations(request):
     try:
         with connection.cursor() as cur:
             cur.execute("""
-                SELECT subproject_id, reportee_ldap, hours
+                SELECT id, subproject_id, reportee_ldap, hours
                 FROM team_distributions
                 WHERE lead_ldap = %s AND month_start = %s
             """, [session_ldap, month_start])
@@ -2198,11 +2198,13 @@ def team_allocations(request):
             for tr in trows:
                 sp = tr.get('subproject_id') or 'none'
                 team_dist_map.setdefault(str(sp), []).append({
+                    "id": int(tr.get("id")) if tr.get("id") is not None else None,
                     "reportee_ldap": (tr.get("reportee_ldap") or "").strip(),
                     "hours": float(tr.get("hours") or 0.0),
                     # week_perc not stored here in this table; frontend will keep zeros or user-entered
-                    "week_perc": [0,0,0,0]
+                    "week_perc": [0, 0, 0, 0]
                 })
+
     except Exception as ex:
         logger.exception("team_allocations: team_distributions read failed: %s", ex)
         team_dist_map = {}
@@ -2310,13 +2312,15 @@ def team_allocations(request):
             cn = reportees_map.get(ldap, {}).get("cn") or ldap
             mail = reportees_map.get(ldap, {}).get("mail") or ldap
             dist_items.append({
+                "id": int(d.get("id")) if d.get("id") is not None else None,  # <-- NEW: DB PK of team_distributions
                 "allocation_id": None,
                 "reportee_ldap": ldap,
                 "username": cn,
                 "email": mail,
                 "hours": float(d.get("hours") or 0.0),
-                "week_perc": d.get("week_perc") or [0,0,0,0]
+                "week_perc": d.get("week_perc") or [0, 0, 0, 0]
             })
+
         la["distribution"] = dist_items
 
     lead_allocations_final = list(lad_map.values())
@@ -3971,13 +3975,19 @@ def save_team_distribution_using_team_table(request):
             {
                 "subproject_id": "...",
                 "items": [
-                    {"reportee": "...", "hours": ..., "weeks": [...]},
+                    {"reportee": "user@domain", "hours": 50.0, "weeks": [25,25,25,25]},
                     ...
                 ]
             },
             ...
         ]
     }
+
+    Behavior:
+    - Upserts team_distributions rows (month_start, lead_ldap, subproject_id, reportee_ldap -> hours).
+    - For each upserted team_distributions row, reads back its id and upserts 4 weekly_allocations rows
+      (team_distribution_id, week_number) with hours and percent.
+    - Validation ensures total distributed per subproject does not exceed lead's allowed hours (same as before).
     """
     import json
     from datetime import date
@@ -3985,7 +3995,6 @@ def save_team_distribution_using_team_table(request):
     from django.db import transaction, connection
 
     logger = logging.getLogger(__name__)
-    print("save_team_distribution_using_team_table: called")
     try:
         payload = json.loads(request.body.decode("utf-8"))
     except Exception as e:
@@ -3994,117 +4003,139 @@ def save_team_distribution_using_team_table(request):
 
     allocations = payload.get("allocations", [])
     month_str = payload.get("month")
-    print("Payload loaded:", payload)
-    print("Allocations:", allocations)
-    print("Month string:", month_str)
     if not month_str:
         return JsonResponse({"ok": False, "error": "Missing month"}, status=400)
 
-    # Parse year and month from month_str and get canonical billing period
+    # Resolve canonical billing period (month_start) from monthly_hours_limit table
     try:
         year, month = map(int, month_str.split("-"))
         with connection.cursor() as cur:
             cur.execute("""
-                SELECT start_date, end_date 
-                FROM monthly_hours_limit 
+                SELECT start_date, end_date
+                FROM monthly_hours_limit
                 WHERE year = %s AND month = %s
             """, [year, month])
             row = cur.fetchone()
             if not row or not row[0]:
                 logger.error("No valid billing cycle found for %s-%s", year, month)
                 return JsonResponse({"ok": False, "error": "Billing period not found"}, status=400)
-            month_start, billing_end = row
+            month_start, billing_end = row[0], row[1]
     except Exception as e:
-        logger.error("Billing period lookup failed: %r", e)
+        logger.exception("Billing period lookup failed: %r", e)
         return JsonResponse({"ok": False, "error": "Error reading billing cycle"}, status=500)
 
-    # Flatten allocations
+    # Flatten allocations to list of { subproject_id, reportee_ldap, hours, weeks }
     flat_allocs = []
     for alloc in allocations:
         subproject_id = alloc.get("subproject_id")
-        items = alloc.get("items", [])
+        items = alloc.get("items", []) or []
         for item in items:
-            reportee_ldap = item.get("reportee")
+            reportee_ldap = (item.get("reportee") or "").strip()
             hours = item.get("hours")
+            weeks = item.get("weeks", [])  # expected length 4, but tolerant
             if not (subproject_id and reportee_ldap and hours is not None):
                 continue
             flat_allocs.append({
                 "subproject_id": subproject_id,
                 "reportee_ldap": reportee_ldap,
-                "hours": hours
+                "hours": float(hours or 0),
+                "weeks": [float(w or 0) for w in (weeks or [])]
             })
 
     if not flat_allocs:
         return JsonResponse({"ok": False, "error": "No valid allocations"}, status=400)
 
     session_ldap = request.session.get("ldap_username")
-    print("Session LDAP:", session_ldap)
     if not session_ldap:
         return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
 
-    # Optionally, fetch project_id for each subproject if needed (set to None if not available)
-    project_id = None  # Set this if you want to fetch project_id per subproject
-
-    # Group distributed hours by subproject
+    # Validate per-subproject totals against monthly_allocation_entries (lead's allowed hours)
     from collections import defaultdict
     subproject_hours = defaultdict(float)
-    for alloc in flat_allocs:
-        subproject_hours[alloc["subproject_id"]] += float(alloc["hours"])
+    for a in flat_allocs:
+        subproject_hours[a["subproject_id"]] += float(a["hours"] or 0.0)
 
-    # Validate against monthly_allocation_entries
-    with connection.cursor() as cur:
-        for subproject_id, total_dist_hours in subproject_hours.items():
-            cur.execute(
-                """
-                SELECT total_hours
-                FROM monthly_allocation_entries
-                WHERE user_ldap = %s AND subproject_id = %s AND month_start = %s
-                """,
-                [session_ldap, subproject_id, month_start]
-            )
-            row = cur.fetchone()
-            print("Row :", row)
-            sql = """
-                SELECT total_hours
-                FROM monthly_allocation_entries
-                WHERE user_ldap = %s AND subproject_id = %s AND month_start = %s
-            """
-            params = [session_ldap, subproject_id, month_start]
-            print("Executing SQL:", sql)
-            print("With params:", params)
+    try:
+        with connection.cursor() as cur:
+            for subproject_id, total_dist_hours in subproject_hours.items():
+                cur.execute("""
+                    SELECT total_hours
+                    FROM monthly_allocation_entries
+                    WHERE user_ldap = %s AND subproject_id = %s AND month_start = %s
+                """, [session_ldap, subproject_id, month_start])
+                row = cur.fetchone()
+                allowed_hours = float(row[0]) if row else 0.0
+                if total_dist_hours > allowed_hours:
+                    return JsonResponse({
+                        "ok": False,
+                        "error": f"Distributed hours ({total_dist_hours:.2f}) exceed allowed hours ({allowed_hours:.2f}) for subproject {subproject_id}."
+                    }, status=400)
+    except Exception as e:
+        logger.exception("Validation failed: %s", e)
+        return JsonResponse({"ok": False, "error": "Validation error"}, status=500)
 
-            allowed_hours = float(row[0]) if row else 0.0
-            print("Subproject:", subproject_id, "Allowed hours:", allowed_hours, "Distributed hours:", total_dist_hours)
-            if total_dist_hours > allowed_hours:
-                return JsonResponse({
-                    "ok": False,
-                    "error": f"Distributed hours ({total_dist_hours}) exceed allowed hours ({allowed_hours}) for subproject {subproject_id}."
-                }, status=400)
+    # Persist: upsert team_distributions and weekly_allocations inside a transaction
     try:
         with transaction.atomic():
             with connection.cursor() as cur:
-                for alloc in flat_allocs:
-                    subproject_id = alloc["subproject_id"]
-                    reportee_ldap = alloc["reportee_ldap"]
-                    hours = alloc["hours"]
-                    # Insert or update
-                    cur.execute(
-                        """
+                # We'll optionally set project_id to NULL (same as before). If you want to derive project_id per subproject,
+                # you can query subprojects table here.
+                project_id = None
+
+                for a in flat_allocs:
+                    subproject_id = a["subproject_id"]
+                    reportee_ldap = a["reportee_ldap"]
+                    hours = float(a["hours"] or 0.0)
+                    weeks = a.get("weeks", []) or []
+
+                    # Upsert team_distributions (same uniqueness constraint exists)
+                    cur.execute("""
                         INSERT INTO team_distributions
-                        (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         ON DUPLICATE KEY UPDATE
                             hours = VALUES(hours),
                             updated_at = CURRENT_TIMESTAMP
-                        """,
-                        [month_start, session_ldap, project_id, subproject_id, reportee_ldap, hours]
-                    )
+                    """, [month_start, session_ldap, project_id, subproject_id, reportee_ldap, hours])
+
+                    # Fetch the team_distributions.id for this upserted row
+                    cur.execute("""
+                        SELECT id FROM team_distributions
+                        WHERE month_start = %s AND lead_ldap = %s AND subproject_id = %s AND LOWER(reportee_ldap) = LOWER(%s)
+                        LIMIT 1
+                    """, [month_start, session_ldap, subproject_id, reportee_ldap])
+                    td_row = cur.fetchone()
+                    if not td_row:
+                        # defensive: if we cannot find the row, skip weekly inserts for this item
+                        logger.warning("Could not find team_distributions row after upsert for %s / %s", subproject_id, reportee_ldap)
+                        continue
+                    team_dist_id = int(td_row[0])
+
+                    # Upsert weekly allocations for this team_distribution (weeks 1..4)
+                    # Note: your weekly_allocations table must have a UNIQUE key on (team_distribution_id, week_number)
+                    for idx in range(4):
+                        wknum = idx + 1
+                        pct = float(weeks[idx]) if idx < len(weeks) else 0.0
+                        wk_hours = round((pct / 100.0) * hours, 2) if hours and pct else 0.0
+
+                        cur.execute("""
+                            INSERT INTO weekly_allocations
+                              (team_distribution_id, week_number, hours, percent, status, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            ON DUPLICATE KEY UPDATE
+                              hours = VALUES(hours),
+                              percent = VALUES(percent),
+                              updated_at = CURRENT_TIMESTAMP
+                        """, [team_dist_id, wknum, wk_hours, pct, 'PENDING'])
+
+                # Optionally: remove weekly_allocations for team_distribution rows that no longer exist
+                # (not implemented here; deletes should be done via delete endpoint to avoid accidental removals)
     except Exception as e:
-        logger.error("Error in save_team_distribution_using_team_table: %r", e)
+        logger.exception("Error in save_team_distribution_using_team_table: %r", e)
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
-    print("save_team_distribution_using_team_table: completed successfully")
     return JsonResponse({"ok": True})
+
 
 def apply_team_distributions_view(request):
     """
@@ -4208,3 +4239,52 @@ def apply_team_distributions_view(request):
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse
+from django.db import connection
+import json, logging
+
+
+@require_POST
+def delete_team_distribution(request):
+    """
+    Delete a team_distributions row (and its weekly_allocations via FK cascade).
+    Expects JSON body: { "id": <team_distribution_id> }
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        print("Invalid JSON in delete_team_distribution")
+        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    td_id = data.get("id")
+    if not td_id:
+        print("Missing id in delete_team_distribution")
+        return JsonResponse({"ok": False, "error": "Missing id"}, status=400)
+
+    session_ldap = request.session.get("ldap_username")
+    if not session_ldap:
+        print("Not authenticated in delete_team_distribution")
+        return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
+
+    try:
+        with connection.cursor() as cur:
+            # Verify that the logged-in lead owns this record
+            cur.execute("SELECT lead_ldap FROM team_distributions WHERE id = %s LIMIT 1", [td_id])
+            row = cur.fetchone()
+            if not row:
+                print("Record not found in delete_team_distribution")
+                return JsonResponse({"ok": False, "error": "Record not found"}, status=404)
+
+            lead_ldap = (row[0] or "").lower()
+            if lead_ldap != (session_ldap or "").lower():
+                print("Forbidden: lead_ldap mismatch in delete_team_distribution")
+                return JsonResponse({"ok": False, "error": "Forbidden"}, status=403)
+
+            # Delete it; ON DELETE CASCADE will remove weekly_allocations
+            cur.execute("DELETE FROM team_distributions WHERE id = %s", [td_id])
+
+        return JsonResponse({"ok": True})
+    except Exception as e:
+        print(f"delete_team_distribution failed: {e}")
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
