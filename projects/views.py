@@ -4526,10 +4526,18 @@ def tl_allocations_view(request):
 @require_POST
 def save_tl_allocations(request):
     """
-    Save free-hand allocations (no restrictions) — upserts into team_distributions and weekly_allocations.
+    Save free-hand TL allocations (no restrictions).
+    Behaviour:
+      - For each incoming allocation row, attempt to find an existing team_distributions
+        row for (month_start, lead_ldap, reportee_ldap, subproject_id).
+        * This SELECT uses explicit NULL handling so rows with subproject_id IS NULL
+          are matched correctly (prevents duplicate inserts when subproject_id is NULL).
+      - If found -> UPDATE that row (idempotent).
+      - If not found -> INSERT a new row and read its id.
+      - For the 4 weeks, upsert weekly_allocations for the found/inserted team_distribution id.
     """
     try:
-        data = json.loads(request.body.decode("utf-8"))
+        payload = json.loads(request.body.decode("utf-8"))
     except Exception:
         return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
 
@@ -4537,53 +4545,108 @@ def save_tl_allocations(request):
     if not session_ldap:
         return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
 
-    month = data.get("month")
-    allocations = data.get("allocations", [])
-    if not month or not allocations:
-        return JsonResponse({"ok": False, "error": "Missing month or allocations"}, status=400)
+    month = payload.get("month")
+    allocations = payload.get("allocations", [])
+    if not month:
+        return JsonResponse({"ok": False, "error": "Missing month"}, status=400)
 
-    with transaction.atomic():
-        with connection.cursor() as cur:
-            for a in allocations:
-                reportee = a.get("reportee")
-                project_id = a.get("project_id") or None
-                subproject_id = a.get("subproject_id") or None
-                hours = float(a.get("hours") or 0)
-                weeks = a.get("weeks") or [0, 0, 0, 0]
+    # canonical month_start date string e.g. "2025-08-01"
+    month_start = f"{month}-01"
 
-                # insert or update team_distributions
-                cur.execute("""
-                    INSERT INTO team_distributions
-                        (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        hours = VALUES(hours),
-                        updated_at = NOW()
-                """, [f"{month}-01", session_ldap, project_id, subproject_id, reportee, hours])
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cur:
+                for a in allocations:
+                    reportee = (a.get("reportee") or "").strip()
+                    if not reportee:
+                        # skip empty rows
+                        continue
 
-                # fetch id for FK usage
-                cur.execute("""
-                    SELECT id FROM team_distributions
-                    WHERE month_start=%s AND lead_ldap=%s AND subproject_id=%s AND reportee_ldap=%s
-                    LIMIT 1
-                """, [f"{month}-01", session_ldap, subproject_id, reportee])
-                td = cur.fetchone()
-                if not td:
-                    continue
-                tdid = td[0]
+                    project_id = a.get("project_id") or None
+                    subproject_id = a.get("subproject_id") or None
+                    hours = float(a.get("hours") or 0)
+                    weeks = a.get("weeks") or [0, 0, 0, 0]
+                    # defensive: ensure 4-week list
+                    if not isinstance(weeks, (list, tuple)) or len(weeks) < 4:
+                        weeks = (weeks + [0, 0, 0, 0])[:4]
 
-                # weekly allocations upsert
-                for i, pct in enumerate(weeks):
-                    wknum = i + 1
-                    whrs = round((pct / 100.0) * hours, 2)
+                    # 1) Try to find an existing team_distributions row for this lead/month/reportee/subproject
+                    #    Handle NULL subproject_id explicitly so nulls are matched (MySQL allows multiple NULLs
+                    #    in a UNIQUE constraint, so a simple ON DUPLICATE may not prevent duplicates).
                     cur.execute("""
-                        INSERT INTO weekly_allocations
-                            (team_distribution_id, week_number, hours, percent, status)
-                        VALUES (%s, %s, %s, %s, 'PENDING')
-                        ON DUPLICATE KEY UPDATE
-                            hours = VALUES(hours),
-                            percent = VALUES(percent),
-                            updated_at = NOW()
-                    """, [tdid, wknum, whrs, pct])
+                        SELECT id
+                        FROM team_distributions
+                        WHERE month_start = %s
+                          AND LOWER(lead_ldap) = LOWER(%s)
+                          AND LOWER(reportee_ldap) = LOWER(%s)
+                          AND (
+                            (subproject_id = %s)
+                            OR (subproject_id IS NULL AND %s IS NULL)
+                          )
+                        LIMIT 1
+                    """, [month_start, session_ldap, reportee, subproject_id, subproject_id])
+                    found = cur.fetchone()
 
-    return JsonResponse({"ok": True})
+                    if found and found[0]:
+                        tdid = int(found[0])
+                        # update the existing row
+                        cur.execute("""
+                            UPDATE team_distributions
+                            SET project_id = %s,
+                                subproject_id = %s,
+                                hours = %s,
+                                updated_at = NOW()
+                            WHERE id = %s
+                        """, [project_id, subproject_id, hours, tdid])
+                    else:
+                        # insert a new row; let the DB assign id
+                        cur.execute("""
+                            INSERT INTO team_distributions
+                                (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                        """, [month_start, session_ldap, project_id, subproject_id, reportee, hours])
+                        # get last inserted id
+                        try:
+                            tdid = int(cur.lastrowid)
+                        except Exception:
+                            # fallback: select the row we just inserted (best-effort)
+                            cur.execute("""
+                                SELECT id FROM team_distributions
+                                WHERE month_start=%s AND lead_ldap=%s AND LOWER(reportee_ldap)=LOWER(%s)
+                                  AND ( (subproject_id=%s) OR (subproject_id IS NULL AND %s IS NULL) )
+                                ORDER BY id DESC
+                                LIMIT 1
+                            """, [month_start, session_ldap, reportee, subproject_id, subproject_id])
+                            r2 = cur.fetchone()
+                            if not r2:
+                                # something went wrong — raise to trigger rollback
+                                raise RuntimeError("Failed to determine team_distributions id after insert")
+                            tdid = int(r2[0])
+
+                    # 2) Upsert weekly_allocations for this team_distribution id
+                    #    Use team_distribution_id + week_number unique constraint to update or insert.
+                    for i, pct in enumerate(weeks):
+                        wk = int(i) + 1
+                        pct_val = float(pct or 0)
+                        week_hours = round((pct_val / 100.0) * hours, 2)
+                        cur.execute("""
+                            INSERT INTO weekly_allocations
+                                (team_distribution_id, week_number, hours, percent, status, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                            ON DUPLICATE KEY UPDATE
+                                hours = VALUES(hours),
+                                percent = VALUES(percent),
+                                status = VALUES(status),
+                                updated_at = NOW()
+                        """, [tdid, wk, week_hours, pct_val, 'PENDING'])
+
+        # success
+        return JsonResponse({"ok": True})
+    except Exception as ex:
+        # log for debugging — don't expose raw exception text in production if sensitive
+        try:
+            logger.exception("save_tl_allocations failed: %s", ex)
+        except Exception:
+            pass
+        return JsonResponse({"ok": False, "error": str(ex)}, status=500)
+

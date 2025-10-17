@@ -328,8 +328,14 @@
     });
   }
 
-  // Build initial rows from server-provided allocations
+    // Build initial rows from server-provided allocations
   function populateInitialRows(){
+    // If the server already rendered rows into #allocBody, bail out:
+    // this prevents creating duplicate rows when allocations are pre-rendered
+    if(document.querySelectorAll('#allocBody .alloc-row').length > 0){
+      return;
+    }
+
     const initial = {{ allocations|default:"[]"|safe }};
     if(Array.isArray(initial) && initial.length){
       initial.forEach(r => {
@@ -344,6 +350,7 @@
       });
     }
   }
+
 
   // collect rows into payload for save
   function gatherAllocations(){
