@@ -13,7 +13,9 @@
 
 .card { background: #fff; border-radius:8px; margin-top:18px; box-shadow:none; border:1px solid #f0f4f8; }
 .card-header { padding:12px 18px; border-bottom:1px solid #f3f6fb; font-weight:600; color:#0b2545; display:flex; justify-content:space-between; align-items:center; }
-.card-body { padding:16px 18px; }
+.card-header span { margin-left:6px; } /* small breathing space between the left edge and heading text */
+.card-body { padding:16px 18px; overflow-x: auto; } /* allow horizontal scroll for wide table */
+
 .summary-table, .alloc-table { width:100%; border-collapse:collapse; font-size:14px; }
 .summary-table th, .summary-table td, .alloc-table th, .alloc-table td { padding:10px 8px; border-bottom:1px solid #f3f6fb; text-align:left; vertical-align:middle; }
 .alloc-table thead th { background:#f7fbff; color:#0b2545; font-weight:700; }
@@ -29,10 +31,19 @@
 .compact-subproject { max-width:260px; }
 .sel-resource { min-width:220px; }
 
+/* highlight rows that exceed monthly limit */
+.alloc-row.limit-exceeded { background: linear-gradient(90deg, rgba(255,234,234,0.9), rgba(255,244,244,0.6)); border-left:4px solid #ef4444; }
+
+/* vertical spacing between cards (visual breathing) */
+.card + .card { margin-top: 20px; }
+
 /* responsive */
 @media (max-width: 980px) {
   .compact-project, .compact-subproject, .sel-resource { max-width:100%; display:block; }
 }
+
+/* small pill spacing (fix gaps around headings) */
+.card-header .pill { width:8px; height:28px; display:inline-block; background:linear-gradient(180deg,#2b7cff,#1a4ed8); border-radius:6px; margin-right:10px; vertical-align:middle; }
 </style>
 
 <div class="page-card">
@@ -51,7 +62,7 @@
 
   <!-- Direct reportees summary -->
   <div class="card">
-    <div class="card-header"><span>Direct Reportees Summary</span></div>
+    <div class="card-header"><span><span class="pill"></span>Direct Reportees Summary</span></div>
     <div class="card-body">
       <table class="summary-table" id="summaryTable">
         <thead>
@@ -65,7 +76,16 @@
           {% if reportees %}
             {% for r in reportees %}
             <tr class="reportee-row" data-ldap="{{ r.ldap }}">
-              <td>{{ r.name }} ({{ r.mail|default:r.ldap }})</td>
+              <td>
+                {# robust fallback: prefer cn -> name -> mail -> ldap #}
+                {% if r.cn %}
+                  {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                {% elif r.name %}
+                  {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                {% else %}
+                  &lt;{{ r.mail|default:r.ldap }}&gt;
+                {% endif %}
+              </td>
               <td class="r-hours">{{ r.total_hours|default:"0.00" }}</td>
               <td class="r-fte">{{ r.fte|default:"0.000" }}</td>
             </tr>
@@ -81,7 +101,7 @@
   <!-- Allocation section -->
   <div class="card">
     <div class="card-header">
-      <span>Allocate Bandwidth</span>
+      <span><span class="pill"></span>Allocate Bandwidth</span>
       <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
     </div>
 
@@ -109,7 +129,14 @@
                 <select class="input sel-resource">
                   <option value="">-- select --</option>
                   {% for r in reportees %}
-                    <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} ({{ r.ldap }})</option>
+                    {% comment %} robust display: prefer cn -> name -> mail -> ldap {% endcomment %}
+                    {% if r.cn %}
+                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+                    {% elif r.name %}
+                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+                    {% else %}
+                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>&lt;{{ r.mail|default:r.ldap }}&gt;</option>
+                    {% endif %}
                   {% endfor %}
                 </select>
               </td>
@@ -118,7 +145,7 @@
                 <select class="input sel-project">
                   <option value="">-- select --</option>
                   {% for p in projects %}
-                    {# projects entries: {id, name, bg_code, project_id} from view #}
+                    {# p.project_id, bg_code, project_id } from view #}
                     <option value="{{ p.project_id }}" data-bgcode="{{ p.bg_code|default:'' }}" {% if p.project_id == row.project_id %}selected{% endif %}>
                       {{ p.name }}
                     </option>
@@ -158,7 +185,13 @@
       <select class="input sel-resource">
         <option value="">-- select --</option>
         {% for r in reportees %}
-          <option value="{{ r.ldap }}">{{ r.name }} ({{ r.ldap }})</option>
+          {% if r.cn %}
+            <option value="{{ r.ldap }}">{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+          {% elif r.name %}
+            <option value="{{ r.ldap }}">{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+          {% else %}
+            <option value="{{ r.ldap }}">&lt;{{ r.mail|default:r.ldap }}&gt;</option>
+          {% endif %}
         {% endfor %}
       </select>
     </td>
@@ -186,7 +219,7 @@
 <script>
 (function(){
   // Config / server-provided values
-  const MONTHLY_LIMIT = {{ monthly_hours|default:183.75 }};
+  const MONTHLY_LIMIT = {{ monthly_hours|default:183.75 }};           // per-billing-cycle maximum hours (one scalar)
   const SUBPROJECTS = JSON.parse('{{ subprojects_json|escapejs }}' || '[]');
   const CSRF = (document.cookie.split('; ').find(x=>x.trim().startsWith('csrftoken='))||'').split('=')[1] || '';
 
@@ -194,28 +227,40 @@
   function fillSubprojectOptions(selSub, projectId, selectedId){
     selSub.innerHTML = '<option value="">-- select --</option>';
     if(!projectId){
+      // fallback attempt: if selectedId present, try to find and show it even without project
+      if(selectedId){
+        try{
+          const s = SUBPROJECTS.find(x => String(x.id) === String(selectedId));
+          if(s){
+            const opt = document.createElement('option');
+            opt.value = s.id || '';
+            opt.textContent = s.name || '';
+            opt.selected = true;
+            selSub.appendChild(opt);
+          }
+        } catch(e){}
+      }
       return;
     }
-    let found = 0;
-    SUBPROJECTS.forEach(s => {
-      // normalize project_id
-      const pid = (s.project_id === null || s.project_id === undefined) ? '' : String(s.project_id);
-      if(String(pid) === String(projectId)){
-        const opt = document.createElement('option');
-        opt.value = s.id;
-        opt.textContent = s.name || s.description || ('subproject ' + s.id);
-        if(selectedId && String(selectedId) === String(s.id)) opt.selected = true;
-        selSub.appendChild(opt);
-        found++;
-      }
-    });
 
-    // fallback: match by bg_code/mdm_code if no direct project_id match found
-    if(found === 0){
-      try {
-        const tr = selSub.closest('tr');
-        const projSelect = tr.querySelector('.sel-project');
-        const projOpt = projSelect && projSelect.options[projSelect.selectedIndex];
+    // primary matching logic: try project -> bg_code -> mdm match
+    try {
+      // if projectId corresponds directly to subproject.project_id, show matches
+      SUBPROJECTS.forEach(s => {
+        const pid = (s.project_id === null || s.project_id === undefined) ? '' : String(s.project_id);
+        if(pid === String(projectId)){
+          const opt = document.createElement('option');
+          opt.value = s.id || '';
+          opt.textContent = s.name || '';
+          if(selectedId && String(selectedId) === String(s.id)) opt.selected = true;
+          selSub.appendChild(opt);
+        }
+      });
+
+      // if none found above, attempt bg/mdm matching using project's data-bgcode attribute
+      if(selSub.options.length === 1){ // only the default option present
+        // find a project option element to get bgcode
+        const projOpt = Array.from(document.querySelectorAll('.sel-project option')).find(o => String(o.value) === String(projectId));
         const bg = projOpt ? (projOpt.dataset.bgcode || projOpt.getAttribute('data-bgcode')) : null;
         if(bg){
           SUBPROJECTS.forEach(s => {
@@ -229,9 +274,10 @@
             }
           });
         }
-      } catch (e) {
-        // ignore fallback errors silently
       }
+    } catch(e){
+      // swallow errors — fallback to empty subproject list
+      // console.debug('fillSubprojectOptions error', e);
     }
   }
 
@@ -292,7 +338,8 @@
         selProj.value = prefill.project_id;
         fillSubprojectOptions(selSub, prefill.project_id, prefill.subproject_id || null);
       } else if(prefill.subproject_id){
-        fillSubprojectOptions(selSub, '', prefill.subproject_id || null);
+        // if only subproject known, try to set it (fillSubprojectOptions has fallback)
+        fillSubprojectOptions(selSub, '', prefill.subproject_id);
       }
       if(prefill.hours) tr.querySelector('.inp-hours').value = prefill.hours;
       if(Array.isArray(prefill.week_perc)){
@@ -328,11 +375,38 @@
     });
   }
 
-    // Build initial rows from server-provided allocations
+  // Build initial rows from server-provided allocations
   function populateInitialRows(){
-    // If the server already rendered rows into #allocBody, bail out:
-    // this prevents creating duplicate rows when allocations are pre-rendered
+    // Guard: if server already rendered rows into #allocBody, do not duplicate.
     if(document.querySelectorAll('#allocBody .alloc-row').length > 0){
+      // still ensure subproject selects are filled for those server-rendered rows
+      document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+        const projectId = tr.querySelector('.sel-project')?.value;
+        const subprojectSelected = tr.getAttribute('data-subproject-id') || tr.querySelector('.sel-subproject')?.value;
+        if(projectId){
+          fillSubprojectOptions(tr.querySelector('.sel-subproject'), projectId, subprojectSelected);
+        } else if(subprojectSelected){
+          // if project missing but subproject present, attempt to find project and select it
+          try {
+            const sp = SUBPROJECTS.find(s => String(s.id) === String(subprojectSelected));
+            if(sp && sp.project_id){
+              // try to set project select element to matching value
+              const projSel = tr.querySelector('.sel-project');
+              if(projSel){
+                const opt = Array.from(projSel.options).find(o => String(o.value) === String(sp.project_id));
+                if(opt) projSel.value = opt.value;
+              }
+              // now fill subprojects for the selected project
+              fillSubprojectOptions(tr.querySelector('.sel-subproject'), tr.querySelector('.sel-project')?.value, subprojectSelected);
+            } else {
+              // fallback: ensure subproject select still shows the specific subproject if possible
+              fillSubprojectOptions(tr.querySelector('.sel-subproject'), '', subprojectSelected);
+            }
+          } catch(e){}
+        }
+        updateFTE(tr);
+      });
+      recomputeSummaryTotals();
       return;
     }
 
@@ -349,8 +423,8 @@
         });
       });
     }
+    recomputeSummaryTotals();
   }
-
 
   // collect rows into payload for save
   function gatherAllocations(){
@@ -365,14 +439,13 @@
         parseFloat(tr.querySelector('.wpct-1')?.value || 0) || 0,
         parseFloat(tr.querySelector('.wpct-2')?.value || 0) || 0,
         parseFloat(tr.querySelector('.wpct-3')?.value || 0) || 0,
-        parseFloat(tr.querySelector('.wpct-4')?.value || 0) || 0
+        parseFloat(tr.querySelector('.wpct-4')?.value || 0) || 0,
       ];
-      if(!reportee) return; // ignore empty row
       rows.push({
-        id: tid ? parseInt(tid,10) : null,
+        id: tid,
         reportee: reportee,
-        project_id: project_id ? parseInt(project_id,10) : null,
-        subproject_id: subproject_id ? parseInt(subproject_id,10) : null,
+        project_id: project_id,
+        subproject_id: subproject_id,
         hours: hours,
         weeks: weeks
       });
@@ -380,98 +453,156 @@
     return rows;
   }
 
-  // Save handler
-  async function saveAllocations(){
-    const month = document.getElementById('month').value || '{{ billing_month }}';
-    const allocations = gatherAllocations();
-    if(allocations.length === 0){
-      alert('No allocations to save. Please add a resource and hours before saving.');
-      return;
-    }
-    try {
-      const resp = await fetch("{% url 'projects:save_tl_allocations' %}", {
-        method: 'POST',
-        headers: {'Content-Type':'application/json','X-CSRFToken': CSRF},
-        body: JSON.stringify({ month: month, allocations: allocations })
-      });
-      const j = await resp.json();
-      if(j && j.ok){
-        // reload to reflect ids and weekly allocations
-        location.reload();
-      } else {
-        alert('Save failed: ' + (j && j.error ? j.error : 'unknown'));
+  // Validate monthly limit across all allocations before save.
+  // Highlights rows that cause exceedance and returns boolean valid/invalid.
+  function validateMonthlyLimit(){
+    const totals = {};
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+      const ldap = (tr.querySelector('.sel-resource')?.value || '').toLowerCase();
+      const hrs = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+      if(!ldap) return;
+      totals[ldap] = (totals[ldap] || 0) + hrs;
+    });
+
+    // Clear all previous highlight states
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr => tr.classList.remove('limit-exceeded'));
+
+    let valid = true;
+    // For each row, if totals for that resource exceed MONTHLY_LIMIT, mark the row.
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+      const ldap = (tr.querySelector('.sel-resource')?.value || '').toLowerCase();
+      if(!ldap) return;
+      const totalForUser = totals[ldap] || 0;
+      if(MONTHLY_LIMIT && totalForUser > MONTHLY_LIMIT){
+        tr.classList.add('limit-exceeded');
+        valid = false;
       }
-    } catch (e) {
-      console.error(e);
-      alert('Save request failed — see console.');
+    });
+
+    if(!valid){
+      // Friendly message (non-blocking except save prevented by caller)
+      alert('⚠️ One or more resources exceed the monthly hours limit (' + MONTHLY_LIMIT + ' hrs). Rows highlighted in red.');
     }
+    return valid;
   }
 
-  // initialization
-  document.addEventListener('DOMContentLoaded', function(){
-    // populate existing rows
-    populateInitialRows();
+  // -----------------------
+  // Event wiring / handlers
+  // -----------------------
 
-    // if no rows exist, create one empty row
-    if(document.querySelectorAll('#allocBody .alloc-row').length === 0){
-      createRow();
-    } else {
-      // ensure for each pre-rendered row we populate subproject list and set selection
-      document.querySelectorAll('#allocBody .alloc-row').forEach(tr=>{
-        const selProj = tr.querySelector('.sel-project');
-        const selSub  = tr.querySelector('.sel-subproject');
-        const preSub  = tr.getAttribute('data-subproject-id') || '';
-        if(selProj && selProj.value){
-          fillSubprojectOptions(selSub, selProj.value, preSub);
-        } else if(preSub){
-          // if preSub exists but no project selected, try to find subproject and set project if possible
-          const sp = SUBPROJECTS.find(s => String(s.id) === String(preSub));
-          if(sp){
-            // if we can, find a project whose project_id equals sp.project_id and set it
-            const projOpt = Array.from(document.querySelectorAll('.sel-project option')).find(o => String(o.value) === String(sp.project_id));
-            if(projOpt){
-              tr.querySelector('.sel-project').value = projOpt.value;
-              fillSubprojectOptions(selSub, projOpt.value, preSub);
-            } else {
-              // fallback: fill subproject by trying matching bg/mdm code
-              fillSubprojectOptions(selSub, '', preSub);
-            }
+  // Add Resource button
+  document.getElementById('btnAddRow').addEventListener('click', function(e){
+    e.preventDefault();
+    const tr = createRow({});
+    // focus on the resource select for quick input
+    const sel = tr.querySelector('.sel-resource');
+    if(sel) sel.focus();
+  });
+
+  // Delegated event handling for dynamic elements:
+  // NOTE: for server-rendered rows (which were not created via createRow)
+  // we need to call delete endpoint when a DB-backed row is removed.
+  document.addEventListener('click', function(e){
+    // remove button (any dynamically created or server-rendered .btn-remove)
+    if(e.target && e.target.classList && e.target.classList.contains('btn-remove')){
+      const row = e.target.closest('.alloc-row');
+      if(!row) return;
+
+      const tid = row.getAttribute('data-team-dist-id');
+      if(tid){
+        // Confirm then call server delete; on success remove row from DOM
+        if(!confirm('This allocation exists in the database. Are you sure you want to delete it?')) return;
+        fetch("{% url 'projects:delete_team_distribution' %}", {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+          body: JSON.stringify({id: parseInt(tid,10)})
+        }).then(r => r.json()).then(j => {
+          if(j && j.ok){
+            row.remove();
+            recomputeSummaryTotals();
+          } else {
+            alert('Delete failed: ' + (j && j.error ? j.error : 'unknown'));
           }
-        }
-        updateFTE(tr);
-      });
+        }).catch(err => {
+          console.error('Delete error', err);
+          alert('Delete request failed — see console.');
+        });
+      } else {
+        // just remove unsaved row
+        row.remove();
+        recomputeSummaryTotals();
+      }
+      return;
+    }
+  });
+
+  // Delegated change handler for select/project/subproject/hours inputs
+  document.addEventListener('change', function(e){
+    const target = e.target;
+    // project changed -> refill subproject options
+    if(target && target.classList && target.classList.contains('sel-project')){
+      const tr = target.closest('.alloc-row');
+      if(tr){
+        const selSub = tr.querySelector('.sel-subproject');
+        fillSubprojectOptions(selSub, target.value, tr.getAttribute('data-subproject-id') || null);
+      }
     }
 
-    // wire buttons
-    document.getElementById('btnAddRow').addEventListener('click', function(e){ e.preventDefault(); createRow(); });
-    document.getElementById('btnSaveAlloc').addEventListener('click', function(e){ e.preventDefault(); saveAllocations(); });
+    // hours changed or resource changed -> recompute totals & fte
+    if(target && (target.classList.contains('inp-hours') || target.classList.contains('sel-resource'))){
+      const tr = target.closest('.alloc-row');
+      if(tr) updateFTE(tr);
+      recomputeSummaryTotals();
+    }
 
-    // delegated: update FTE when hours change and recompute summary
-    document.getElementById('allocBody').addEventListener('input', function(ev){
-      const t = ev.target;
-      const tr = t.closest('tr.alloc-row');
-      if(!tr) return;
-      if(t.classList.contains('inp-hours')){
-        updateFTE(tr);
-        recomputeSummaryTotals();
+    // any week percent changes -> nothing special now but can be wired later
+  });
+
+  // Save handler: validate monthly limit first, then proceed to post
+  document.getElementById('btnSaveAlloc').addEventListener('click', async function(e){
+    e.preventDefault();
+
+    recomputeSummaryTotals(); // ensure summary up-to-date
+    if(!validateMonthlyLimit()) return; // stop if invalid
+
+    const payload = {
+      month: document.getElementById('month')?.value || '{{ billing_month }}',
+      allocations: gatherAllocations()
+    };
+
+    try {
+      const resp = await fetch(window.location.pathname.replace(/\/$/, '') + '/save/', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if(data && data.ok){
+        // reload to reflect server truth (idempotent upserts on server)
+        location.reload();
+      } else {
+        alert('Save failed: ' + (data && data.error ? data.error : 'Unknown error'));
       }
+    } catch(err){
+      console.error('Save error', err);
+      alert('Save failed (network or server error). See console for details.');
+    }
+  });
+
+  // Initialise: populate rows (but guarded to avoid duplicates)
+  document.addEventListener('DOMContentLoaded', function(){
+    populateInitialRows();
+    // Ensure subproject selects for any server-rendered rows are filled
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+      const projectId = tr.querySelector('.sel-project')?.value;
+      const subprojectSelected = tr.getAttribute('data-subproject-id') || tr.querySelector('.sel-subproject')?.value;
+      if(projectId){
+        fillSubprojectOptions(tr.querySelector('.sel-subproject'), projectId, subprojectSelected);
+      } else if(subprojectSelected){
+        fillSubprojectOptions(tr.querySelector('.sel-subproject'), '', subprojectSelected);
+      }
+      updateFTE(tr);
     });
-
-    // delegated: when project select changes in any row
-    document.getElementById('allocBody').addEventListener('change', function(ev){
-      const t = ev.target;
-      const tr = t.closest('tr.alloc-row');
-      if(!tr) return;
-      if(t.classList.contains('sel-project')){
-        const selSub = tr.querySelector('.sel-subproject');
-        fillSubprojectOptions(selSub, t.value, null);
-      }
-      if(t.classList.contains('sel-resource')){
-        recomputeSummaryTotals();
-      }
-    });
-
-    // initial summary totals calculation
     recomputeSummaryTotals();
   });
 

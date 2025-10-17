@@ -4650,3 +4650,15 @@ def save_tl_allocations(request):
             pass
         return JsonResponse({"ok": False, "error": str(ex)}, status=500)
 
+@login_required
+def get_monthly_limits(request):
+    """Return monthly hour limits per resource for current billing cycle."""
+    sql = """
+        SELECT emp_code, monthly_hours
+        FROM monthly_hours_limit
+        WHERE start_date <= CURDATE() AND end_date >= CURDATE()
+    """
+    limits = exec_sql(sql)
+    data = {row['emp_code'].lower(): float(row['monthly_hours']) for row in limits}
+    return JsonResponse(data)
+
