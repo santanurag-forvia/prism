@@ -55,4 +55,8 @@ urlpatterns = [
     path("team-allocations/save-distribution/", views.save_team_distribution_using_team_table, name="save_team_distribution"),
     path("team-allocations/apply-distributions/", views.apply_team_distributions_view, name="apply_team_distributions"),
     path("team-allocations/delete-distribution/", views.delete_team_distribution, name="delete_team_distribution"),
+    # TL Free Allocations
+    path("tl-allocations/", views.tl_allocations_view, name="tl_allocations"),
+    path("tl-allocations/save/", views.save_tl_allocations, name="save_tl_allocations"),
+
 ]

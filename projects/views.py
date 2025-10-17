@@ -199,7 +199,14 @@ PAGE_SIZE = 10
 # username_password_for_conn param so they can use session credentials.
 try:
     from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
-except Exception:
+    def get_user_entry_by_username(username, username_password_for_conn=None):
+        logger.warning("ldap_utils.get_user_entry_by_username not available")
+        return None
+
+    def get_reportees_for_user_dn(user_dn, username_password_for_conn=None):
+        logger.warning("ldap_utils.get_reportees_for_user_dn not available")
+        return []
+except ImportError:
     def get_user_entry_by_username(username, username_password_for_conn=None):
         logger.warning("ldap_utils.get_user_entry_by_username not available")
         return None
@@ -2348,9 +2355,6 @@ def team_allocations(request):
     }
     return render(request, "projects/team_allocations.html", context)
 
-
-
-
 # -------------------------
 # save_team_allocation
 # -------------------------
@@ -4244,7 +4248,6 @@ from django.http import JsonResponse
 from django.db import connection
 import json, logging
 
-
 @require_POST
 def delete_team_distribution(request):
     """
@@ -4288,3 +4291,253 @@ def delete_team_distribution(request):
     except Exception as e:
         print(f"delete_team_distribution failed: {e}")
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+from django.views.decorators.http import require_GET, require_POST
+from django.shortcuts import render, redirect
+from django.http import JsonResponse
+from django.db import connection, transaction
+import json, logging
+
+logger = logging.getLogger(__name__)
+
+@require_GET
+def tl_allocations_view(request):
+    """
+    Team Lead free allocations view (uses live LDAP to list direct reportees).
+    Returns projects with bg_code and subprojects with project_id/mdm_code/bg_code
+    so the frontend can filter subprojects by project or by mdm/bg code fallback.
+    """
+    print("tl_allocations_view: called")
+    session_ldap = request.session.get("ldap_username")
+    session_pwd = request.session.get("ldap_password")
+    if not request.session.get("is_authenticated") or not session_ldap:
+        return redirect("accounts:login")
+    creds = (session_ldap, session_pwd)
+
+    from datetime import date
+    month_str = request.GET.get("month")
+    if not month_str:
+        month_str = date.today().strftime("%Y-%m")
+    month_start_str = f"{month_str}-01"
+
+    # --- LDAP: get user entry and direct reportees (same as team_allocations) ---
+    reportees_entries = []
+    try:
+        from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
+        user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
+        reportees_entries = get_reportees_for_user_dn(getattr(user_entry, "entry_dn", None),
+                                                      username_password_for_conn=creds) or []
+        print(f"tl_allocations: LDAP reportees fetched: {len(reportees_entries)}")
+    except Exception as e:
+        # log and continue — page still renders without LDAP data
+        print(f"tl_allocations: LDAP fetch failed: {e}")
+        reportees_entries = []
+
+    # Normalize reportees into list/dict similar to team_allocations
+    reportees_list = []
+    reportees_map = {}
+    for ent in reportees_entries:
+        mail = None; cn = None; sam = None
+        try:
+            if isinstance(ent, dict):
+                mail = ent.get("mail") or ent.get("email") or ent.get("userPrincipalName")
+                cn = ent.get("cn") or ent.get("displayName")
+                sam = ent.get("sAMAccountName")
+            else:
+                mail = getattr(ent, "mail", None) or getattr(ent, "email", None) or getattr(ent, "userPrincipalName", None)
+                cn = getattr(ent, "cn", None) or getattr(ent, "displayName", None)
+                sam = getattr(ent, "sAMAccountName", None)
+        except Exception:
+            pass
+        identifier = (mail or sam or "").strip()
+        if not identifier:
+            continue
+        lid = identifier.lower()
+        if lid not in reportees_map:
+            reportees_map[lid] = {"ldap": identifier, "mail": mail or "", "cn": cn or identifier}
+            reportees_list.append(reportees_map[lid])
+
+    # remove self
+    session_ldap_l = (session_ldap or "").lower()
+    if session_ldap_l in reportees_map:
+        reportees_list = [r for r in reportees_list if r["ldap"].lower() != session_ldap_l]
+        reportees_map.pop(session_ldap_l, None)
+
+    # --- Projects with bg_code: use helper if available so bg_code comes from prism_wbs ---
+    try:
+        # helper function defined near top of views.py
+        projects = get_user_projects_with_bgcode(request)  # returns [{id, name, bg_code}, ...]
+        print(f"tl_allocations: projects via helper: {len(projects)}")
+    except Exception:
+        # fallback to basic project list (no bg_code)
+        with connection.cursor() as cur:
+            cur.execute("SELECT id, name FROM projects ORDER BY name")
+            projects = dictfetchall(cur)
+            # normalize to have bg_code key
+            projects = [{"id": p.get("id"), "name": p.get("name"), "bg_code": ""} for p in projects]
+        print(f"tl_allocations: fallback projects fetched: {len(projects)}")
+
+    # --- Subprojects: include project_id, mdm_code, bg_code for JS filtering ---
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT id, project_id, name,
+                   COALESCE(mdm_code, '') AS mdm_code,
+                   COALESCE(bg_code, '') AS bg_code
+            FROM subprojects
+            ORDER BY priority DESC, name
+        """)
+        subprojects = dictfetchall(cur)
+        # ensure project_id present (some rows might have NULL)
+        for s in subprojects:
+            if s.get("project_id") is None:
+                s["project_id"] = ''
+
+    # --- existing team_distributions for this lead+month (pre-populate allocations) ---
+    td_rows = []
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT id, project_id, subproject_id, reportee_ldap, hours
+            FROM team_distributions
+            WHERE lead_ldap = %s AND DATE_FORMAT(month_start, '%%Y-%%m') = %s
+        """, [session_ldap, month_str])
+        td_rows = dictfetchall(cur)
+        td_ids = [r.get("id") for r in td_rows if r.get("id")]
+
+        # weekly_map
+        weekly_map = {}
+        if td_ids:
+            placeholders = ",".join(["%s"] * len(td_ids))
+            cur.execute(f"""
+                SELECT team_distribution_id, week_number, percent
+                FROM weekly_allocations
+                WHERE team_distribution_id IN ({placeholders})
+            """, td_ids)
+            wrows = dictfetchall(cur)
+            for w in wrows:
+                tid = int(w["team_distribution_id"])
+                weekly_map.setdefault(tid, {})[int(w["week_number"])] = float(w["percent"] or 0.0)
+
+        # monthly hours limit (max_hours or max_hours column name used in your schema)
+        cur.execute("""
+            SELECT COALESCE(max_hours, max_hours, 0) FROM monthly_hours_limit
+            WHERE DATE_FORMAT(start_date,'%%Y-%%m') = %s LIMIT 1
+        """, [month_str])
+        mh = cur.fetchone()
+        monthly_hours = float(mh[0]) if mh and mh[0] else 183.75
+
+    # Build allocations list for template (pre-populate existing team_distributions)
+    allocations = []
+    for r in td_rows:
+        tid = int(r.get("id")) if r.get("id") is not None else None
+        wmap = weekly_map.get(tid, {})
+        allocations.append({
+            "id": tid,
+            "reportee_ldap": (r.get("reportee_ldap") or "").strip(),
+            "project_id": r.get("project_id"),
+            "subproject_id": r.get("subproject_id"),
+            "hours": float(r.get("hours") or 0.0),
+            "week_perc": [
+                float(wmap.get(1, 0)),
+                float(wmap.get(2, 0)),
+                float(wmap.get(3, 0)),
+                float(wmap.get(4, 0))
+            ]
+        })
+
+    # Build reportees summary (totals aggregated from allocations)
+    reportee_totals = { r["ldap"].lower(): 0.0 for r in reportees_list }
+    for a in allocations:
+        if a.get("reportee_ldap"):
+            key = a["reportee_ldap"].lower()
+            reportee_totals[key] = reportee_totals.get(key, 0.0) + float(a.get("hours") or 0.0)
+
+    reportees_for_template = []
+    for r in reportees_list:
+        ldap_l = r["ldap"].lower()
+        total = reportee_totals.get(ldap_l, 0.0)
+        reportees_for_template.append({
+            "ldap": r["ldap"],
+            "name": r.get("cn") or r["ldap"],
+            "mail": r.get("mail") or "",
+            "total_hours": round(total, 2),
+            "fte": round(total / monthly_hours, 3) if monthly_hours else 0.0
+        })
+
+    import json as _json
+    context = {
+        "billing_month": month_str,
+        "reportees": reportees_for_template,
+        "reportees_json": _json.dumps([{"ldap": r["ldap"], "name": r["name"], "mail": r["mail"]} for r in reportees_for_template]),
+        "projects": projects,
+        "subprojects": subprojects,
+        "subprojects_json": _json.dumps(subprojects),
+        "allocations": allocations,
+        "monthly_hours": monthly_hours,
+    }
+    print("tl_allocations_view: completed")
+    return render(request, "projects/tl_allocations.html", context)
+
+@require_POST
+def save_tl_allocations(request):
+    """
+    Save free-hand allocations (no restrictions) — upserts into team_distributions and weekly_allocations.
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    session_ldap = request.session.get("ldap_username")
+    if not session_ldap:
+        return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
+
+    month = data.get("month")
+    allocations = data.get("allocations", [])
+    if not month or not allocations:
+        return JsonResponse({"ok": False, "error": "Missing month or allocations"}, status=400)
+
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            for a in allocations:
+                reportee = a.get("reportee")
+                project_id = a.get("project_id") or None
+                subproject_id = a.get("subproject_id") or None
+                hours = float(a.get("hours") or 0)
+                weeks = a.get("weeks") or [0, 0, 0, 0]
+
+                # insert or update team_distributions
+                cur.execute("""
+                    INSERT INTO team_distributions
+                        (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        hours = VALUES(hours),
+                        updated_at = NOW()
+                """, [f"{month}-01", session_ldap, project_id, subproject_id, reportee, hours])
+
+                # fetch id for FK usage
+                cur.execute("""
+                    SELECT id FROM team_distributions
+                    WHERE month_start=%s AND lead_ldap=%s AND subproject_id=%s AND reportee_ldap=%s
+                    LIMIT 1
+                """, [f"{month}-01", session_ldap, subproject_id, reportee])
+                td = cur.fetchone()
+                if not td:
+                    continue
+                tdid = td[0]
+
+                # weekly allocations upsert
+                for i, pct in enumerate(weeks):
+                    wknum = i + 1
+                    whrs = round((pct / 100.0) * hours, 2)
+                    cur.execute("""
+                        INSERT INTO weekly_allocations
+                            (team_distribution_id, week_number, hours, percent, status)
+                        VALUES (%s, %s, %s, %s, 'PENDING')
+                        ON DUPLICATE KEY UPDATE
+                            hours = VALUES(hours),
+                            percent = VALUES(percent),
+                            updated_at = NOW()
+                    """, [tdid, wknum, whrs, pct])
+
+    return JsonResponse({"ok": True})

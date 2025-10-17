@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'projects/css/projects.css' %}">
+<link rel="stylesheet" href="{% static 'projects/css/team_allocations.css' %}">
+
+<div class="page-card">
+  <div class="page-header">
+    <h1 class="alloc-title">Team Lead Free Allocations — {% if billing_month %}{{ billing_month }}{% else %}Select month{% endif %}</h1>
+    <form id="monthForm" method="get" style="display:flex; gap:8px; align-items:center;">
+      <label for="month">Month</label>
+      <input id="month" class="input" type="month" name="month" value="{{ billing_month|default:'' }}">
+      <button class="btn btn-primary" type="submit">Load</button>
+    </form>
+  </div>
+
+  <!-- Reportee summary -->
+  <div class="card" style="margin-top:16px;">
+    <div class="card-header"><strong>Direct Reportees Summary</strong></div>
+    <div class="card-body">
+      <table class="summary-table" id="summaryTable">
+        <thead>
+          <tr><th>Reportee</th><th style="width:180px;">Total Allocated Hours</th><th style="width:120px;">FTE</th></tr>
+        </thead>
+        <tbody id="summaryBody">
+          {% if reportees %}
+            {% for r in reportees %}
+              <tr class="reportee-row" data-ldap="{{ r.ldap }}">
+                <td>{{ r.name }} ({{ r.mail|default:r.ldap }})</td>
+                <td class="r-hours">{{ r.total_hours|default:0 }}</td>
+                <td class="r-fte">{{ r.fte|default:0.0 }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="3" class="small-muted">No reportees found.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Allocation section -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+      <strong>Allocate Bandwidth</strong>
+      <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
+    </div>
+
+    <div class="card-body">
+      <table class="table alloc-table" id="allocTable">
+        <thead>
+          <tr>
+            <th style="min-width:220px;">Resource</th>
+            <th class="compact-project">Project</th>
+            <th class="compact-subproject">Subproject</th>
+            <th style="width:90px;">Hours</th>
+            <th style="width:70px;">FTE</th>
+            <th style="width:70px;">W1%</th>
+            <th style="width:70px;">W2%</th>
+            <th style="width:70px;">W3%</th>
+            <th style="width:70px;">W4%</th>
+            <th style="width:110px;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="allocBody">
+          {% for row in allocations %}
+            <tr class="alloc-row" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
+              <td>
+                <select class="input sel-resource">
+                  <option value="">-- select --</option>
+                  {% for r in reportees %}
+                    <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} ({{ r.ldap }})</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td class="compact-project">
+                <select class="input sel-project">
+                  <option value="">-- select --</option>
+                  {% for p in projects %}
+                    <option value="{{ p.id }}" data-bgcode="{{ p.bg_code|default:'' }}">{{ p.name }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td class="compact-subproject">
+                <select class="input sel-subproject">
+                  <option value="">-- select --</option>
+                </select>
+              </td>
+              <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>
+              <td class="auto-fte">--</td>
+              <td><input class="input wpct-1" type="number" min="0" max="100" value="{{ row.week_perc.0|default:0 }}"></td>
+              <td><input class="input wpct-2" type="number" min="0" max="100" value="{{ row.week_perc.1|default:0 }}"></td>
+              <td><input class="input wpct-3" type="number" min="0" max="100" value="{{ row.week_perc.2|default:0 }}"></td>
+              <td><input class="input wpct-4" type="number" min="0" max="100" value="{{ row.week_perc.3|default:0 }}"></td>
+              <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div style="text-align:right; margin-top:14px;">
+        <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Row template -->
+<template id="tpl-alloc-row">
+  <tr class="alloc-row" data-team-dist-id="" data-subproject-id="">
+    <td>
+      <select class="input sel-resource">
+        <option value="">-- select --</option>
+        {% for r in reportees %}
+          <option value="{{ r.ldap }}">{{ r.name }} ({{ r.ldap }})</option>
+        {% endfor %}
+      </select>
+    </td>
+    <td class="compact-project">
+      <select class="input sel-project">
+        <option value="">-- select --</option>
+        {% for p in projects %}
+          <option value="{{ p.id }}" data-bgcode="{{ p.bg_code|default:'' }}">{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </td>
+    <td class="compact-subproject">
+      <select class="input sel-subproject"><option value="">-- select --</option></select>
+    </td>
+    <td><input type="number" min="0" step="0.25" class="input inp-hours" value="0"></td>
+    <td class="auto-fte">--</td>
+    <td><input class="input wpct-1" type="number" min="0" max="100" value="0"></td>
+    <td><input class="input wpct-2" type="number" min="0" max="100" value="0"></td>
+    <td><input class="input wpct-3" type="number" min="0" max="100" value="0"></td>
+    <td><input class="input wpct-4" type="number" min="0" max="100" value="0"></td>
+    <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
+  </tr>
+</template>
+
+<script>
+(function(){
+  const MONTHLY_LIMIT = {{ monthly_hours|default:183.75 }};
+  const SUBPROJECTS = JSON.parse('{{ subprojects_json|escapejs }}' || '[]');
+  const CSRF = (document.cookie.split('; ').find(x=>x.trim().startsWith('csrftoken='))||'').split('=')[1] || '';
+
+  function fillSubprojectOptions(selSub, projectId, selectedId){
+    selSub.innerHTML = '<option value="">-- select --</option>';
+    if(!projectId){
+      return;
+    }
+    let found = 0;
+    SUBPROJECTS.forEach(s => {
+      const pid = (s.project_id === null || s.project_id === undefined) ? '' : String(s.project_id);
+      if(String(projectId) === pid){
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        if(selectedId && String(selectedId) === String(s.id)) opt.selected = true;
+        selSub.appendChild(opt);
+        found++;
+      }
+    });
+    if(found === 0){
+      // fallback: try matching by mdm_code/bg_code if present
+      try {
+        const tr = selSub.closest('tr');
+        const projSel = tr.querySelector('.sel-project');
+        const projOpt = projSel && projSel.options[projSel.selectedIndex];
+        const bg = projOpt ? (projOpt.dataset.bgcode || projOpt.getAttribute('data-bgcode')) : null;
+        if(bg){
+          SUBPROJECTS.forEach(s=>{
+            const sCode = s.mdm_code || s.bg_code || s.mdm_code_norm;
+            if(sCode && String(sCode).toLowerCase() === String(bg).toLowerCase()){
+              const opt = document.createElement('option');
+              opt.value = s.id;
+              opt.textContent = s.name;
+              if(selectedId && String(selectedId) === String(s.id)) opt.selected = true;
+              selSub.appendChild(opt);
+            }
+          });
+        }
+      } catch(e){ /* ignore fallback errors */ }
+    }
+  }
+
+  function updateFTE(tr){
+    const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+    const fte = MONTHLY_LIMIT ? (hours / MONTHLY_LIMIT) : 0;
+    const td = tr.querySelector('.auto-fte');
+    if(td) td.textContent = (fte && isFinite(fte)) ? fte.toFixed(3) : '--';
+  }
+
+  function addAllocRow(prefill){
+    const tpl = document.getElementById('tpl-alloc-row');
+    const clone = tpl.content.cloneNode(true);
+    const tr = clone.querySelector('tr');
+
+    const selProj = tr.querySelector('.sel-project');
+    const selSub = tr.querySelector('.sel-subproject');
+    const inpHours = tr.querySelector('.inp-hours');
+
+    selProj.addEventListener('change', function(){ fillSubprojectOptions(selSub, this.value, null); });
+    inpHours.addEventListener('input', function(){ updateFTE(tr); recomputeSummaryTotals(); });
+
+    tr.querySelector('.btn-remove').addEventListener('click', function(ev){
+      ev.preventDefault();
+      const tid = tr.getAttribute('data-team-dist-id');
+      if(tid){
+        fetch("{% url 'projects:delete_team_distribution' %}", {
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+          body:JSON.stringify({id:parseInt(tid,10)})
+        }).then(r=>r.json()).then(j=>{
+          if(j && j.ok){ tr.remove(); recomputeSummaryTotals(); } else { alert('Delete failed.'); }
+        }).catch(err=>{ console.error(err); alert('Delete request failed'); });
+      } else { tr.remove(); recomputeSummaryTotals(); }
+    });
+
+    if(prefill){
+      if(prefill.reportee_ldap){
+        const selR = tr.querySelector('.sel-resource');
+        for(let i=0;i<selR.options.length;i++){
+          if(String(selR.options[i].value).toLowerCase() === String(prefill.reportee_ldap).toLowerCase()){ selR.selectedIndex = i; break; }
+        }
+      }
+      if(prefill.project_id){
+        selProj.value = prefill.project_id;
+        fillSubprojectOptions(selSub, prefill.project_id, prefill.subproject_id || null);
+      } else if(prefill.subproject_id){
+        fillSubprojectOptions(selSub, '', prefill.subproject_id || null);
+      }
+      if(prefill.hours) tr.querySelector('.inp-hours').value = prefill.hours;
+      if(prefill.week_perc && Array.isArray(prefill.week_perc)){
+        tr.querySelector('.wpct-1').value = prefill.week_perc[0] || 0;
+        tr.querySelector('.wpct-2').value = prefill.week_perc[1] || 0;
+        tr.querySelector('.wpct-3').value = prefill.week_perc[2] || 0;
+        tr.querySelector('.wpct-4').value = prefill.week_perc[3] || 0;
+      }
+      if(prefill.id) tr.setAttribute('data-team-dist-id', prefill.id);
+      updateFTE(tr);
+    }
+
+    document.getElementById('allocBody').appendChild(tr);
+    return tr;
+  }
+
+  function recomputeSummaryTotals(){
+    const totals = {};
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr=>{
+      const ldap = (tr.querySelector('.sel-resource')?.value || '').toLowerCase();
+      const hrs = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+      if(!ldap) return;
+      totals[ldap] = (totals[ldap] || 0) + hrs;
+    });
+    document.querySelectorAll('#summaryBody .reportee-row').forEach(rr=>{
+      const ldap = (rr.getAttribute('data-ldap') || '').toLowerCase();
+      const total = totals[ldap] || 0;
+      const hrsEl = rr.querySelector('.r-hours');
+      const fteEl = rr.querySelector('.r-fte');
+      if(hrsEl) hrsEl.textContent = total.toFixed(2);
+      if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (total / MONTHLY_LIMIT).toFixed(3) : '0.000');
+    });
+  }
+
+  function populateInitialRows(){
+    const initial = {{ allocations|default:"[]"|safe }};
+    if(Array.isArray(initial) && initial.length){
+      initial.forEach(r => addAllocRow({
+        id: r.id || null,
+        reportee_ldap: r.reportee_ldap || '',
+        project_id: r.project_id || '',
+        subproject_id: r.subproject_id || '',
+        hours: r.hours || 0,
+        week_perc: r.week_perc || [0,0,0,0]
+      }));
+    }
+  }
+
+  function gatherAllocations(){
+    const rows = [];
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr=>{
+      const tid = tr.getAttribute('data-team-dist-id') || null;
+      const reportee = tr.querySelector('.sel-resource')?.value || '';
+      const project_id = tr.querySelector('.sel-project')?.value || null;
+      const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
+      const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+      const weeks = [
+        parseFloat(tr.querySelector('.wpct-1')?.value || 0) || 0,
+        parseFloat(tr.querySelector('.wpct-2')?.value || 0) || 0,
+        parseFloat(tr.querySelector('.wpct-3')?.value || 0) || 0,
+        parseFloat(tr.querySelector('.wpct-4')?.value || 0) || 0
+      ];
+      if(!reportee) return;
+      rows.push({
+        id: tid ? parseInt(tid,10) : null,
+        reportee: reportee,
+        project_id: project_id ? parseInt(project_id,10) : null,
+        subproject_id: subproject_id ? parseInt(subproject_id,10) : null,
+        hours: hours,
+        weeks: weeks
+      });
+    });
+    return rows;
+  }
+
+  async function saveAllocations(){
+    const month = '{{ billing_month }}';
+    const payload = { month: month, allocations: gatherAllocations() };
+    try {
+      const res = await fetch("{% url 'projects:save_tl_allocations' %}", {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if(json && json.ok){ location.reload(); } else { alert('Save failed: ' + (json.error || 'unknown')); }
+    } catch(e){ console.error(e); alert('Save request failed'); }
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    populateInitialRows();
+    if(document.querySelectorAll('#allocBody .alloc-row').length === 0) addAllocRow();
+
+    document.getElementById('btnAddRow').addEventListener('click', function(e){ e.preventDefault(); addAllocRow(); });
+    document.getElementById('btnSaveAlloc').addEventListener('click', function(e){ e.preventDefault(); saveAllocations(); });
+
+    document.getElementById('allocBody').addEventListener('change', function(ev){
+      const t = ev.target, tr = t.closest('tr.alloc-row');
+      if(!tr) return;
+      if(t.classList.contains('sel-project')){ fillSubprojectOptions(tr.querySelector('.sel-subproject'), t.value, null); }
+      if(t.classList.contains('inp-hours')){ updateFTE(tr); }
+      if(t.classList.contains('inp-hours') || t.classList.contains('sel-resource')) recomputeSummaryTotals();
+    });
+
+    document.getElementById('allocBody').addEventListener('input', function(ev){
+      const t = ev.target, tr = t.closest('tr.alloc-row');
+      if(!tr) return;
+      if(t.classList.contains('inp-hours')) updateFTE(tr);
+    });
+
+    // ensure rows have subprojects populated if they had project_id on load
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr=>{
+      const proj = tr.querySelector('.sel-project')?.value;
+      const subSel = tr.querySelector('.sel-subproject');
+      const pre = tr.getAttribute('data-subproject-id') || '';
+      if(proj) fillSubprojectOptions(subSel, proj, pre);
+      updateFTE(tr);
+    });
+
+    recomputeSummaryTotals();
+  });
+})();
+</script>
+{% endblock %}

@@ -88,7 +88,7 @@ MENU_TREE = [
                 "key": "weekly",
                 "title": "Team Allocation",
                 "icon": "users",
-                "url": reverse_lazy("projects:team_allocations"),
+                "url": reverse_lazy("projects:tl_allocations"),
                 "roles": ["COE_LEADER", "TEAM_LEAD", "ADMIN", "PDL"],
             },
             {
