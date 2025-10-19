@@ -58,5 +58,5 @@ urlpatterns = [
     # TL Free Allocations
     path("tl-allocations/", views.tl_allocations_view, name="tl_allocations"),
     path("tl-allocations/save/", views.save_tl_allocations, name="save_tl_allocations"),
-
+    path("tl-allocations/export/excel/", views.export_tl_allocations_excel, name="export_tl_allocations_excel"),
 ]

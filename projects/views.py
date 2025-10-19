@@ -188,6 +188,13 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.contrib.admin.views.decorators import staff_member_required
 from django.utils.dateparse import parse_date
+from django.views.decorators.http import require_GET
+from django.http import HttpResponse, JsonResponse
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from datetime import date
+from django.db import connection
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -4400,9 +4407,64 @@ def tl_allocations_view(request):
             }
             reportees_list.append(reportees_map[lid])
 
-    # remove self (lead) if present
+    # -------------------------------
+    # NEW: determine if logged-in user is a PDL and build logged-in identity
+    # -------------------------------
+    # determine logged in ldap/email and display name
+    logged_ldap = None
+    logged_cn = None
+    # prefer session values (your app sets these)
+    if request.session.get("ldap_username"):
+        logged_ldap = request.session.get("ldap_username")
+        logged_cn = request.session.get("cn") or request.session.get("display_name") or logged_ldap
+    # fallback to Django user
+    if not logged_ldap and getattr(request, "user", None) and request.user.is_authenticated:
+        logged_ldap = getattr(request.user, "email", None) or getattr(request.user, "username", None)
+        try:
+            logged_cn = request.user.get_full_name() or logged_ldap
+        except Exception:
+            logged_cn = logged_ldap
+
+    # -------------------------------
+    # NEW (simpler): determine if logged-in user is a PDL using session['role']
+    # -------------------------------
+    is_pdl = False
+    try:
+        role_val = (request.session.get('role') or "").strip()
+        # common cases: "PDL", "pdl", or compound roles like "PDL,MANAGER"
+        if role_val:
+            # normalize and check membership
+            role_norm = role_val.upper()
+            if role_norm == "PDL" or ",PDL" in "," + role_norm or "PDL," in role_norm or " PD L " in role_norm:
+                is_pdl = True
+            # also accept exact match or string that contains 'PDL'
+            elif "PDL" in role_norm:
+                is_pdl = True
+    except Exception:
+        # defensive fallback — if anything goes wrong, assume not PDL
+        is_pdl = False
+
+    print("is_pdl : ", is_pdl)
+    # If PDL, ensure logged-in user appears in reportees list (so PDL can allocate to self)
+    if is_pdl and logged_ldap:
+        lkey = (logged_ldap or "").lower()
+        if lkey not in reportees_map:
+            reportees_map[lkey] = {
+                "ldap": logged_ldap,
+                "mail": logged_ldap,
+                "cn": logged_cn or logged_ldap,
+                "total_hours": 0.0,
+                "fte": 0.0
+            }
+            # insert at beginning so it's easy to find in dropdown
+            reportees_list.insert(0, reportees_map[lkey])
+    # -------------------------------
+    # end NEW block
+    # -------------------------------
+
+    # remove self (lead) if present — only when NOT a PDL (PDL should be able to see themselves)
     session_ldap_l = (session_ldap or "").lower()
-    if session_ldap_l in reportees_map:
+    if not is_pdl and session_ldap_l in reportees_map:
         reportees_list = [r for r in reportees_list if r["ldap"].lower() != session_ldap_l]
         reportees_map.pop(session_ldap_l, None)
 
@@ -4520,6 +4582,7 @@ def tl_allocations_view(request):
         "allocations": allocations,
         "monthly_hours": monthly_hours,
     })
+
 
 
 
@@ -4661,4 +4724,257 @@ def get_monthly_limits(request):
     limits = exec_sql(sql)
     data = {row['emp_code'].lower(): float(row['monthly_hours']) for row in limits}
     return JsonResponse(data)
+
+@require_GET
+def export_tl_allocations_excel(request):
+    """
+    Export TL Allocations (team_distributions + weekly_allocations) for the selected month to Excel.
+    Adds a professional Summary sheet and a Details sheet.
+    Uses global monthly limit from monthly_hours_limit table.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from io import BytesIO
+    from datetime import date
+
+    month = request.GET.get("month") or date.today().strftime("%Y-%m")
+
+    try:
+        year, mth = map(int, month.split("-"))
+        month_start = date(year, mth, 1)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid month format"}, status=400)
+
+    # --- 1️⃣ Fetch the monthly max hours (global limit) ---
+    DEFAULT_MONTHLY_HOURS = 183.75
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                SELECT max_hours FROM monthly_hours_limit
+                WHERE year = %s AND month = %s
+                LIMIT 1
+                """,
+                [year, mth],
+            )
+            rec = cur.fetchone()
+            MONTHLY_LIMIT = float(rec[0]) if rec else DEFAULT_MONTHLY_HOURS
+    except Exception:
+        MONTHLY_LIMIT = DEFAULT_MONTHLY_HOURS
+
+    try:
+        with connection.cursor() as cur:
+            # --- 2️⃣ Pull allocations for this month ---
+            cur.execute(
+                """
+                SELECT
+                  td.id AS td_id,
+                  td.lead_ldap,
+                  td.reportee_ldap,
+                  CONCAT_WS(' ', ld.givenName, ld.sn) AS reportee_name,
+                  td.project_id,
+                  p.name AS project_name,
+                  td.subproject_id,
+                  sp.name AS subproject_name,
+                  COALESCE(td.hours, 0) AS hours,
+                  td.month_start
+                FROM team_distributions td
+                LEFT JOIN projects p ON p.id = td.project_id
+                LEFT JOIN subprojects sp ON sp.id = td.subproject_id
+                LEFT JOIN ldap_directory ld
+                  ON LOWER(ld.email) COLLATE utf8mb4_unicode_ci = LOWER(td.reportee_ldap) COLLATE utf8mb4_unicode_ci
+                WHERE td.month_start = %s
+                ORDER BY LOWER(CONCAT_WS(' ', ld.givenName, ld.sn)) COLLATE utf8mb4_unicode_ci, p.name, sp.name
+                """,
+                [month_start],
+            )
+            allocations = dictfetchall(cur)
+
+            # --- 3️⃣ Weekly percentages ---
+            td_ids = [r["td_id"] for r in allocations if r.get("td_id")]
+            weekly_map = {}
+            if td_ids:
+                placeholders = ",".join(["%s"] * len(td_ids))
+                q = f"""
+                    SELECT team_distribution_id, week_number, COALESCE(percent,0) as percent
+                    FROM weekly_allocations
+                    WHERE team_distribution_id IN ({placeholders})
+                """
+                cur.execute(q, td_ids)
+                for w in dictfetchall(cur):
+                    tid = int(w["team_distribution_id"])
+                    weekly_map.setdefault(tid, {})[int(w["week_number"])] = float(w["percent"] or 0)
+
+            # --- 4️⃣ Team lead details ---
+            lead_candidates = [r.get("lead_ldap") for r in allocations if r.get("lead_ldap")]
+            lead_ldap = lead_candidates[0] if lead_candidates else None
+            lead_name = lead_ldap
+            if lead_ldap:
+                cur.execute(
+                    """
+                    SELECT CONCAT_WS(' ', givenName, sn) AS name
+                    FROM ldap_directory
+                    WHERE LOWER(email) COLLATE utf8mb4_unicode_ci = %s COLLATE utf8mb4_unicode_ci
+                    LIMIT 1
+                    """,
+                    [lead_ldap],
+                )
+                res = dictfetchall(cur)
+                if res:
+                    lead_name = res[0].get("name") or lead_ldap
+
+    except Exception as e:
+        print("Export query failed:", e)
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+    # --- 5️⃣ Aggregate totals ---
+    total_hours = sum(float(r.get("hours") or 0) for r in allocations)
+    total_fte = round(total_hours / MONTHLY_LIMIT, 3) if MONTHLY_LIMIT else 0
+
+    # Subproject summary
+    from collections import defaultdict
+    sub_sums = defaultdict(lambda: {"hours": 0.0, "count": 0})
+    for r in allocations:
+        name = r.get("subproject_name") or "Unassigned"
+        sub_sums[name]["hours"] += float(r.get("hours") or 0)
+        sub_sums[name]["count"] += 1
+
+    # --- 6️⃣ Workbook setup ---
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+
+    fill_blue = PatternFill("solid", fgColor="1F6FEB")
+    white_font = Font(color="FFFFFF", bold=True)
+    bold = Font(bold=True)
+    center = Alignment(horizontal="center", vertical="center")
+    left = Alignment(horizontal="left", vertical="center")
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Title
+    ws.merge_cells("A1:E1")
+    c = ws["A1"]
+    c.value = f"Team Lead Allocations — {month}"
+    c.font = Font(size=16, bold=True)
+    c.alignment = center
+
+    ws["A2"].value = "Team Lead:"
+    ws["B2"].value = lead_name or ""
+    ws["A3"].value = "Lead Email:"
+    ws["B3"].value = lead_ldap or ""
+    ws["A4"].value = "Month Start:"
+    ws["B4"].value = month_start.strftime("%Y-%m-%d")
+
+    ws["D2"].value = "Monthly Limit (hrs):"
+    ws["E2"].value = MONTHLY_LIMIT
+    ws["D3"].value = "Total Allocated Hours:"
+    ws["E3"].value = round(total_hours, 2)
+    ws["D4"].value = "Total FTE:"
+    ws["E4"].value = total_fte
+
+    for coord in ("A2", "A3", "A4", "D2", "D3", "D4"):
+        ws[coord].font = bold
+
+    # Subproject summary header
+    start_row = 6
+    headers = ["Subproject", "Total Hours", "FTE", "Allocations"]
+    for idx, h in enumerate(headers, 1):
+        c = ws.cell(row=start_row, column=idx)
+        c.value = h
+        c.fill = fill_blue
+        c.font = white_font
+        c.alignment = center
+        c.border = border
+
+    # Subproject data
+    row = start_row + 1
+    for sp, vals in sorted(sub_sums.items(), key=lambda x: -x[1]["hours"]):
+        hrs = vals["hours"]
+        fte = round(hrs / MONTHLY_LIMIT, 3) if MONTHLY_LIMIT else 0
+        ws.cell(row=row, column=1, value=sp)
+        ws.cell(row=row, column=2, value=round(hrs, 2))
+        ws.cell(row=row, column=3, value=fte)
+        ws.cell(row=row, column=4, value=vals["count"])
+        for col in range(1, 5):
+            cell = ws.cell(row=row, column=col)
+            cell.border = border
+            cell.alignment = left if col == 1 else center
+        row += 1
+
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+    ws.column_dimensions["E"].width = 16
+
+    # --- 7️⃣ Details sheet ---
+    ws2 = wb.create_sheet("Details")
+    headers = [
+        "Reportee",
+        "Project",
+        "Subproject",
+        "Hours",
+        "FTE",
+        "W1%",
+        "W2%",
+        "W3%",
+        "W4%",
+        "Total %",
+        "Month Start",
+    ]
+    ws2.append(headers)
+    for idx, h in enumerate(headers, 1):
+        c = ws2.cell(row=1, column=idx)
+        c.value = h
+        c.fill = fill_blue
+        c.font = white_font
+        c.alignment = center
+        c.border = border
+
+    for r in allocations:
+        tid = r["td_id"]
+        w = weekly_map.get(tid, {})
+        w1, w2, w3, w4 = (w.get(i, 0) for i in range(1, 5))
+        total_pct = round(w1 + w2 + w3 + w4, 2)
+        hrs = float(r.get("hours") or 0)
+        fte = round((hrs / MONTHLY_LIMIT) if MONTHLY_LIMIT else 0, 3)
+        name = (r.get("reportee_name") or "").strip()
+        email = (r.get("reportee_ldap") or "").strip()
+        display = f"{name} <{email}>" if name else email
+
+        ws2.append([
+            display,
+            r.get("project_name") or "",
+            r.get("subproject_name") or "",
+            hrs,
+            fte,
+            w1, w2, w3, w4,
+            total_pct,
+            r.get("month_start").strftime("%Y-%m-%d") if r.get("month_start") else "",
+        ])
+
+    for idx in range(1, len(headers) + 1):
+        ws2.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = 26 if idx in (1, 2, 3) else 12
+    for r in range(2, ws2.max_row + 1):
+        for c_idx in range(1, len(headers) + 1):
+            ws2.cell(row=r, column=c_idx).border = border
+
+    # --- 8️⃣ Return workbook ---
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"TL_Allocations_{month}.xlsx"
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+
+
+
+
 

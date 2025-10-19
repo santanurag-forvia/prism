@@ -103,6 +103,7 @@
     <div class="card-header">
       <span><span class="pill"></span>Allocate Bandwidth</span>
       <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
+
     </div>
 
     <div class="card-body">
@@ -172,6 +173,7 @@
       </table>
 
       <div style="text-align:right; margin-top:14px;">
+          <button id="btnExportExcel" class="btn btn-primary" style="background:#0284c7;">Export to Excel</button>
         <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
       </div>
     </div>
@@ -605,6 +607,11 @@
     });
     recomputeSummaryTotals();
   });
+document.getElementById("btnExportExcel").addEventListener("click", function(e){
+  e.preventDefault();
+  const month = document.getElementById("month")?.value || "{{ billing_month }}";
+  window.location.href = "{% url 'projects:export_tl_allocations_excel' %}?month=" + encodeURIComponent(month);
+});
 
 })();
 </script>
