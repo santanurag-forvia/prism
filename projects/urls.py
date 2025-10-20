@@ -34,8 +34,6 @@ urlpatterns = [
     path("team-allocations/", views.team_allocations, name="team_allocations"),
     path("team-allocations/save/", views.save_team_allocation, name="save_team_allocation"),
 
-    path("my-allocations/update-status/", views.my_allocations_update_status, name="my_allocations_update_status"),
-
     path('monthly_allocations/', views.monthly_allocations, name='monthly_allocations'),
     path('get_applicable_ioms/', views.get_applicable_ioms, name='get_applicable_ioms'),
     path('get_iom_details/', views.get_iom_details, name='get_iom_details'),
@@ -48,7 +46,7 @@ urlpatterns = [
     path('save_monthly_allocations/', views.save_monthly_allocations, name='save_monthly_allocations'),
     path("export_allocations/", views.export_allocations, name="export_allocations"),
     path('my-allocations/', views.my_allocations, name='my_allocations'),
-    path('my-allocations/save-weekly/', views.save_my_alloc_weekly, name='save_my_alloc_weekly'),
+
     path('my-allocations/save-daily/', views.save_my_alloc_daily, name='save_my_alloc_daily'),
     path('my-allocations/export/excel/', views.export_my_punches_excel, name='export_my_punches_excel'),
     path('my-allocations/export/pdf/', views.export_my_punches_pdf, name='export_my_punches_pdf'),
@@ -59,4 +57,11 @@ urlpatterns = [
     path("tl-allocations/", views.tl_allocations_view, name="tl_allocations"),
     path("tl-allocations/save/", views.save_tl_allocations, name="save_tl_allocations"),
     path("tl-allocations/export/excel/", views.export_tl_allocations_excel, name="export_tl_allocations_excel"),
+
+    # TL pages (already present in your app) should point to reconsideration flows
+    path('my-allocations/save-weekly/', views.save_my_alloc_weekly, name='save_my_alloc_weekly'),
+    path('my-allocations/update-status/', views.my_allocations_update_status, name='my_allocations_update_status'),
+    path('my-allocations/vacation/', views.save_vacation_view, name='my_allocations_vacation'),
+    path('tl/reconsiderations/', views.tl_reconsiderations_view, name='tl_reconsiderations'),
+
 ]

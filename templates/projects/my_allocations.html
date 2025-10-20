@@ -1,610 +1,184 @@
 {% extends "base.html" %}
 {% load static %}
-{% load dict_get %}
-
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'projects/css/projects.css' %}">
-<link rel="stylesheet" href="{% static 'css/team_allocations.css' %}">
 <style>
-/* layout */
-.container { max-width:1200px; margin:18px auto; }
-.panel { background:#fff; border-radius:10px; padding:18px; box-shadow:0 8px 20px rgba(2,6,23,0.04); }
-
-/* top controls */
-.controls-row { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
-.page-controls { display:flex; gap:12px; align-items:center; justify-content:flex-end; }
-.control-card { display:inline-flex; gap:10px; align-items:center; padding:8px 12px; border-radius:12px; background:linear-gradient(180deg, rgba(255,255,255,0.9), rgba(250,250,255,0.85)); border:1px solid rgba(15,23,42,0.04); box-shadow:0 6px 18px rgba(12,36,75,0.06); }
-.input-month { min-width:150px; padding:8px 10px; border-radius:10px; border:1px solid rgba(203,213,225,0.8); background:linear-gradient(180deg,#ffffff,#fbfdff); font-size:14px; }
-.btn-load { background: linear-gradient(90deg, #1e3a8a 0%, #2563eb 60%); color: #fff; padding: 9px 16px; border-radius: 10px; font-weight:700; border:none; cursor:pointer; box-shadow:0 8px 20px rgba(37,99,235,0.18); }
-
-/* toggles */
-.toggle-controls { display:flex; gap:8px; margin-bottom:12px; align-items:center; }
-.btn-toggle { padding:8px 12px; border-radius:8px; border:1px solid #e6eaf0; background:#fff; cursor:pointer; font-weight:700; }
-.btn-toggle.active { background:linear-gradient(90deg,#2563eb,#1e40af); color:#fff; border:none; box-shadow:0 8px 20px rgba(37,99,235,0.12); }
-
-/* export buttons placed to right of toggles */
-.toggle-controls .export-group { margin-left:auto; display:flex; gap:8px; }
-
-/* compact weekly-per-project table */
-.alloc-card { margin-top:12px; border-radius:10px; padding:14px; background:#fbfdff; border:1px solid #eef2f7; transition: transform .18s ease, box-shadow .18s ease; }
-.alloc-card:hover { transform: translateY(-6px); box-shadow: 0 18px 40px rgba(16,24,40,0.06); }
-.project-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; padding:10px 12px; border-radius:8px; background: linear-gradient(90deg, rgba(37,99,235,0.04), rgba(99,102,241,0.01)); border: 1px solid rgba(225,231,255,0.5); }
-.project-title { font-weight:800; font-size:15px; color:#0f172a; letter-spacing:0.2px; }
-.small-muted { color:#6b7280; font-size:13px; }
-
-/* vertical weeks table (CW rows) */
-.weeks-table { width:100%; border-collapse:collapse; margin-top:6px; }
-.weeks-table th, .weeks-table td { padding:8px 10px; border-bottom:1px solid #eef2f7; text-align:left; vertical-align:middle; }
-.weeks-table thead th { background:#f8fafc; font-weight:700; color:#374151; }
-
-/* daily view styles */
-.daily-grid { width:100%; border-collapse:collapse; margin-top:12px; }
-.daily-grid th, .daily-grid td { padding:8px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
-.day-disabled { color:#9aa3b2; background:#fafafa; }
-
-/* inputs and remaining */
-.input-small { width:84px; padding:6px; border-radius:6px; border:1px solid #d1d5db; text-align:center; background:#fff; } /* center numeric inputs */
-.remaining { font-size:12px; font-weight:700; padding:3px 6px; border-radius:6px; display:inline-block; margin-left:8px; }
-.remaining.safe { background: rgba(16,185,129,0.12); color: #065f46; }
-.remaining.warn { background: rgba(245,158,11,0.12); color:#92400e; }
-.remaining.over { background: rgba(239,68,68,0.12); color:#991b1b; }
-
-/* week-summary (daily view) */
-.week-summary { display:flex; gap:12px; align-items:center; margin-bottom:6px; }
-.week-summary .badge { padding:6px 10px; border-radius:8px; background:#f8fafc; font-weight:700; color:#1f2937; }
-.week-summary.over { background:#fee2e2; color:#9f1239; }
-
-/* save button disabled state */
-.btn-save-daily[disabled] { opacity:0.5; cursor:not-allowed; }
-
-/* ------------------ NEW LAYOUT ADJUSTMENTS ------------------ */
-
-/* Widen WBS select so seller/buyer labels fit comfortably */
-.wbs-select, select.input-small.wbs-select {
-  min-width:160px;            /* make dropdown wider */
-  max-width:320px;
-  padding:6px 8px;
-  font-size:13px;
-  border-radius:6px;
-  border:1px solid #d1d5db;
-  background:#fff;
-  box-sizing: border-box;
-}
-
-/* center numeric inputs and make them visually compact */
-.input-small {
-  width:84px;
-  padding:6px;
-  border-radius:6px;
-  border:1px solid #d1d5db;
-  text-align:center;
-  background:#fff;
-}
-
-/* center important numeric columns */
-.weeks-table th:nth-child(2), .weeks-table td:nth-child(2),
-.weeks-table th:nth-child(3), .weeks-table td:nth-child(3),
-.daily-grid th:nth-child(2), .daily-grid td:nth-child(2),
-.daily-grid th:nth-child(3), .daily-grid td:nth-child(3),
-.daily-grid th:nth-child(4), .daily-grid td:nth-child(4) { text-align:center; }
-
-/* ensure the WBS select + input stack/center nicely inside their column */
-.daily-grid td > div, .weeks-table td > div { display:flex; align-items:center; justify-content:center; gap:8px; }
-
-/* responsive: horizontal scroll if needed */
-@media (max-width:1100px){
-  .weeks-table, .daily-grid { display:block; overflow-x:auto; white-space:nowrap; }
-  .wbs-select { min-width:140px; }
-  .input-small { min-width:72px; }
-}
-
-/* focus styles */
-.wbs-select:focus, .input-small:focus { box-shadow:0 6px 18px rgba(37,99,235,0.08); outline:none; border-color:#2563eb; }
-
-/* remaining badge sizing */
-.weeks-table td span.remaining, .daily-grid td span.remaining { display:inline-block; min-width:56px; text-align:center; }
-
-/* WBS select larger */
-.wbs-select { min-width:180px; max-width:340px; padding:6px 10px; }
-
-/* hover/pop week-block */
-.week-block { transition: transform .12s ease, box-shadow .12s ease; border-radius:8px; }
-.week-block:hover { transform: translateY(-4px); box-shadow: 0 10px 26px rgba(12,36,75,0.06); }
-
-/* save buttons */
-.btn-save-week, .btn-save-daily {
-  background: linear-gradient(90deg,#0ea5e9,#2563eb);
-  color: #fff;
-  padding:8px 14px;
-  border-radius:8px;
-  border:none;
-  font-weight:700;
-  box-shadow:0 10px 22px rgba(37,99,235,0.14);
-  cursor:pointer;
-}
-.btn-save-week:hover, .btn-save-daily:hover { transform: translateY(-2px); }
-
-/* export buttons */
-.btn-export { padding:8px 12px; border-radius:8px; font-weight:700; color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:8px; box-shadow:0 10px 20px rgba(2,6,23,0.06); }
-.btn-export-excel { background: linear-gradient(90deg,#16a34a,#10b981); }
-.btn-export-pdf   { background: linear-gradient(90deg,#ef4444,#f97316); }
-.btn-export:hover { transform: translateY(-2px); }
-
-/* program header highlight */
-.project-head .small-muted { color:#6b7280; margin-top:2px; }
+/* compact styling tuned for weekly punching */
+.alloc-wrap { max-width:1200px; margin:24px auto; padding:18px; }
+.topbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+.small-muted { color:#6b7280; font-size:0.9rem; }
+.btn { padding:8px 12px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
+.btn-load { background:#2563eb; color:#fff; }
+.btn-vac { background:#f59e0b; color:#fff; }
+.btn-tl { background:#6b7280; color:#fff; }
+.group-card { background:#fff; border-radius:10px; padding:12px 16px; margin-bottom:16px; box-shadow:0 6px 18px rgba(0,0,0,0.04); border:1px solid #f1f5f9; }
+.alloc-table { width:100%; border-collapse:collapse; }
+.alloc-table th, .alloc-table td { padding:8px 10px; border-bottom:1px solid #f3f4f6; text-align:center; font-size:0.93rem; }
+.alloc-table th { background:#f9fafb; color:#334155; }
+.input-hours { width:90px; padding:5px 6px; border:1px solid #e5e7eb; border-radius:6px; text-align:right; }
+.status-badge { padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:600; }
+.status-pending { background:#fff7ed; color:#92400e; border:1px solid #ffedd5; }
+.status-accepted { background:#ecfdf5; color:#065f46; border:1px solid #d1fae5; }
+.status-rejected { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+.row-actions { display:flex; gap:6px; justify-content:center; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container">
-  <div class="panel" role="main" aria-labelledby="myAllocTitle">
-    <div class="controls-row">
-      <div>
-        <h2 id="myAllocTitle">My Allocations — {{ month_start|date:"F Y" }}</h2>
-        <p class="small-muted">Toggle between Weekly and Daily punching views. You cannot punch more than the allocated hours for the week.</p>
+<div class="alloc-wrap">
+  <div class="topbar">
+    <div>
+      <h2 style="margin:0;">My Weekly Allocations — <span class="small-muted">{{ month_label }}</span></h2>
+      <div class="small-muted">Billing: {{ billing_start }} — {{ billing_end }}</div>
+      <form method="get" style="display:inline-flex;align-items:center;gap:8px;margin-top:6px;">
+        <label class="small-muted">Month:</label>
+        <input type="month" name="month" value="{{ request.GET.month|default:billing_start|slice:':7' }}">
+        <button class="btn btn-load" type="submit">Load</button>
+      </form>
+    </div>
 
-        {# NEW: Billing period summary (explicitly shown for clarity) #}
-        <div style="margin-top:8px; display:flex; gap:10px; align-items:center;">
-          <div style="font-size:13px; color:#6b7280;">Billing period:</div>
-          <div style="font-weight:700; color:#0b5ed7;">
-            {% if month_start and daily_dates %}
-              {# iterate to the last daily_dates entry to render end date robustly #}
-              {{ month_start|date:"Y-m-d" }} —
-              {% for d in daily_dates %}
-                {% if forloop.last %}
-                  {{ d.date|date:"Y-m-d" }}
-                {% endif %}
-              {% endfor %}
-            {% elif month_start %}
-              {{ month_start|date:"Y-m-d" }} — {{ month_start|date:"Y-m-t" }}
-            {% else %}
-              (not defined)
-            {% endif %}
-          </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button id="vac-btn" class="btn btn-vac">Vacation / Leave</button>
+      <a class="btn btn-tl" href="{{ tl_reconsider_url }}">TL Reconsiderations</a>
+    </div>
+  </div>
+
+  {% if groups %}
+    {% for spid, group in groups.items %}
+      <div class="group-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-weight:700;">{{ group.subproject_name }} {% if group.project_name %}<span class="small-muted">— {{ group.project_name }}</span>{% endif %}</div>
+          <div class="small-muted">Total: {{ group.rows|length }}</div>
         </div>
 
-      </div>
+        <table class="alloc-table" data-subproject="{{ group.subproject_id }}">
+          <thead>
+            <tr>
+              <th style="text-align:left;min-width:200px;">Team Dist. ID</th>
+              {% for wk in weeks %}
+                <th>Week {{ wk.num }}<br><small class="small-muted">{{ wk.start }} — {{ wk.end }}</small></th>
+              {% endfor %}
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in group.rows %}
+              <tr data-team-id="{{ row.team_distribution_id }}">
+                <td style="text-align:left;">
+                  <div style="font-weight:700;">#{{ row.team_distribution_id }}</div>
+                  <div class="small-muted">{{ row.total_hours }}h</div>
+                </td>
 
-      <div class="page-controls" aria-label="Month controls">
-        <form method="get" class="control-card" style="align-items:center;">
-          <label class="ctrl-label small-muted" style="margin-right:6px;">Select month</label>
-          <input class="input-month" type="month" name="month" value="{{ month_start|date:'Y-m' }}">
-          <button class="btn-load" type="submit">Load</button>
-        </form>
-      </div>
-    </div>
-
-    <div class="toggle-controls" role="tablist" aria-label="View toggle">
-      <button id="btn-weekly" class="btn-toggle active" role="tab" aria-selected="true">Weekly View</button>
-      <button id="btn-daily" class="btn-toggle" role="tab" aria-selected="false">Daily View</button>
-
-      <div class="export-group" role="group" aria-label="Export actions">
-        <a class="btn-export btn-export-excel" href="{% url 'projects:export_my_punches_excel' %}?month={{ month_start|date:'Y-m' }}" role="button">Export Excel</a>
-        <a class="btn-export btn-export-pdf" href="{% url 'projects:export_my_punches_pdf' %}?month={{ month_start|date:'Y-m' }}" role="button">Export PDF</a>
-      </div>
-    </div>
-
-    {# ---------------- WEEKLY VIEW ---------------- #}
-    <div id="weekly-view" role="tabpanel" aria-labelledby="btn-weekly">
-      {% if not rows %}
-        <div style="padding:18px;border-radius:8px;background:#fff;">No allocations found for you this month.</div>
-      {% else %}
-        {% for r in rows %}
-          <div class="alloc-card" data-allocation="{{ r.allocation_id }}">
-            <div class="project-head">
-              <div>
-                <div class="project-title">{{ r.project_name }} — <span class="small-muted">{{ r.domain_name }}</span></div>
-                <div class="small-muted" style="margin-top:4px;">Total Alloc: {{ r.total_hours }}</div>
-              </div>
-              <div style="display:flex;flex-direction:column;align-items:flex-end;">
-                <div class="small-muted">Allocated Total</div>
-                <div style="font-weight:700;color:#0f172a;">{{ r.total_hours }}</div>
-              </div>
-            </div>
-
-            <table class="weeks-table" aria-describedby="CW table for {{ r.allocation_id }}">
-              <thead>
-                <tr>
-                  <th style="width:64px">CW#</th>
-                  <th style="width:120px">Allocated</th>
-                  <th style="width:120px">Punched</th>
-                  <th style="min-width:260px">WBS — Enter Punch</th>
-                  <th style="width:120px">Remaining</th>
-                </tr>
-              </thead>
-              <tbody>
-                {# dynamic weeks: only render weeks that have allocation (r.weeks_present) #}
-                {% for wk in r.weeks_present %}
-                  {% with alloc_key='w'|add:wk|add:'_alloc_hours' %}
-                  {% with punched_key='w'|add:wk|add:'_punched_hours' %}
-                    <tr data-week="{{ wk }}">
-                      <td style="text-align:center;">{{ wk }}</td>
-                      <td style="text-align:center;">{{ r|dict_get:alloc_key }}</td>
-                      <td class="punched" style="text-align:center;">{{ r|dict_get:punched_key }}</td>
-                      <td>
-                        <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
-                          {% if r.wbs_options %}
-                            <select class="wbs-select" data-week="{{ wk }}">
-                              {% for opt in r.wbs_options %}
-                                <option value="{{ opt.code }}">{{ opt.label }}</option>
-                              {% endfor %}
-                            </select>
-                          {% endif %}
-                          <input class="input-small week-punch" type="number" min="0" step="0.25"
-                                 data-week="{{ wk }}"
-                                 value="{{ r|dict_get:punched_key }}"
-                                 data-alloc="{{ r|dict_get:alloc_key }}">
-                        </div>
-                      </td>
-                      <td style="text-align:center;"><span class="remaining" data-remaining></span></td>
-                    </tr>
-                  {% endwith %}
-                  {% endwith %}
+                {# Use the ordered weekly_list (no dynamic key lookup) #}
+                {% for cell in row.weekly_list %}
+                  <td>
+                    {% if cell.status == 'PENDING' %}
+                      <input class="input-hours" type="number" step="0.25" min="0"
+                             value="{{ cell.hours }}"
+                             data-week="{{ forloop.counter }}" data-team-id="{{ row.team_distribution_id }}">
+                    {% else %}
+                      {{ cell.hours }}h
+                    {% endif %}
+                  </td>
                 {% endfor %}
-              </tbody>
-            </table>
 
-            <div style="text-align:right; margin-top:8px;">
-              <button class="btn-save-week">Save Week</button>
-            </div>
-          </div>
-        {% endfor %}
-      {% endif %}
-    </div>
+                <td>
+                  {% if row.weekly_list.0.status == 'ACCEPTED' %}
+                    <span class="status-badge status-accepted">ACCEPTED</span>
+                  {% elif row.weekly_list.0.status == 'REJECTED' %}
+                    <span class="status-badge status-rejected">REJECTED</span>
+                  {% else %}
+                    <span class="status-badge status-pending">PENDING</span>
+                  {% endif %}
+                </td>
 
-    {# ---------------- DAILY VIEW ---------------- #}
-    <div id="daily-view" role="tabpanel" aria-labelledby="btn-daily" style="display:none; margin-top:12px;">
-      {% if not rows %}
-        <div style="padding:18px;border-radius:8px;background:#fff;">No allocations found for you this month.</div>
-      {% else %}
-        <p class="small-muted">Daily punching: only weekdays (Mon–Fri) are editable. Weekly totals are validated on Save.</p>
-
-        {% for r in rows %}
-          <div class="alloc-card" data-allocation="{{ r.allocation_id }}">
-            <div class="project-head">
-              <div>
-                <div class="project-title">{{ r.project_name }} — <span class="small-muted">{{ r.domain_name }}</span></div>
-              </div>
-              <div style="text-align:right;">
-                <div class="small-muted">Total Alloc: {{ r.total_hours }}</div>
-              </div>
-            </div>
-
-            {% regroup daily_dates by week_number as weeks %}
-            {% for week in weeks %}
-              {% if week.grouper in r.weeks_present %}
-                <div class="week-block" style="margin-top:12px;">
-                  {% with alloc_key='w'|add:week.grouper|add:'_alloc_hours' %}
-                  <div class="week-summary"
-                         data-week="{{ week.grouper }}"
-                         data-alloc="{% if week.grouper == 1 %}{{ r.w1_alloc_hours|default:'0.00' }}{% elif week.grouper == 2 %}{{ r.w2_alloc_hours|default:'0.00' }}{% elif week.grouper == 3 %}{{ r.w3_alloc_hours|default:'0.00' }}{% else %}{{ r.w4_alloc_hours|default:'0.00' }}{% endif %}">
-
-                    <div class="badge">W{{ week.grouper }} Alloc: {{ r|dict_get:alloc_key }}</div>
-                    <div class="small-muted">Punched (week): <span class="week-punched">None</span></div>
-                    <div class="small-muted">Remaining: <span class="week-remaining">0.00</span></div>
+                <td>
+                  <div class="row-actions">
+                    <button class="btn btn-save save-row" data-team-id="{{ row.team_distribution_id }}">Save</button>
+                    <button class="btn btn-accept accept-row" data-team-id="{{ row.team_distribution_id }}">Accept</button>
+                    <button class="btn btn-reject reject-row" data-team-id="{{ row.team_distribution_id }}">Reject</button>
                   </div>
-                  {% endwith %}
-
-                  <table class="daily-grid">
-                    <thead>
-                      <tr>
-                        <th style="width:220px">Date</th>
-                        <th style="width:140px">Punched</th>
-                        <th style="min-width:260px">WBS</th>
-                        <th style="width:140px">Enter Punch</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for d in week.list %}
-                        {% with ds=d.iso %}
-                        <tr data-date="{{ ds }}" data-weeknum="{{ d.week_number }}"
-                            class="{% if d.is_weekend or holidays_map|dict_get:ds %}day-disabled{% endif %}"
-                            title="{% if holidays_map|dict_get:ds %}Holiday: {{ holidays_map|dict_get:ds }}{% endif %}">
-                          <td>{{ d.date|date:"D, d M" }}</td>
-
-                          <td class="existing-punch" style="text-align:center;">
-                            {{ daily_map|dict_get:r.allocation_id|dict_get:ds }}
-                          </td>
-
-                          {# WBS column #}
-                          <td style="text-align:center;">
-                            {% if d.is_weekend or holidays_map|dict_get:ds %}
-                              <div><em class="small-muted">N/A</em></div>
-                            {% else %}
-                              <div style="display:flex;justify-content:center;gap:8px;align-items:center;">
-                                {% if r.wbs_options %}
-                                  <select class="wbs-select" data-date="{{ ds }}">
-                                    {% for opt in r.wbs_options %}
-                                      <option value="{{ opt.code }}">{{ opt.label }}</option>
-                                    {% endfor %}
-                                  </select>
-                                {% else %}
-                                  <div class="small-muted">—</div>
-                                {% endif %}
-                              </div>
-                            {% endif %}
-                          </td>
-
-                          {# Enter punch column — unified wrapper so disabled inputs align identically #}
-                          <td style="text-align:center;">
-                            <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
-                              {% if d.is_weekend or holidays_map|dict_get:ds %}
-                                <input class="input-small daily-input" type="number" disabled
-                                       value="{{ daily_map|dict_get:r.allocation_id|dict_get:ds }}" />
-                                <span class="remaining" data-remaining></span>
-                              {% else %}
-                                <input class="input-small daily-input" type="number" min="0" step="0.25"
-                                       value="{{ daily_map|dict_get:r.allocation_id|dict_get:ds }}"
-                                       data-date="{{ ds }}" data-weeknum="{{ d.week_number }}" />
-                                <span class="remaining" data-remaining></span>
-                              {% endif %}
-                            </div>
-                          </td>
-                        </tr>
-                        {% endwith %}
-                      {% endfor %}
-                    </tbody>
-                  </table>
-
-                  <div style="text-align:right; margin-top:6px;">
-                    <button class="btn-save-daily" data-week="{{ week.grouper }}">Save Week {{ week.grouper }} Punches</button>
-                  </div>
-                </div>
-              {% endif %}
+                </td>
+              </tr>
             {% endfor %}
-          </div>
-        {% endfor %}
-      {% endif %}
+          </tbody>
+        </table>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="group-card">
+      <div class="small-muted">No allocations found for {{ month_label }}.</div>
     </div>
-
-  </div>
+  {% endif %}
 </div>
-{% endblock %}
 
-{% block extra_js %}
+{% csrf_token %}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-  try {
-    // find controls
-    const btnWeekly = document.getElementById('btn-weekly');
-    const btnDaily = document.getElementById('btn-daily');
-    const weeklyView = document.getElementById('weekly-view');
-    const dailyView = document.getElementById('daily-view');
+(function(){
+  const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+  const saveWeeklyUrl = "{{ save_weekly_url }}";
+  const updateStatusUrl = "{{ update_status_url }}";
+  const saveVacationUrl = "{{ save_vacation_url }}";
 
-    if (!btnWeekly || !btnDaily || !weeklyView || !dailyView) {
-      console.warn('My Allocations: toggle elements missing', { btnWeekly, btnDaily, weeklyView, dailyView });
-      return;
-    }
-
-    // ensure buttons don't submit parent forms by accident
-    btnWeekly.setAttribute('type', 'button');
-    btnDaily.setAttribute('type', 'button');
-
-    function showView(view) {
-      if (view === 'weekly') {
-        weeklyView.style.display = '';
-        dailyView.style.display = 'none';
-        btnWeekly.classList.add('active');
-        btnDaily.classList.remove('active');
-        btnWeekly.setAttribute('aria-selected', 'true');
-        btnDaily.setAttribute('aria-selected', 'false');
-      } else {
-        weeklyView.style.display = 'none';
-        dailyView.style.display = '';
-        btnWeekly.classList.remove('active');
-        btnDaily.classList.add('active');
-        btnWeekly.setAttribute('aria-selected', 'false');
-        btnDaily.setAttribute('aria-selected', 'true');
-      }
-    }
-
-    // Attach handlers
-    btnWeekly.addEventListener('click', function (e) {
-      e.preventDefault();
-      showView('weekly');
-      try { localStorage.setItem('myAlloc_view', 'weekly'); } catch(e){}
-    });
-
-    btnDaily.addEventListener('click', function (e) {
-      e.preventDefault();
-      showView('daily');
-      try { localStorage.setItem('myAlloc_view', 'daily'); } catch(e){}
-    });
-
-    // optionally respect last selected tab from localStorage
-    try {
-      const last = localStorage.getItem('myAlloc_view') || 'weekly';
-      showView(last);
-    } catch (err) {
-      // ignore storage errors in private mode
-    }
-
-    // expose for debugging in console
-    window.myAllocShowView = showView;
-
-  } catch (err) {
-    console.error('My Allocations toggle init failed', err);
-  }
-});
-</script>
-
-<script>
-/* Helper */
-function getCookie(name){ const v=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)'); return v?v.pop():''; }
-const CSRFTOKEN = getCookie('csrftoken');
-
-function setBadge(el, rem, alloc){
-  // ensure numeric formatting and class toggles
-  const numRem = parseFloat(rem) || 0;
-  el.textContent = numRem.toFixed(2);
-  el.classList.remove('safe','warn','over');
-  if(numRem < 0) el.classList.add('over');
-  else if(numRem < (alloc * 0.2)) el.classList.add('warn');
-  else el.classList.add('safe');
-}
-
-/* ---------- WEEKLY view remaining (vertical rows) ---------- */
-function initWeeklyCard(card){
-  // for each week input compute remaining = alloc - inputValue
-  const inputs = card.querySelectorAll('input.week-punch');
-  inputs.forEach(inp=>{
-    function update(){
-      const alloc = parseFloat(inp.dataset.alloc||'0')||0;
-      const val = parseFloat(inp.value||'0')||0;
-      const rem = alloc - val;
-      // remaining span in same row
-      const row = inp.closest('tr');
-      const span = row.querySelector('span[data-remaining]') || row.querySelector('.remaining');
-      if(span) setBadge(span, rem, alloc);
-    }
-    update();
-    inp.addEventListener('input', update);
-  });
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-  document.querySelectorAll('.alloc-card').forEach(initWeeklyCard);
-});
-
-/* ---------- DAILY view: weekly totals, weekend disabling and save control ---------- */
-
-function computeWeekSummaryForAllocation(card, weekNum){
-  // gather rows for the week inside the card
-  const rows = Array.from(card.querySelectorAll('tr[data-weeknum="'+weekNum+'"]'));
-  if(rows.length === 0) return {alloc:0, sum:0};
-
-  // preferred: read allocation value from the week-summary element data-alloc attribute
-  const weekSummary = card.querySelector('.week-summary[data-week="'+weekNum+'"]');
-  let alloc = 0;
-  if (weekSummary && weekSummary.dataset && typeof weekSummary.dataset.alloc !== 'undefined') {
-    const raw = weekSummary.dataset.alloc;
-    const parsed = parseFloat(String(raw).replace(/[^0-9\.\-]/g, '')) ;
-    alloc = (isNaN(parsed) ? 0 : parsed);
-  } else {
-    const cellText = (rows && rows[0] && rows[0].cells[1] && rows[0].cells[1].textContent) ? rows[0].cells[1].textContent.trim() : "0";
-    const parsed2 = parseFloat(String(cellText).replace(/[^0-9\.\-]/g,'')) ;
-    alloc = (isNaN(parsed2) ? 0 : parsed2);
-  }
-
-  // sum all editable daily inputs for the week
-  let sum = 0;
-  rows.forEach(r=>{
-    const inp = r.querySelector('input.daily-input');
-    if(inp && !inp.disabled){
-      sum += parseFloat(inp.value || '0') || 0;
-    }
-  });
-
-  return {alloc: alloc, sum: sum};
-}
-
-function updateDailySummaries(){
-  // iterate each alloc card
-  document.querySelectorAll('.alloc-card').forEach(card=>{
-    const weekContainers = card.querySelectorAll('.week-summary');
-    weekContainers.forEach(ws=>{
-      const weekNum = ws.dataset.week;
-      const summary = computeWeekSummaryForAllocation(card, weekNum);
-      const punchedEl = ws.querySelector('.week-punched');
-      const remEl = ws.querySelector('.week-remaining');
-      if(punchedEl) punchedEl.textContent = summary.sum.toFixed(2);
-      if(remEl){
-        const rem = summary.alloc - summary.sum;
-        remEl.textContent = rem.toFixed(2);
-        if(rem < 0) ws.classList.add('over'); else ws.classList.remove('over');
-      }
-      const saveBtn = card.querySelector('.btn-save-daily[data-week="'+weekNum+'"]');
-      if(saveBtn){
-        if(summary.sum > summary.alloc) saveBtn.setAttribute('disabled','disabled'); else saveBtn.removeAttribute('disabled');
-      }
-    });
-  });
-}
-
-document.addEventListener('input', function(ev){
-  if(ev.target && ev.target.matches('input.daily-input')){
-    updateDailySummaries();
-  }
-});
-
-document.addEventListener('DOMContentLoaded', function(){
-  updateDailySummaries();
-});
-
-/* ---------- Save endpoints (include WBS) ---------- */
-
-// Save weekly punches (vertical weekly card): this saves all weeks present for the allocation
-document.addEventListener('click', function(ev){
-  if(!ev.target.matches('.btn-save-week')) return;
-  const card = ev.target.closest('.alloc-card');
-  const allocationId = card.dataset.allocation;
-  const inputs = Array.from(card.querySelectorAll('input.week-punch'));
-  // for each input determine week and related wbs-select (data-week)
-  const payloads = inputs.map(i=>{
-    const wk = Number(i.dataset.week);
-    const wbsSel = card.querySelector('.wbs-select[data-week="'+wk+'"]') || card.querySelector('.wbs-select');
-    const wbs = wbsSel ? wbsSel.value : null;
-    return { week_number: wk, actual_hours: parseFloat(i.value||'0')||0, wbs: wbs };
-  });
-
-  if(!confirm('Save weekly punches for this allocation?')) return;
-  let i = 0;
-  function sendNext(){
-    if(i >= payloads.length){ alert('Saved'); location.reload(); return; }
-    const p = payloads[i];
-    fetch("{% url 'projects:save_my_alloc_weekly' %}", {
+  async function postJSON(url, body){
+    return fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRFTOKEN},
-      body: JSON.stringify({ allocation_id: Number(allocationId), week_number: p.week_number, actual_hours: p.actual_hours, wbs: p.wbs })
-    }).then(r=>r.json()).then(j=>{
-      if(j && j.ok){ i++; sendNext(); } else { alert('Error: '+(j && j.error? j.error : JSON.stringify(j))); }
-    }).catch(err=>{ alert('Save failed: '+err); });
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+      body: JSON.stringify(body)
+    }).then(r => r.json()).catch(()=>({ok:false,error:'network error'}));
   }
-  sendNext();
-});
 
-// Save daily punches for a particular allocation-week (Save button exists per week inside each card)
-document.addEventListener('click', function(ev){
-  if(!ev.target.matches('.btn-save-daily')) return;
-  const btn = ev.target;
-  const weekNum = btn.dataset.week;
-  const card = btn.closest('.alloc-card');
-  const allocationId = Number(card.dataset.allocation);
-  const rows = Array.from(card.querySelectorAll('tr[data-weeknum="'+weekNum+'"]'));
-  const tasks = [];
-  rows.forEach(r=>{
-    const inp = r.querySelector('input.daily-input:not([disabled])');
-    if(!inp) return;
-    const date = r.dataset.date;
-    const val = parseFloat(inp.value||'0')||0;
-    const existing = parseFloat(r.querySelector('.existing-punch').textContent||'0')||0;
-    if(val !== existing){
-      // prefer date-specific wbs select, otherwise card-level
-      const wbsSel = card.querySelector('.wbs-select[data-date="'+date+'"]') || card.querySelector('.wbs-select');
-      const wbs = wbsSel ? wbsSel.value : null;
-      tasks.push({ punch_date: date, actual_hours: val, wbs: wbs });
-    }
+  // Save all inputs for a team row
+  document.querySelectorAll('.save-row').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const tid = btn.dataset.teamId;
+      const inputs = document.querySelectorAll(`input[data-team-id="${tid}"]`);
+      for(const inp of inputs){
+        const wk = inp.dataset.week;
+        const hours = inp.value;
+        const body = { team_distribution_id: parseInt(tid,10), week_number: parseInt(wk,10), allocated_hours: hours };
+        const res = await postJSON(saveWeeklyUrl, body);
+        if(!res.ok){ alert('Save failed: ' + (res.error || 'server')); return; }
+      }
+      alert('Saved');
+    });
   });
-  if(tasks.length === 0){ alert('No changes to save for this week'); return; }
-  if(!confirm('Save daily punches for week '+weekNum+'?')) return;
-  const summary = computeWeekSummaryForAllocation(card, weekNum);
-  if(summary.sum > summary.alloc){ alert('Weekly total exceeds allocation, fix before saving'); return; }
 
-  let idx = 0;
-  function sendOne(){
-    if(idx >= tasks.length){ alert('Saved daily punches'); location.reload(); return; }
-    const t = tasks[idx];
-    fetch("{% url 'projects:save_my_alloc_daily' %}", {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRFTOKEN},
-      body: JSON.stringify({ allocation_id: allocationId, punch_date: t.punch_date, actual_hours: t.actual_hours, wbs: t.wbs })
-    }).then(r=>r.json()).then(j=>{
-      if(j && j.ok){ idx++; sendOne(); } else { alert('Failed to save '+t.punch_date+': '+(j.error || JSON.stringify(j))); }
-    }).catch(err=>{ alert('Save failed: '+err); });
-  }
-  sendOne();
-});
+  // Accept
+  document.querySelectorAll('.accept-row').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const tid = btn.dataset.teamId;
+      if(!confirm('Accept all weeks for this allocation?')) return;
+      const body = { team_distribution_id: parseInt(tid,10), action: 'accept', billing_start: "{{ billing_start }}" };
+      const res = await postJSON(updateStatusUrl, body);
+      if(res.ok){ alert('Accepted'); location.reload(); } else alert('Failed: ' + (res.error||'server error'));
+    });
+  });
+
+  // Reject
+  document.querySelectorAll('.reject-row').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const tid = btn.dataset.teamId;
+      const comment = prompt('Provide reason for rejection (this sends to TL for reconsideration):');
+      if(!comment) return;
+      const body = { team_distribution_id: parseInt(tid,10), action: 'reject', comment: comment, billing_start: "{{ billing_start }}" };
+      const res = await postJSON(updateStatusUrl, body);
+      if(res.ok){ alert('Rejected — sent to TL'); location.reload(); } else alert('Failed: ' + (res.error||'server error'));
+    });
+  });
+
+  // Vacation button
+  document.getElementById('vac-btn').addEventListener('click', async ()=>{
+    const hours = prompt('Total vacation/leave hours for billing period:');
+    if(!hours) return;
+    const reason = prompt('Optional note:') || '';
+    const body = { billing_start: "{{ billing_start }}", billing_end: "{{ billing_end }}", hours: hours, reason: reason };
+    const res = await postJSON(saveVacationUrl, body);
+    if(res.ok){ alert('Vacation saved'); } else alert('Failed: ' + (res.error||'server error'));
+  });
+
+})();
 </script>
 {% endblock %}

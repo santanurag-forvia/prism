@@ -431,7 +431,24 @@ class DatabaseInitializer:
           COLLATE=utf8mb4_0900_ai_ci;
 
         """)
-
+        # 12) team_distributions (recommended) - depends on monthly_allocation_entries optionally
+        print("Adding DDL for table: team_distributions")
+        ddls.append("""
+                    CREATE TABLE IF NOT EXISTS `team_distributions` (
+                        `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                        `month_start` DATE NOT NULL,
+                        `lead_ldap` VARCHAR(255) NOT NULL,
+                        `project_id` BIGINT NULL,
+                        `subproject_id` BIGINT NOT NULL,
+                        `reportee_ldap` VARCHAR(255) NOT NULL,
+                        `hours` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_lead_month_subp_reportee (lead_ldap, month_start, subproject_id, reportee_ldap),
+                        INDEX idx_month_reportee (month_start, reportee_ldap),
+                        INDEX idx_lead_month (lead_ldap, month_start)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+                """)
         # 11) weekly_allocations (references monthly_allocation_entries.id)
         print("Adding DDL for table: weekly_allocations")
         ddls.append("""
@@ -457,24 +474,7 @@ class DatabaseInitializer:
 
         """)
 
-        # 12) team_distributions (recommended) - depends on monthly_allocation_entries optionally
-        print("Adding DDL for table: team_distributions")
-        ddls.append("""
-            CREATE TABLE IF NOT EXISTS `team_distributions` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `month_start` DATE NOT NULL,
-                `lead_ldap` VARCHAR(255) NOT NULL,
-                `project_id` BIGINT NULL,
-                `subproject_id` BIGINT NOT NULL,
-                `reportee_ldap` VARCHAR(255) NOT NULL,
-                `hours` DECIMAL(10,2) NOT NULL DEFAULT 0,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_lead_month_subp_reportee (lead_ldap, month_start, subproject_id, reportee_ldap),
-                INDEX idx_month_reportee (month_start, reportee_ldap),
-                INDEX idx_lead_month (lead_ldap, month_start)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-        """)
+
 
         # 13) Notifications and Audit (these reference users)
         print("Adding DDL for table: notifications")
@@ -637,3 +637,91 @@ if __name__ == "__main__":
     if not ok:
         sys.exit(1)
     print("Done.")
+
+def accept_week(request):
+    user_email = request.session['ldap_username']
+    data = json.loads(request.body)
+    allocation_id = int(data['allocation_id'])
+    billing_start = data['billing_start']
+    week_number = int(data['week_number'])
+    comment = data.get('comment','')
+    # allocated_hours optional - if omitted pick existing weekly_allocations.hours or equal-split fallback
+    allocated_hours = data.get('allocated_hours', None)
+
+    sql = """
+    START TRANSACTION;
+    -- insert/update confirmation
+    INSERT INTO weekly_punch_confirmations
+    (user_email, allocation_id, billing_start, week_number, allocated_hours, user_comment, status, actioned_by, actioned_at)
+    VALUES (%s, %s, %s, %s, COALESCE(%s,
+      (SELECT COALESCE(wa.hours, TRUNCATE(m.total_hours / 4,2)) FROM monthly_allocation_entries m
+         LEFT JOIN weekly_allocations wa ON wa.allocation_id = m.id AND wa.week_number = %s
+         WHERE m.id = %s)
+    ), %s, 'ACCEPTED', %s, NOW())
+    ON DUPLICATE KEY UPDATE
+      allocated_hours = VALUES(allocated_hours),
+      user_comment = VALUES(user_comment),
+      status = 'ACCEPTED',
+      actioned_by = VALUES(actioned_by),
+      actioned_at = VALUES(actioned_at),
+      updated_at = NOW();
+
+    -- upsert weekly_allocations using the accepted hours
+    INSERT INTO weekly_allocations (allocation_id, week_number, hours, confirmed_by, confirmed_at)
+    VALUES (%s, %s,
+      (SELECT allocated_hours FROM weekly_punch_confirmations WHERE user_email=%s AND allocation_id=%s AND billing_start=%s AND week_number=%s LIMIT 1),
+      %s, NOW())
+    ON DUPLICATE KEY UPDATE hours = VALUES(hours), confirmed_by = VALUES(confirmed_by), confirmed_at = VALUES(confirmed_at);
+    COMMIT;
+    """
+    params = [user_email, allocation_id, billing_start, week_number, allocated_hours, week_number, allocation_id, comment, user_email,
+              allocation_id, week_number, user_email, allocation_id, billing_start, week_number, user_email]
+    exec_sql(sql, params)
+    return JsonResponse({'ok': True})
+
+
+def reject_week(request):
+    user_email = request.session['ldap_username']
+    data = json.loads(request.body)
+    allocation_id = int(data['allocation_id'])
+    billing_start = data['billing_start']
+    week_number = int(data['week_number'])
+    comment = data.get('comment','')
+    if not comment:
+        return JsonResponse({'ok': False, 'error': 'comment required on reject'}, status=400)
+
+    sql = """
+    START TRANSACTION;
+    INSERT INTO weekly_punch_confirmations
+    (user_email, allocation_id, billing_start, week_number, allocated_hours, user_comment, status, actioned_by, actioned_at)
+    VALUES (%s, %s, %s, %s,
+      (SELECT COALESCE(wa.hours, TRUNCATE(m.total_hours / 4,2)) FROM monthly_allocation_entries m
+         LEFT JOIN weekly_allocations wa ON wa.allocation_id = m.id AND wa.week_number = %s
+         WHERE m.id = %s),
+      %s, 'REJECTED', %s, NOW())
+    ON DUPLICATE KEY UPDATE
+      user_comment = VALUES(user_comment),
+      status = 'REJECTED',
+      actioned_by = VALUES(actioned_by),
+      actioned_at = VALUES(actioned_at),
+      updated_at = NOW();
+
+    -- set TL email (lookup)
+    UPDATE weekly_punch_confirmations wpc
+    JOIN people_employee pe ON pe.email = %s
+    SET wpc.tl_email = pe.line_manager_email
+    WHERE wpc.user_email = %s AND wpc.allocation_id = %s AND wpc.billing_start = %s AND wpc.week_number = %s;
+
+    -- insert history
+    SELECT id INTO @conf_id FROM weekly_punch_confirmations
+      WHERE user_email=%s AND allocation_id=%s AND billing_start=%s AND week_number=%s LIMIT 1;
+    INSERT INTO weekly_punch_history (confirmation_id, actor_email, role, action, comment)
+    VALUES (@conf_id, %s, 'USER', 'REJECT', %s);
+    COMMIT;
+    """
+    params = [user_email, allocation_id, billing_start, week_number, week_number, allocation_id, comment, user_email,
+              user_email, user_email, allocation_id, billing_start, week_number,
+              user_email, allocation_id, billing_start, week_number, user_email, comment]
+    exec_sql(sql, params)
+    # notify TL (via email/in-app) - implement outside SQL
+    return JsonResponse({'ok': True})
