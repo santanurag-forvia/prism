@@ -410,9 +410,37 @@ def get_month_start_and_end(year_month):
 
 # 1. CENTRALIZED BILLING PERIOD SOURCE OF TRUTH
 # -------------------------------------------------------------------
+from datetime import date, timedelta, datetime
+from django.db import connection
+import logging
+
+logger = logging.getLogger(__name__)
+
+def _to_date(v):
+    """Normalize DB date/time to datetime.date."""
+    if v is None:
+        return None
+    if isinstance(v, date) and not isinstance(v, datetime):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+    # try parse string 'YYYY-MM-DD' safely
+    try:
+        return datetime.strptime(str(v), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
 def get_billing_period(year: int, month: int):
-    """Fetch billing cycle start_date and end_date from monthly_hours_limit.
-       Fallback to calendar month if not defined."""
+    """
+    Fetch billing cycle start_date and end_date from monthly_hours_limit.
+    Fallback to calendar month start/end when DB values are missing.
+    Returns: (billing_start: date, billing_end: date)
+    """
+    billing_start = date(year, month, 1)
+    # compute last day of month
+    next_month = (billing_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    billing_end = next_month - timedelta(days=1)
+
     try:
         with connection.cursor() as cur:
             cur.execute("""
@@ -422,18 +450,27 @@ def get_billing_period(year: int, month: int):
                 LIMIT 1
             """, [year, month])
             row = cur.fetchone()
-            print("Billing period row:", row)
-            if row and row[0] and row[1]:
-                return row[0], row[1]
-    except Exception as e:
-        logger.exception("Error reading billing period: %s", e)
+            logger.debug("get_billing_period: monthly_hours_limit row for %s-%02d: %s", year, month, row)
 
-    # fallback to calendar month
-    start = date(year, month, 1)
-    next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    end = next_month - timedelta(days=1)
-    print("Fallback billing period", start, end)
-    return start, end
+            if row:
+                db_start = _to_date(row[0])
+                db_end = _to_date(row[1])
+
+                # Use DB values where present, otherwise fallback to calendar values
+                if db_start:
+                    billing_start = db_start
+                if db_end:
+                    billing_end = db_end
+
+                print("Using billing period from monthly_hours_limit: ", billing_start, billing_end)
+                return billing_start, billing_end
+
+    except Exception:
+        logger.exception("Error reading billing period from monthly_hours_limit; using calendar fallback")
+
+    logger.info("Fallback billing period (calendar month): %s -> %s", billing_start, billing_end)
+    return billing_start, billing_end
+
 
 def _get_billing_period_for_year_month(year: int, month: int):
     """
@@ -2477,21 +2514,15 @@ from decimal import Decimal, ROUND_HALF_UP
 # -------------------------------------------------------------------
 def my_allocations(request):
     """
-    Shows weekly view grouped by subproject (tabular). Data comes from:
-      - team_distributions (reportee_ldap, month_start, project_id, subproject_id, hours)
-      - weekly_allocations (team_distribution_id -> week_number/hours/percent/status)
-
-    Produces:
-      - groups[ subproject_id ].rows[] where each row contains:
-          - team_distribution_id, project_name, subproject_name, total_hours
-          - weekly (dict keyed by string week numbers '1','2',...)
-          - weekly_list (ordered list where index 0 == week 1, index 1 == week 2, ...)
+    Shows weekly view grouped by subproject (tabular).
+    Uses monthly_hours_limit for billing periods (start_date / end_date overrides),
+    else defaults to first and last date of that month.
     """
     user_email = request.session.get('ldap_username') or getattr(request.user, 'email', None)
     if not user_email:
         return HttpResponseForbidden("Not authenticated")
 
-    # parse month param YYYY-MM, default current
+    # --- Determine month/year ---
     month_param = request.GET.get('month')
     today = date.today()
     if month_param:
@@ -2502,30 +2533,53 @@ def my_allocations(request):
     else:
         yy, mm = today.year, today.month
 
-    # attempt get_billing_period if available, else calendar month
-    try:
-        billing_start, billing_end = get_billing_period(yy, mm)
-    except Exception:
+    # --- Determine billing_start & billing_end using monthly_hours_limit ---
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT start_date, end_date
+            FROM monthly_hours_limit
+            WHERE year = %s AND month = %s
+            LIMIT 1
+        """, [yy, mm])
+        row = cur.fetchone()
+
+    if row and (row[0] or row[1]):
+        # Use defined start and end if available, else fallback parts
+        billing_start = row[0] or date(yy, mm, 1)
+        if row[1]:
+            billing_end = row[1]
+        else:
+            # fallback: last day of month
+            if mm == 12:
+                billing_end = date(yy + 1, 1, 1) - timedelta(days=1)
+            else:
+                billing_end = date(yy, mm + 1, 1) - timedelta(days=1)
+    else:
+        # fallback to standard calendar month
         billing_start = date(yy, mm, 1)
         if mm == 12:
             billing_end = date(yy + 1, 1, 1) - timedelta(days=1)
         else:
             billing_end = date(yy, mm + 1, 1) - timedelta(days=1)
 
-    # build weeks list
+    # --- Build week list ---
     days = (billing_end - billing_start).days + 1
     week_count = max(1, (days + 6) // 7)
     weeks = []
-    cur = billing_start
+    cur_date = billing_start
     for i in range(1, week_count + 1):
-        wk_start = cur
-        wk_end = cur + timedelta(days=6)
+        wk_start = cur_date
+        wk_end = cur_date + timedelta(days=6)
         if wk_end > billing_end:
             wk_end = billing_end
-        weeks.append({'num': i, 'start': wk_start.strftime('%Y-%m-%d'), 'end': wk_end.strftime('%Y-%m-%d')})
-        cur = wk_end + timedelta(days=1)
+        weeks.append({
+            'num': i,
+            'start': wk_start.strftime('%Y-%m-%d'),
+            'end': wk_end.strftime('%Y-%m-%d')
+        })
+        cur_date = wk_end + timedelta(days=1)
 
-    # Fetch team_distributions for this user in billing period (reportee_ldap)
+    # --- Fetch team_distributions for this user in that billing period ---
     with connection.cursor() as cur:
         cur.execute("""
             SELECT td.id AS team_distribution_id,
@@ -2540,40 +2594,19 @@ def my_allocations(request):
             LEFT JOIN projects p ON p.id = td.project_id
             LEFT JOIN subprojects sp ON sp.id = td.subproject_id
             WHERE td.reportee_ldap = %s
-              AND td.month_start = %s
+              AND td.month_start BETWEEN %s AND %s
             ORDER BY sp.name, p.name, td.id
-        """, [user_email, billing_start])
+        """, [user_email, billing_start, billing_end])
         td_rows = dictfetchall(cur)
 
-    # If nothing found for exact billing_start, also check month_start values within month window
     if not td_rows:
-        with connection.cursor() as cur:
-            cur.execute("""
-                SELECT td.id AS team_distribution_id,
-                       td.month_start,
-                       td.project_id,
-                       td.subproject_id,
-                       td.reportee_ldap,
-                       td.hours AS total_hours,
-                       COALESCE(p.name,'') AS project_name,
-                       COALESCE(sp.name,'') AS subproject_name
-                FROM team_distributions td
-                LEFT JOIN projects p ON p.id = td.project_id
-                LEFT JOIN subprojects sp ON sp.id = td.subproject_id
-                WHERE td.reportee_ldap = %s
-                  AND td.month_start BETWEEN %s AND %s
-                ORDER BY sp.name, p.name, td.id
-            """, [user_email, billing_start, billing_end])
-            td_rows = dictfetchall(cur)
-
-    if not td_rows:
-        # nothing to show — still render weeks and controls
+        # nothing to show — render controls only
         context = {
             'weeks': weeks,
             'billing_start': billing_start.strftime('%Y-%m-%d'),
             'billing_end': billing_end.strftime('%Y-%m-%d'),
             'month_label': billing_start.strftime('%b %Y'),
-            'groups': {},  # empty grouping
+            'groups': {},
             'save_weekly_url': reverse('projects:save_my_alloc_weekly'),
             'update_status_url': reverse('projects:my_allocations_update_status'),
             'save_vacation_url': reverse('projects:my_allocations_vacation'),
@@ -2581,11 +2614,9 @@ def my_allocations(request):
         }
         return render(request, 'projects/my_allocations.html', context)
 
-    # gather team_distribution_ids
+    # --- Weekly allocations ---
     td_ids = [r['team_distribution_id'] for r in td_rows]
-
-    # fetch weekly_allocations for these team_distribution_ids
-    weekly_map = {}  # team_distribution_id -> week_number(int) -> dict
+    weekly_map = {}
     if td_ids:
         placeholders = ','.join(['%s'] * len(td_ids))
         with connection.cursor() as cur:
@@ -2604,7 +2635,7 @@ def my_allocations(request):
                     'status': r['status'] or 'PENDING'
                 }
 
-    # Group by subproject (subproject_id -> group)
+    # --- Group by subproject ---
     groups = {}
     for td in td_rows:
         spid = td.get('subproject_id') or 0
@@ -2615,12 +2646,12 @@ def my_allocations(request):
             'rows': []
         })
 
-        # Compose per-row weekly data using STRING keys (important) and also an ordered list
+        # Weekly dict and ordered list
         row_weekly = {}
         for wk in weeks:
             wknum = wk['num']
             wrec = weekly_map.get(td['team_distribution_id'], {}).get(wknum)
-            key = str(wknum)   # STRING key for template compatibility
+            key = str(wknum)
             if wrec:
                 try:
                     h = Decimal(wrec['hours'])
@@ -2637,7 +2668,6 @@ def my_allocations(request):
                     'status': wrec.get('status') or 'PENDING'
                 }
             else:
-                # fallback: equal split of td.total_hours across weeks
                 try:
                     th = Decimal(str(td.get('total_hours') or 0))
                 except Exception:
@@ -2648,13 +2678,8 @@ def my_allocations(request):
                     each = Decimal('0.00')
                 row_weekly[key] = {'hours': format(each, '0.2f'), 'percent': None, 'status': 'PENDING'}
 
-        # Build an ordered list of weekly values (index 0 -> week 1)
-        weekly_list = []
-        for wk in weeks:
-            wkkey = str(wk['num'])
-            weekly_list.append(row_weekly.get(wkkey, {'hours': '0.00', 'percent': None, 'status': 'PENDING'}))
+        weekly_list = [row_weekly[str(wk['num'])] for wk in weeks]
 
-        # Add display row
         group['rows'].append({
             'team_distribution_id': td['team_distribution_id'],
             'project_name': td.get('project_name') or '',
@@ -2664,6 +2689,7 @@ def my_allocations(request):
             'weekly_list': weekly_list,
         })
 
+    # --- Render context ---
     context = {
         'weeks': weeks,
         'billing_start': billing_start.strftime('%Y-%m-%d'),
@@ -2676,7 +2702,6 @@ def my_allocations(request):
         'tl_reconsider_url': reverse('projects:tl_reconsiderations'),
     }
     return render(request, 'projects/my_allocations.html', context)
-
 
 # ---------- save weekly punches endpoint ----------
 @require_POST
@@ -4605,21 +4630,16 @@ def tl_allocations_view(request):
         "monthly_hours": monthly_hours,
     })
 
-
-
-
 @require_POST
 def save_tl_allocations(request):
     """
     Save free-hand TL allocations (no restrictions).
-    Behaviour:
-      - For each incoming allocation row, attempt to find an existing team_distributions
-        row for (month_start, lead_ldap, reportee_ldap, subproject_id).
-        * This SELECT uses explicit NULL handling so rows with subproject_id IS NULL
-          are matched correctly (prevents duplicate inserts when subproject_id is NULL).
-      - If found -> UPDATE that row (idempotent).
-      - If not found -> INSERT a new row and read its id.
-      - For the 4 weeks, upsert weekly_allocations for the found/inserted team_distribution id.
+
+    Improvements:
+      - Determines canonical month_start using get_billing_period(year, month)
+        and stores that DATE into team_distributions.month_start (so lookups
+        later will match billing-range based queries).
+      - Accepts variable-length 'weeks' arrays and upserts weekly_allocations for each provided week.
     """
     try:
         payload = json.loads(request.body.decode("utf-8"))
@@ -4630,13 +4650,26 @@ def save_tl_allocations(request):
     if not session_ldap:
         return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
 
-    month = payload.get("month")
+    month = payload.get("month")  # expected "YYYY-MM"
     allocations = payload.get("allocations", [])
     if not month:
         return JsonResponse({"ok": False, "error": "Missing month"}, status=400)
 
-    # canonical month_start date string e.g. "2025-08-01"
-    month_start = f"{month}-01"
+    # parse month into year, month and determine canonical billing_start (date)
+    try:
+        yy, mm = map(int, month.split("-"))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid month format (expected YYYY-MM)"}, status=400)
+
+    # Use get_billing_period to obtain the canonical billing_start (and billing_end if needed)
+    try:
+        billing_start, billing_end = get_billing_period(yy, mm)
+    except Exception:
+        # fallback to first day of month if helper fails for any reason
+        billing_start = date(yy, mm, 1)
+
+    # month_start is a date object now (DB driver will insert as DATE)
+    month_start = billing_start
 
     try:
         with transaction.atomic():
@@ -4649,15 +4682,17 @@ def save_tl_allocations(request):
 
                     project_id = a.get("project_id") or None
                     subproject_id = a.get("subproject_id") or None
-                    hours = float(a.get("hours") or 0)
-                    weeks = a.get("weeks") or [0, 0, 0, 0]
-                    # defensive: ensure 4-week list
-                    if not isinstance(weeks, (list, tuple)) or len(weeks) < 4:
-                        weeks = (weeks + [0, 0, 0, 0])[:4]
+                    try:
+                        hours = float(a.get("hours") or 0)
+                    except Exception:
+                        hours = 0.0
+
+                    weeks = a.get("weeks") or []
+                    # ensure weeks is a list; if it's a single value, coerce to list
+                    if not isinstance(weeks, (list, tuple)):
+                        weeks = [weeks]
 
                     # 1) Try to find an existing team_distributions row for this lead/month/reportee/subproject
-                    #    Handle NULL subproject_id explicitly so nulls are matched (MySQL allows multiple NULLs
-                    #    in a UNIQUE constraint, so a simple ON DUPLICATE may not prevent duplicates).
                     cur.execute("""
                         SELECT id
                         FROM team_distributions
@@ -4684,7 +4719,7 @@ def save_tl_allocations(request):
                             WHERE id = %s
                         """, [project_id, subproject_id, hours, tdid])
                     else:
-                        # insert a new row; let the DB assign id
+                        # insert a new row; store the canonical month_start (DATE)
                         cur.execute("""
                             INSERT INTO team_distributions
                                 (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, created_at, updated_at)
@@ -4704,15 +4739,18 @@ def save_tl_allocations(request):
                             """, [month_start, session_ldap, reportee, subproject_id, subproject_id])
                             r2 = cur.fetchone()
                             if not r2:
-                                # something went wrong — raise to trigger rollback
                                 raise RuntimeError("Failed to determine team_distributions id after insert")
                             tdid = int(r2[0])
 
                     # 2) Upsert weekly_allocations for this team_distribution id
-                    #    Use team_distribution_id + week_number unique constraint to update or insert.
+                    #    Iterate over provided weeks (list may be shorter/longer than 4).
                     for i, pct in enumerate(weeks):
                         wk = int(i) + 1
-                        pct_val = float(pct or 0)
+                        try:
+                            pct_val = float(pct or 0)
+                        except Exception:
+                            pct_val = 0.0
+                        # calculate hours for that week (round to 2 decimals)
                         week_hours = round((pct_val / 100.0) * hours, 2)
                         cur.execute("""
                             INSERT INTO weekly_allocations
@@ -4728,12 +4766,12 @@ def save_tl_allocations(request):
         # success
         return JsonResponse({"ok": True})
     except Exception as ex:
-        # log for debugging — don't expose raw exception text in production if sensitive
         try:
             logger.exception("save_tl_allocations failed: %s", ex)
         except Exception:
             pass
         return JsonResponse({"ok": False, "error": str(ex)}, status=500)
+
 
 @login_required
 def get_monthly_limits(request):
