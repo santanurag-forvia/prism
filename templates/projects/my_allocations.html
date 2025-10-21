@@ -72,34 +72,33 @@
               </tr>
             </thead>
             <tbody>
-              {% for wk in weeks %}
-                {% with wknum=wk.num|stringformat:"s" %}
-                  {% with cell=row.weekly.wknum %}
-                    <tr data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}">
-                      <td>{{ wk.num }}</td>
-                      <td>{{ cell.week_start }}</td>
-                      <td>{{ cell.week_end }}</td>
-                      <td>{{ cell.working_days }}</td>
-                      <td>{{ cell.percent|default:"0.00" }}%</td>
-                      <td>{{ cell.allocated_hours }}h</td>
-                      <td>
-                        <span class="small-muted">—</span>
-                        <button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}">Leave</button>
-                      </td>
-                      <td>{{ cell.punched_hours }}h</td>
-                      <td>
-                        {% if cell.status == 'ACCEPTED' %}
-                          <span class="badge badge-accepted">ACCEPTED</span>
-                        {% elif cell.status == 'REJECTED' %}
-                          <span class="badge badge-rejected">RECONSIDERED</span>
-                        {% else %}
-                          <button class="btn btn-accept js-accept" data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}">Accept</button>
-                          <button class="btn btn-reject js-reconsider" data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}" style="margin-left:8px;">Reconsider</button>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endwith %}
-                {% endwith %}
+              {# iterate ordered weeks prepared by the view: row.weeks_list #}
+              {% for cell in row.weeks_list %}
+                <tr data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">
+                  <td>{{ cell.week_number }}</td>
+                  <td>{{ cell.week_start }}</td>
+                  <td>{{ cell.week_end }}</td>
+                  <td class="text-center">{{ cell.working_days }}</td>
+                  <td class="text-right">{% if cell.percent %}{{ cell.percent }}%{% else %}0.00%{% endif %}</td>
+                  <td class="text-right">{{ cell.allocated_hours }}h</td>
+                  <td>
+                    <span class="small-muted">—</span>
+                    <button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">Leave</button>
+                  </td>
+                  <td class="text-right">{{ cell.punched_hours }}h</td>
+                  <td class="text-center">
+                    {% if cell.status == 'ACCEPTED' %}
+                      <span class="badge badge-accepted">ACCEPTED</span>
+                    {% elif cell.status == 'RECONSIDERED' %}
+                      <span class="badge badge-rejected">RECONSIDERED</span>
+                    {% elif cell.status == 'REJECTED' %}
+                      <span class="badge badge-rejected">REJECTED</span>
+                    {% else %}
+                      <button class="btn btn-accept js-accept" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">Accept</button>
+                      <button class="btn btn-reject js-reconsider" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}" style="margin-left:8px;">Reconsider</button>
+                    {% endif %}
+                  </td>
+                </tr>
               {% endfor %}
             </tbody>
           </table>

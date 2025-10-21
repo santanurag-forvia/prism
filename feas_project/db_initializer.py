@@ -474,8 +474,44 @@ class DatabaseInitializer:
 
         """)
 
+        # 13) Notifications and Audit (these reference users)
+        print("Adding DDL for table: notifications")
+        ddls.append("""CREATE TABLE weekly_punch_confirmations (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              emp_email VARCHAR(128) NOT NULL,                              -- user email (unique id for employee)
+              allocation_id BIGINT NOT NULL,                                -- now references team_distributions.id
+              billing_start DATE NOT NULL,                                  -- canonical billing start for the month
+              week_number INT NOT NULL,                                     -- 1..N relative to billing_start
+              allocated_hours DECIMAL(8,2) NOT NULL,                       -- hours proposed for that week
+              allocated_percent DECIMAL(6,2) DEFAULT NULL,                 -- optional percent
+              user_comment VARCHAR(1024) DEFAULT NULL,                     -- optional comment from user on accept/reject
+              status ENUM('PENDING','ACCEPTED','REJECTED','RECONSIDERED','CANCELLED') NOT NULL DEFAULT 'PENDING',
+              tl_user_id VARCHAR(128) DEFAULT NULL,                         -- TL who will/has actioned the reconsideration
+              tl_comment VARCHAR(2048) DEFAULT NULL,
+              actioned_by VARCHAR(128) DEFAULT NULL,                        -- last actor (emp email or TL)
+              actioned_at DATETIME DEFAULT NULL,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              -- unique / index use emp_email (not emp_code)
+              UNIQUE KEY uk_alloc_week (allocation_id, billing_start, week_number, emp_email),
+              INDEX ix_emp_billing (emp_email, billing_start),
+              CONSTRAINT fk_wpc_allocation_td FOREIGN KEY (allocation_id)
+                REFERENCES team_distributions (id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
 
-
+        ddls.append("""CREATE TABLE weekly_punch_history (
+          id BIGINT AUTO_INCREMENT PRIMARY KEY,
+          confirmation_id BIGINT NOT NULL,
+          actor VARCHAR(128) NOT NULL,     -- emp_code or TL
+          role VARCHAR(64) NOT NULL,       -- 'USER' or 'TL' or 'SYSTEM'
+          action ENUM('ACCEPT','REJECT','TL_MODIFY','REASSIGN','CLOSE','REOPEN') NOT NULL,
+          comment VARCHAR(2048) DEFAULT NULL,
+          before_json JSON DEFAULT NULL,
+          after_json JSON DEFAULT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (confirmation_id) REFERENCES weekly_punch_confirmations(id) ON DELETE CASCADE
+        );""")
         # 13) Notifications and Audit (these reference users)
         print("Adding DDL for table: notifications")
         ddls.append("""
