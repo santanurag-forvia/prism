@@ -38,30 +38,44 @@ urlpatterns = [
     path('get_applicable_ioms/', views.get_applicable_ioms, name='get_applicable_ioms'),
     path('get_iom_details/', views.get_iom_details, name='get_iom_details'),
     path('allocations_ldap_search/', views.ldap_search, name='allocations_ldap_search'),
-    # ensure save_monthly_allocations and save_team_allocation exist and are named accordingly in urls
 
+    # Projects/team allocation helpers
     path('projects/team-allocations/save/', views.save_team_allocation, name='save_team_allocation'),
 
     path('get_allocations_for_iom/', views.get_allocations_for_iom, name='get_allocations_for_iom'),
     path('save_monthly_allocations/', views.save_monthly_allocations, name='save_monthly_allocations'),
     path("export_allocations/", views.export_allocations, name="export_allocations"),
+
+    # My allocations / punching UI (page)
     path('my-allocations/', views.my_allocations, name='my_allocations'),
 
+    # Legacy/other my-alloc endpoints you had:
     path('my-allocations/save-daily/', views.save_my_alloc_daily, name='save_my_alloc_daily'),
     path('my-allocations/export/excel/', views.export_my_punches_excel, name='export_my_punches_excel'),
     path('my-allocations/export/pdf/', views.export_my_punches_pdf, name='export_my_punches_pdf'),
+
+    # Team-distribution helpers
     path("team-allocations/save-distribution/", views.save_team_distribution_using_team_table, name="save_team_distribution"),
     path("team-allocations/apply-distributions/", views.apply_team_distributions_view, name="apply_team_distributions"),
     path("team-allocations/delete-distribution/", views.delete_team_distribution, name="delete_team_distribution"),
+
     # TL Free Allocations
     path("tl-allocations/", views.tl_allocations_view, name="tl_allocations"),
     path("tl-allocations/save/", views.save_tl_allocations, name="save_tl_allocations"),
     path("tl-allocations/export/excel/", views.export_tl_allocations_excel, name="export_tl_allocations_excel"),
 
-    # TL pages (already present in your app) should point to reconsideration flows
+    # --- Important: endpoints used by my_allocations frontend ---
+    # Save weekly (kept for backward compatibility). If you have a dedicated view save_my_alloc_weekly, it will be used.
     path('my-allocations/save-weekly/', views.save_my_alloc_weekly, name='save_my_alloc_weekly'),
-    path('my-allocations/update-status/', views.my_allocations_update_status, name='my_allocations_update_status'),
-    path('my-allocations/vacation/', views.save_vacation_view, name='my_allocations_vacation'),
-    path('tl/reconsiderations/', views.tl_reconsiderations_view, name='tl_reconsiderations'),
 
+    # Update status (Accept / Reconsider) - POST JSON endpoint implemented as my_allocations_update_status
+    path('my-allocations/update-status/', views.my_allocations_update_status, name='my_allocations_update_status'),
+
+    # Save vacation / leave for a week (POST JSON)
+    # NOTE: view name used in templates is 'my_allocations_vacation' — ensure the view function name matches or adjust.
+    path('my-allocations/vacation/', views.my_allocations_vacation, name='my_allocations_vacation'),
+
+    # TL Reconsiderations list + TL action endpoint
+    path('tl/reconsiderations/', views.tl_reconsiderations_view, name='tl_reconsiderations'),
+    path('tl/reconsiderations/<int:conf_id>/action/', views.tl_action_view, name='tl_reconsider_action'),
 ]

@@ -1,182 +1,277 @@
+{# templates/projects/my_allocations.html #}
 {% extends "base.html" %}
 {% load static %}
+{% block title %}My Weekly Allocations{% endblock %}
+
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'projects/css/projects.css' %}">
 <style>
-/* compact styling tuned for weekly punching */
-.alloc-wrap { max-width:1200px; margin:24px auto; padding:18px; }
-.topbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
-.small-muted { color:#6b7280; font-size:0.9rem; }
-.btn { padding:8px 12px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
-.btn-load { background:#2563eb; color:#fff; }
-.btn-vac { background:#f59e0b; color:#fff; }
-.btn-tl { background:#6b7280; color:#fff; }
-.group-card { background:#fff; border-radius:10px; padding:12px 16px; margin-bottom:16px; box-shadow:0 6px 18px rgba(0,0,0,0.04); border:1px solid #f1f5f9; }
-.alloc-table { width:100%; border-collapse:collapse; }
-.alloc-table th, .alloc-table td { padding:8px 10px; border-bottom:1px solid #f3f4f6; text-align:center; font-size:0.93rem; }
-.alloc-table th { background:#f9fafb; color:#334155; }
-.input-hours { width:90px; padding:5px 6px; border:1px solid #e5e7eb; border-radius:6px; text-align:right; }
-.status-badge { padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:600; }
-.status-pending { background:#fff7ed; color:#92400e; border:1px solid #ffedd5; }
-.status-accepted { background:#ecfdf5; color:#065f46; border:1px solid #d1fae5; }
-.status-rejected { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
-.row-actions { display:flex; gap:6px; justify-content:center; }
+.container { padding:28px; }
+.card { background:#fff; border-radius:10px; padding:18px; box-shadow:0 6px 18px rgba(15,30,60,0.06); }
+.header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+.controls { display:flex; gap:8px; align-items:center; }
+.table { width:100%; border-collapse:collapse; margin-top:10px; }
+.table th, .table td { padding:10px 12px; border-bottom:1px solid #f3f6f9; text-align:left; vertical-align:middle; }
+.table th { background:#fbfcfe; color:#334155; font-weight:600; font-size:13px; }
+.btn { padding:6px 10px; border-radius:6px; border:none; cursor:pointer; color:#fff; font-weight:600; }
+.btn-accept { background:#16a34a; }
+.btn-reject { background:#ef4444; }
+.btn-leave { background:#f59e0b; color:#fff; }
+.small-muted { color:#6b7280; font-size:12px; }
+.input-leave { width:80px; padding:6px; border-radius:6px; border:1px solid #e6edf3; text-align:right; }
+.badge { padding:6px 8px; border-radius:6px; font-weight:600; display:inline-block; }
+.badge-pending { background:#fff7ed; color:#92400e; }
+.badge-accepted { background:#ecfdf5; color:#065f46; }
+.badge-rejected { background:#fff1f2; color:#9f1239; }
+.alert { padding:10px; border-radius:8px; margin-bottom:10px; }
+.alert-success { background:#ecfdf5; color:#065f46; border:1px solid #d1fae5; }
+.alert-error { background:#fff1f2; color:#9f1239; border:1px solid #fecaca; }
+
+/* modal simple styling */
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; }
+.modal { background:#fff; border-radius:8px; padding:16px; width:420px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="alloc-wrap">
-  <div class="topbar">
-    <div>
-      <h2 style="margin:0;">My Weekly Allocations — <span class="small-muted">{{ month_label }}</span></h2>
-      <div class="small-muted">Billing: {{ billing_start }} — {{ billing_end }}</div>
-      <form method="get" style="display:inline-flex;align-items:center;gap:8px;margin-top:6px;">
-        <label class="small-muted">Month:</label>
-        <input type="month" name="month" value="{{ request.GET.month|default:billing_start|slice:':7' }}">
-        <button class="btn btn-load" type="submit">Load</button>
-      </form>
-    </div>
-
-    <div style="display:flex;gap:8px;align-items:center;">
-      <button id="vac-btn" class="btn btn-vac">Vacation / Leave</button>
-      <a class="btn btn-tl" href="{{ tl_reconsider_url }}">TL Reconsiderations</a>
-    </div>
-  </div>
-
-  {% if groups %}
-    {% for spid, group in groups.items %}
-      <div class="group-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <div style="font-weight:700;">{{ group.subproject_name }} {% if group.project_name %}<span class="small-muted">— {{ group.project_name }}</span>{% endif %}</div>
-          <div class="small-muted">Total: {{ group.rows|length }}</div>
-        </div>
-
-        <table class="alloc-table" data-subproject="{{ group.subproject_id }}">
-          <thead>
-            <tr>
-              <th style="text-align:left;min-width:200px;">Team Dist. ID</th>
-              {% for wk in weeks %}
-                <th>Week {{ wk.num }}<br><small class="small-muted">{{ wk.start }} — {{ wk.end }}</small></th>
-              {% endfor %}
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in group.rows %}
-              <tr data-team-id="{{ row.team_distribution_id }}">
-                <td style="text-align:left;">
-                  <div style="font-weight:700;">#{{ row.team_distribution_id }}</div>
-                  <div class="small-muted">{{ row.total_hours }}h</div>
-                </td>
-
-                {# Use the ordered weekly_list (no dynamic key lookup) #}
-                {% for cell in row.weekly_list %}
-                  <td>
-                    {% if cell.status == 'PENDING' %}
-                      <input class="input-hours" type="number" step="0.25" min="0"
-                             value="{{ cell.hours }}"
-                             data-week="{{ forloop.counter }}" data-team-id="{{ row.team_distribution_id }}">
-                    {% else %}
-                      {{ cell.hours }}h
-                    {% endif %}
-                  </td>
-                {% endfor %}
-
-                <td>
-                  {% if row.weekly_list.0.status == 'ACCEPTED' %}
-                    <span class="status-badge status-accepted">ACCEPTED</span>
-                  {% elif row.weekly_list.0.status == 'REJECTED' %}
-                    <span class="status-badge status-rejected">REJECTED</span>
-                  {% else %}
-                    <span class="status-badge status-pending">PENDING</span>
-                  {% endif %}
-                </td>
-
-                <td>
-                  <div class="row-actions">
-                    <button class="btn btn-save save-row" data-team-id="{{ row.team_distribution_id }}">Save</button>
-                    <button class="btn btn-accept accept-row" data-team-id="{{ row.team_distribution_id }}">Accept</button>
-                    <button class="btn btn-reject reject-row" data-team-id="{{ row.team_distribution_id }}">Reject</button>
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+<div class="container">
+  <div class="card">
+    <div class="header">
+      <div>
+        <h2 style="margin:0;">My Weekly Allocations — <small class="small-muted">{{ month_label }}</small></h2>
+        <div class="small-muted">Billing: {{ billing_start }} — {{ billing_end }} &nbsp; • &nbsp; Max hours: {{ monthly_max_hours }}h</div>
       </div>
-    {% endfor %}
-  {% else %}
-    <div class="group-card">
-      <div class="small-muted">No allocations found for {{ month_label }}.</div>
+      <div class="controls">
+        <label class="small-muted">Month:</label>
+        <input id="month" type="month" value="{{ billing_start|date:'Y-m' }}" />
+        <button id="btnLoad" class="btn" style="background:#2563eb">Load</button>
+        <a href="{{ tl_reconsider_url }}" class="btn" style="background:#6b7280; text-decoration:none;">TL Reconsiderations</a>
+      </div>
     </div>
-  {% endif %}
+
+    <div id="alertContainer"></div>
+
+    {% if not groups %}
+      <div class="small-muted">No allocations found for {{ month_label }}.</div>
+    {% else %}
+      {% for spid, group in groups.items %}
+        <h4 style="margin:8px 0 6px 0;">{{ group.subproject_name }} <small class="small-muted">— {{ group.project_name }}</small></h4>
+
+        {% for row in group.rows %}
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width:60px;">Week#</th>
+                <th style="width:160px;">Week Start Date</th>
+                <th style="width:160px;">Week End Date</th>
+                <th style="width:120px;">Working Days</th>
+                <th style="width:140px;">Allocated Efforts %</th>
+                <th style="width:160px;">Allocated Efforts (hrs)</th>
+                <th style="width:120px;">Leave Hrs</th>
+                <th style="width:120px;">Hours Punched</th>
+                <th style="width:220px;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for wk in weeks %}
+                {% with wknum=wk.num|stringformat:"s" %}
+                  {% with cell=row.weekly.wknum %}
+                    <tr data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}">
+                      <td>{{ wk.num }}</td>
+                      <td>{{ cell.week_start }}</td>
+                      <td>{{ cell.week_end }}</td>
+                      <td>{{ cell.working_days }}</td>
+                      <td>{{ cell.percent|default:"0.00" }}%</td>
+                      <td>{{ cell.allocated_hours }}h</td>
+                      <td>
+                        <span class="small-muted">—</span>
+                        <button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}">Leave</button>
+                      </td>
+                      <td>{{ cell.punched_hours }}h</td>
+                      <td>
+                        {% if cell.status == 'ACCEPTED' %}
+                          <span class="badge badge-accepted">ACCEPTED</span>
+                        {% elif cell.status == 'REJECTED' %}
+                          <span class="badge badge-rejected">RECONSIDERED</span>
+                        {% else %}
+                          <button class="btn btn-accept js-accept" data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}">Accept</button>
+                          <button class="btn btn-reject js-reconsider" data-tdid="{{ row.team_distribution_id }}" data-week="{{ wk.num }}" style="margin-left:8px;">Reconsider</button>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endwith %}
+                {% endwith %}
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endfor %}
+      {% endfor %}
+    {% endif %}
+  </div>
 </div>
 
-{% csrf_token %}
+{# Leave modal #}
+<div id="leaveModal" style="display:none;">
+  <div class="modal-backdrop" id="leaveBackdrop">
+    <div class="modal">
+      <h3 style="margin-top:0;">Record Leave</h3>
+      <p class="small-muted">Enter leave hours for this week (1 day = 8.75 hrs).</p>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="leaveHours" type="number" step="0.01" min="0" class="input-leave" />
+        <div style="flex:1;"></div>
+      </div>
+      <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:8px;">
+        <button id="leaveCancel" class="btn" style="background:#6b7280;">Cancel</button>
+        <button id="leaveSave" class="btn btn-leave">Save Leave</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Reconsider modal (comment required) #}
+<div id="reconModal" style="display:none;">
+  <div class="modal-backdrop" id="reconBackdrop">
+    <div class="modal">
+      <h3 style="margin-top:0;">Send to TL for Reconsideration</h3>
+      <p class="small-muted">Please enter reason/details for TL review (required):</p>
+      <textarea id="reconComment" rows="4" style="width:100%; padding:8px; border-radius:6px; border:1px solid #e6edf3;"></textarea>
+      <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:8px;">
+        <button id="reconCancel" class="btn" style="background:#6b7280;">Cancel</button>
+        <button id="reconSend" class="btn btn-reject">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
 <script>
 (function(){
-  const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
-  const saveWeeklyUrl = "{{ save_weekly_url }}";
-  const updateStatusUrl = "{{ update_status_url }}";
-  const saveVacationUrl = "{{ save_vacation_url }}";
+  // CSRF cookie read
+  function cookie(name){ let m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)'); return m ? m.pop() : ''; }
+  const csrftoken = cookie('csrftoken');
 
-  async function postJSON(url, body){
-    return fetch(url, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
-      body: JSON.stringify(body)
-    }).then(r => r.json()).catch(()=>({ok:false,error:'network error'}));
+  const UPDATE_URL = "{{ update_status_url }}";
+  const VACATION_URL = "{{ save_vacation_url }}";
+
+  // Helper alerts
+  function showAlert(msg, ok=true){
+    const c = document.getElementById('alertContainer');
+    const el = document.createElement('div');
+    el.className = 'alert ' + (ok ? 'alert-success' : 'alert-error');
+    el.innerText = msg;
+    c.appendChild(el);
+    setTimeout(()=> el.remove(), 4000);
   }
 
-  // Save all inputs for a team row
-  document.querySelectorAll('.save-row').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const tid = btn.dataset.teamId;
-      const inputs = document.querySelectorAll(`input[data-team-id="${tid}"]`);
-      for(const inp of inputs){
-        const wk = inp.dataset.week;
-        const hours = inp.value;
-        const body = { team_distribution_id: parseInt(tid,10), week_number: parseInt(wk,10), allocated_hours: hours };
-        const res = await postJSON(saveWeeklyUrl, body);
-        if(!res.ok){ alert('Save failed: ' + (res.error || 'server')); return; }
-      }
-      alert('Saved');
-    });
+  // Accept handler
+  async function acceptWeek(tdid, week){
+    // fetch allocated_hours from DOM cell
+    const row = document.querySelector('tr[data-tdid="'+tdid+'"][data-week="'+week+'"]');
+    if(!row) return showAlert('Row not found', false);
+    const allocText = row.children[5].innerText || '0';
+    const alloc_hours = parseFloat(allocText.replace('h','').trim()) || 0;
+    const payload = { allocation_id: tdid, week_number: week, billing_start: "{{ billing_start }}", action: 'accept', allocated_hours: alloc_hours };
+    try {
+      const resp = await fetch(UPDATE_URL, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrftoken}, body: JSON.stringify(payload) });
+      const j = await resp.json();
+      if(resp.ok && j.ok){ showAlert('Week accepted');
+        // update UI badge
+        const cell = row.querySelector('td:nth-child(9)');
+        cell.innerHTML = '<span class="badge badge-accepted">ACCEPTED</span>';
+        // update punched hours value (only reliable if server had logic to increase)
+        row.children[7].innerText = ( (parseFloat(row.children[7].innerText) || 0) + alloc_hours ).toFixed(2) + 'h';
+      } else showAlert(j.error || 'Action failed', false);
+    } catch(err){ console.error(err); showAlert('Server error', false); }
+  }
+
+  // Reconsider handler -> open modal to get comment
+  let reconTarget = null;
+  function openReconsider(tdid, week){
+    reconTarget = {tdid: tdid, week: week};
+    document.getElementById('reconComment').value = '';
+    document.getElementById('reconModal').style.display = 'block';
+  }
+
+  async function sendReconsider(){
+    if(!reconTarget) return;
+    const comment = document.getElementById('reconComment').value || '';
+    if(comment.trim().length < 3) return showAlert('Please enter a reason for TL', false);
+    const payload = { allocation_id: reconTarget.tdid, week_number: reconTarget.week, billing_start: "{{ billing_start }}", action: 'reject', comment: comment };
+    try {
+      const resp = await fetch(UPDATE_URL, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrftoken}, body: JSON.stringify(payload) });
+      const j = await resp.json();
+      if(resp.ok && j.ok){ showAlert('Sent to TL for reconsideration');
+        const row = document.querySelector('tr[data-tdid="'+reconTarget.tdid+'"][data-week="'+reconTarget.week+'"]');
+        if(row) row.querySelector('td:nth-child(9)').innerHTML = '<span class="badge badge-rejected">RECONSIDERED</span>';
+      } else showAlert(j.error || 'Action failed', false);
+    } catch(err){ console.error(err); showAlert('Server error', false); }
+    reconTarget = null;
+    document.getElementById('reconModal').style.display = 'none';
+  }
+
+  // Leave modal handling
+  let leaveTarget = null;
+  function openLeave(tdid, week){
+    leaveTarget = {tdid: tdid, week: week};
+    document.getElementById('leaveHours').value = '';
+    document.getElementById('leaveModal').style.display = 'block';
+  }
+  async function saveLeave(){
+    if(!leaveTarget) return;
+    const v = parseFloat(document.getElementById('leaveHours').value || 0);
+    if(v <= 0) return showAlert('Enter leave hours', false);
+    const payload = { allocation_id: leaveTarget.tdid, week_number: leaveTarget.week, billing_start: "{{ billing_start }}", leave_hours: v };
+    try {
+      const resp = await fetch(VACATION_URL, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrftoken}, body: JSON.stringify(payload) });
+      const j = await resp.json();
+      if(resp.ok && j.ok){
+        showAlert('Leave recorded');
+        // update allocated_hours shown to new value if returned
+        const row = document.querySelector('tr[data-tdid="'+leaveTarget.tdid+'"][data-week="'+leaveTarget.week+'"]');
+        if(row && j.new_hours !== undefined){
+          row.children[5].innerText = j.new_hours + 'h';
+        } else if(row){
+          // deduct locally (best-effort)
+          const cur = parseFloat(row.children[5].innerText.replace('h','')) || 0;
+          const newv = Math.max(0, cur - v).toFixed(2);
+          row.children[5].innerText = newv + 'h';
+        }
+      } else showAlert(j.error || 'Failed to record leave', false);
+    } catch(err){ console.error(err); showAlert('Server error', false); }
+    leaveTarget = null;
+    document.getElementById('leaveModal').style.display = 'none';
+  }
+
+  // Event delegation for buttons
+  document.addEventListener('click', function(e){
+    const t = e.target;
+    if(t.classList.contains('js-accept') || t.classList.contains('btn-accept')){
+      const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
+      acceptWeek(tdid, week);
+    } else if(t.classList.contains('js-reconsider') || t.classList.contains('btn-reject')){
+      const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
+      openReconsider(tdid, week);
+    } else if(t.classList.contains('js-leave') || t.classList.contains('btn-leave')){
+      const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
+      openLeave(tdid, week);
+    }
   });
 
-  // Accept
-  document.querySelectorAll('.accept-row').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const tid = btn.dataset.teamId;
-      if(!confirm('Accept all weeks for this allocation?')) return;
-      const body = { team_distribution_id: parseInt(tid,10), action: 'accept', billing_start: "{{ billing_start }}" };
-      const res = await postJSON(updateStatusUrl, body);
-      if(res.ok){ alert('Accepted'); location.reload(); } else alert('Failed: ' + (res.error||'server error'));
-    });
-  });
+  // modal actions wiring
+  document.getElementById('reconCancel').addEventListener('click', ()=> document.getElementById('reconModal').style.display = 'none');
+  document.getElementById('reconSend').addEventListener('click', sendReconsider);
 
-  // Reject
-  document.querySelectorAll('.reject-row').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const tid = btn.dataset.teamId;
-      const comment = prompt('Provide reason for rejection (this sends to TL for reconsideration):');
-      if(!comment) return;
-      const body = { team_distribution_id: parseInt(tid,10), action: 'reject', comment: comment, billing_start: "{{ billing_start }}" };
-      const res = await postJSON(updateStatusUrl, body);
-      if(res.ok){ alert('Rejected — sent to TL'); location.reload(); } else alert('Failed: ' + (res.error||'server error'));
-    });
-  });
+  document.getElementById('leaveCancel').addEventListener('click', ()=> document.getElementById('leaveModal').style.display = 'none');
+  document.getElementById('leaveSave').addEventListener('click', saveLeave);
 
-  // Vacation button
-  document.getElementById('vac-btn').addEventListener('click', async ()=>{
-    const hours = prompt('Total vacation/leave hours for billing period:');
-    if(!hours) return;
-    const reason = prompt('Optional note:') || '';
-    const body = { billing_start: "{{ billing_start }}", billing_end: "{{ billing_end }}", hours: hours, reason: reason };
-    const res = await postJSON(saveVacationUrl, body);
-    if(res.ok){ alert('Vacation saved'); } else alert('Failed: ' + (res.error||'server error'));
+  // Load month button
+  document.getElementById('btnLoad').addEventListener('click', function(){
+    const m = document.getElementById('month').value;
+    if(!m) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('month', m);
+    window.location.href = url.toString();
   });
 
 })();
