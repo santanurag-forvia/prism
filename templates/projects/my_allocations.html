@@ -40,6 +40,18 @@
 /* modal simple styling */
 .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; }
 .modal { background:#fff; border-radius:8px; padding:16px; width:420px; }
+
+/* ensure action buttons inline and compact */
+.table .action-cell { white-space:nowrap; }
+.table .action-cell button { display:inline-block; vertical-align:middle; margin:0 6px 0 0; }
+
+/* emphasize hours punched text */
+.hours-punched { font-weight:700; color:#0b2545; }
+
+/* small responsive tweak */
+@media (max-width: 880px) {
+  .table th, .table td { padding:8px; font-size:13px; }
+}
 </style>
 {% endblock %}
 
@@ -96,8 +108,7 @@
                   <td class="text-right">{% if cell.percent %}{{ cell.percent }}%{% else %}0.00%{% endif %}</td>
 
                   {# allocated_hours shown as 'XX.XXh' #}
-                  <td class="text-right">{{ cell.allocated_hours }}h</td>
-
+                  <td class="text-right allocated-hours">{{ cell.allocated_hours }}h</td>
 
                   <td class="text-center">
                     {% if cell.leave_hours %}
@@ -108,10 +119,12 @@
                     <button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">Leave</button>
                   </td>
 
+                  {# Hours punched — wrap in span.hours-punched for JS updates; include data attributes #}
+                  <td class="text-right hours-cell" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">
+                    <span class="hours-punched">{% if cell.punched_hours %}{{ cell.punched_hours }}h{% else %}{{ cell.allocated_hours }}h{% endif %}</span>
+                  </td>
 
-                  <td class="text-right">{% if cell.punched_hours %}{{ cell.punched_hours }}h{% else %}{{ cell.allocated_hours }}h{% endif %}</td>
-
-                  <td class="text-center">
+                  <td class="text-center action-cell">
                     {% if cell.status == 'ACCEPTED' %}
                       <span class="badge badge-accepted">ACCEPTED</span>
                     {% elif cell.status == 'RECONSIDERED' %}
@@ -119,6 +132,7 @@
                     {% elif cell.status == 'REJECTED' %}
                       <span class="badge badge-rejected">REJECTED</span>
                     {% else %}
+                      {# inline Accept + Reconsider with data attributes used by JS #}
                       <button class="btn btn-accept js-accept" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">Accept</button>
                       <button class="btn btn-reject js-reconsider" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}" style="margin-left:8px;">Reconsider</button>
                     {% endif %}
@@ -190,49 +204,91 @@
   }
 
   // -----------------------
-  // Accept (AJAX)
+  // Accept (AJAX) - robust replacement
   // -----------------------
-  async function acceptWeek(tdid, week){
-    const row = document.querySelector('tr[data-tdid="'+tdid+'"][data-week="'+week+'"]');
-    if(!row) return showAlert('Row not found', false);
-
-    // read allocated hours cell (6th cell, index 5)
-    const allocText = (row.children[5].innerText || '0').replace('h','').trim();
-    const alloc_hours = parseFloat(allocText) || 0;
-
-    const payload = { allocation_id: tdid, week_number: week, billing_start: "{{ billing_start }}", action: 'accept', allocated_hours: alloc_hours };
+  function acceptWeek(allocationId, weekNumber, allocatedHours, billingStart) {
+    const url = UPDATE_URL || "{{ update_status_url }}";
+    // If allocatedHours not provided, try to read from the row's .allocated-hours cell
+    let allocH = allocatedHours;
     try {
-      const resp = await fetch(UPDATE_URL, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {'Content-Type':'application/json', 'X-CSRFToken': csrftoken},
-        body: JSON.stringify(payload)
-      });
-      const j = await resp.json();
-      if(resp.ok && j && j.ok){
-        showAlert('Week accepted');
-        // update UI: badge in last column (9th cell)
-        const badgeCell = row.querySelector('td:last-child');
-        if(badgeCell) badgeCell.innerHTML = '<span class="badge badge-accepted">ACCEPTED</span>';
-
-        // update punched hours (8th cell, index 7) - add alloc_hours (best-effort)
-        try {
-          const currPunchText = (row.children[7].innerText || '0').replace('h','').trim();
-          const currPunch = parseFloat(currPunchText) || 0;
-          row.children[7].innerText = ( (currPunch + alloc_hours).toFixed(2) ) + 'h';
-        } catch(e){ /* ignore */ }
-
-      } else {
-        showAlert((j && j.error) ? j.error : 'Action failed', false);
+      if (typeof allocH === 'undefined' || allocH === null) {
+        const row = document.querySelector('tr[data-tdid="'+allocationId+'"][data-week="'+weekNumber+'"]');
+        if (row) {
+          const allocCell = row.querySelector('.allocated-hours');
+          if (allocCell) {
+            allocH = parseFloat((allocCell.innerText||'0').replace('h','').trim()) || 0;
+          }
+        }
       }
-    } catch(err){
-      console.error('Accept error', err);
-      showAlert('Server error', false);
-    }
+    } catch(e) { allocH = allocH || 0; }
+
+    const payload = {
+      allocation_id: allocationId,
+      week_number: weekNumber,
+      billing_start: billingStart || "{{ billing_start }}",
+      action: 'accept',
+      allocated_hours: allocH || 0
+    };
+
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(resp => {
+      if (!resp || resp.error || resp.status === 'error') {
+        const msg = resp && (resp.error || resp.detail || 'Server error');
+        showAlert(msg, false);
+        return;
+      }
+
+      // server authoritative values (prefer these)
+      let newPunched = null;
+      if (typeof resp.accepted_hours_sum !== 'undefined') newPunched = parseFloat(resp.accepted_hours_sum);
+      else if (typeof resp.new_hours !== 'undefined') newPunched = parseFloat(resp.new_hours);
+      else if (typeof resp.punched_hours !== 'undefined') newPunched = parseFloat(resp.punched_hours);
+
+      // find the row and hours-punched span
+      const row = document.querySelector('tr[data-tdid="'+allocationId+'"][data-week="'+weekNumber+'"]');
+      if (row) {
+        const hp = row.querySelector('.hours-punched');
+        if (hp) {
+          if (!isNaN(newPunched)) {
+            hp.textContent = `${newPunched.toFixed(2)}h`;
+          } else if (typeof resp.percent !== 'undefined') {
+            const monthly = parseFloat(window.monthly_hours || {{ monthly_max_hours|default:"183.75" }});
+            const computed = (parseFloat(resp.percent)/100.0) * monthly;
+            hp.textContent = `${computed.toFixed(2)}h`;
+          } else {
+            // no server value — do not add to existing to avoid duplication
+          }
+        }
+
+        // update action cell badge (replace buttons with accepted badge)
+        const actionCell = row.querySelector('.action-cell');
+        if (actionCell) {
+          actionCell.innerHTML = '<span class="badge badge-accepted">ACCEPTED</span>';
+        }
+      } else {
+        // fallback selector - try generic hours cell with matching data-week
+        const hp2 = document.querySelector('.hours-cell[data-week="'+weekNumber+'"] .hours-punched');
+        if (hp2 && !isNaN(newPunched)) hp2.textContent = `${newPunched.toFixed(2)}h`;
+      }
+
+      showAlert('Week accepted', true);
+    })
+    .catch(err => {
+      console.error('Accept request failed', err);
+      showAlert('Network error', false);
+    });
   }
 
   // -----------------------
-  // Reconsider (AJAX)
+  // Reconsider flow
   // -----------------------
   let reconTarget = null;
   function openReconsider(tdid, week){
@@ -258,7 +314,7 @@
       if(resp.ok && j && j.ok){
         showAlert('Sent to TL for reconsideration');
         const row = document.querySelector('tr[data-tdid="'+reconTarget.tdid+'"][data-week="'+reconTarget.week+'"]');
-        if(row) row.querySelector('td:last-child').innerHTML = '<span class="badge badge-rejected">RECONSIDERED</span>';
+        if(row) row.querySelector('td.action-cell').innerHTML = '<span class="badge badge-rejected">RECONSIDERED</span>';
       } else {
         showAlert((j && j.error) ? j.error : 'Action failed', false);
       }
@@ -271,7 +327,7 @@
   }
 
   // -----------------------
-  // Leave (AJAX)
+  // Leave flow (unchanged; minor fix to read data attributes)
   // -----------------------
   let leaveTarget = null;
   function openLeave(tdid, week){
@@ -300,33 +356,33 @@
         // Update the table row locally (best-effort). Server may return j.new_hours or j.leave_hours.
         const row = document.querySelector('tr[data-tdid="'+leaveTarget.tdid+'"][data-week="'+leaveTarget.week+'"]');
         if(row){
-          // update allocated hours (cell index 5)
+          // update allocated hours (cell .allocated-hours)
           if(j.new_hours !== undefined){
-            row.children[5].innerText = (parseFloat(j.new_hours).toFixed(2)) + 'h';
+            const allocCell = row.querySelector('.allocated-hours');
+            if(allocCell) allocCell.innerText = (parseFloat(j.new_hours).toFixed(2)) + 'h';
           } else {
-            // deduct locally from allocated_hours
-            const curAlloc = parseFloat((row.children[5].innerText || '0').replace('h','').trim()) || 0;
-            const newAlloc = Math.max(0, (curAlloc - v)).toFixed(2);
-            row.children[5].innerText = newAlloc + 'h';
+            const allocCell = row.querySelector('.allocated-hours');
+            if(allocCell){
+              const curAlloc = parseFloat((allocCell.innerText || '0').replace('h','').trim()) || 0;
+              const newAlloc = Math.max(0, (curAlloc - v)).toFixed(2);
+              allocCell.innerText = newAlloc + 'h';
+            }
           }
 
-          // update leave hrs display (cell index 6)
-          try {
-            const leaveCell = row.children[6];
-            leaveCell.querySelector('span') && (leaveCell.querySelector('span').innerText = (j.leave_hours !== undefined ? parseFloat(j.leave_hours).toFixed(2) : v) + 'h');
-          } catch(e){
-            // fallback: replace the entire cell content
-            row.children[6].innerHTML = '<span>' + ((j.leave_hours !== undefined) ? parseFloat(j.leave_hours).toFixed(2) : v) + 'h</span>' +
-                                        '<button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="'+leaveTarget.tdid+'" data-week="'+leaveTarget.week+'">Leave</button>';
+          // update leave hrs display
+          const leaveCell = row.querySelector('td:nth-child(7)');
+          if(leaveCell){
+            leaveCell.innerHTML = '<span>' + ((j.leave_hours !== undefined) ? parseFloat(j.leave_hours).toFixed(2) : v) + 'h</span>'
+                                  + '<button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="'+leaveTarget.tdid+'" data-week="'+leaveTarget.week+'">Leave</button>';
           }
 
-          // update punched hours (cell index 7) — reduce punched hrs by v (best-effort),
-          // but don't go below 0
-          try {
-            const curPunch = parseFloat((row.children[7].innerText || '0').replace('h','').trim()) || 0;
+          // update punched hours (cell .hours-punched)
+          const hp = row.querySelector('.hours-punched');
+          if(hp){
+            const curPunch = parseFloat((hp.innerText || '0').replace('h','').trim()) || 0;
             const newPunch = Math.max(0, (curPunch - v)).toFixed(2);
-            row.children[7].innerText = newPunch + 'h';
-          } catch(e){}
+            hp.innerText = newPunch + 'h';
+          }
         }
 
       } else {
@@ -368,8 +424,6 @@
       openLeave(tdid, week);
       return;
     }
-
-    // Leave modal may include buttons that re-trigger; handle clicks gracefully
   });
 
   // modal actions wiring

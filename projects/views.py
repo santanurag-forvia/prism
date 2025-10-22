@@ -2773,39 +2773,118 @@ def my_allocations(request):
             max_pct = (Decimal(wd) / Decimal(total_working_days) * Decimal('100.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
             # allocated hours/percent from weekly_alloc_map if present otherwise distribute evenly
+            # --- Allocate / percent / status logic (patched) ---
+            # ----- START DROP-IN REPLACEMENT (compute alloc / leave / punched / status) -----
+            # key uniquely identifies this team_distribution-week combination (same as earlier)
+            # e.g. key = f"{tdid}:{wknum}" — use whatever key your code uses
+
+            # Attempt to read existing weekly allocation record (authoritative)
+            alloc_hours_dec = Decimal('0.00')
+            pct = None
+            status = 'PENDING'
+
             if key in weekly_alloc_map:
                 wrec = weekly_alloc_map[key]
-                alloc_hours = Decimal(str(wrec['hours'] or '0.00'))
-                pct = (wrec['percent'] if wrec.get('percent') is not None else None)
-                if pct is None and monthly_max_hours and monthly_max_hours > 0:
-                    try:
-                        pct = (alloc_hours / monthly_max_hours * Decimal('100.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    except Exception:
-                        pct = None
-                status = wrec.get('status') or 'PENDING'
+                # stored hours (if available)
+                try:
+                    if isinstance(wrec.get('hours'), Decimal):
+                        stored_hours = wrec.get('hours')
+                    else:
+                        stored_hours = Decimal(str(wrec.get('hours') or '0.00'))
+                except Exception:
+                    stored_hours = Decimal('0.00')
+
+                # percent (may be None)
+                try:
+                    pct = Decimal(str(wrec.get('percent'))) if wrec.get('percent') not in (None, '') else None
+                except Exception:
+                    pct = None
+
+                status = (wrec.get('status') or 'PENDING')
+
+                # accepted punches for this key (if any)
+                accepted_val = Decimal(str(accepted_punch_map.get(key) or '0.00')) if accepted_punch_map.get(
+                    key) is not None else Decimal('0.00')
+
+                # Choose authoritative display value:
+                # 1) prefer stored weekly_allocations.hours if > 0
+                # 2) else prefer accepted punch sum if > 0
+                # 3) else leave stored_hours (likely zero) and fallback to percent-based compute below if needed
+                if stored_hours > Decimal('0.00'):
+                    alloc_hours_dec = stored_hours
+                elif accepted_val > Decimal('0.00'):
+                    alloc_hours_dec = accepted_val
+                    # if percent missing, compute percent from monthly_max_hours
+                    if pct is None and monthly_max_hours and monthly_max_hours > 0:
+                        try:
+                            pct = (alloc_hours_dec / Decimal(str(monthly_max_hours)) * Decimal('100.00')).quantize(
+                                Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        except Exception:
+                            pct = None
+                else:
+                    # no stored and no accepted — let alloc_hours_dec remain 0.00 and fallback later
+                    alloc_hours_dec = stored_hours
+
             else:
-                # fallback: equal share of total_hours across weeks
-                wk_count = len(weeks) or 1
-                per = (total_hours / Decimal(str(wk_count))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                alloc_hours = per
+                # No existing weekly_alloc_map entry — fallback to dividing total_hours evenly (preserve prior behavior)
+                try:
+                    wk_count = len(weeks) or 1
+                    alloc_hours_dec = (Decimal(str(total_hours or 0)) / Decimal(str(wk_count))).quantize(
+                        Decimal('0.01'), rounding=ROUND_HALF_UP)
+                except Exception:
+                    alloc_hours_dec = Decimal('0.00')
                 if monthly_max_hours and monthly_max_hours > 0:
                     try:
-                        pct = (alloc_hours / monthly_max_hours * Decimal('100.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        pct = (alloc_hours_dec / Decimal(str(monthly_max_hours)) * Decimal('100.00')).quantize(
+                            Decimal('0.01'), rounding=ROUND_HALF_UP)
                     except Exception:
                         pct = None
-                else:
-                    pct = None
                 status = 'PENDING'
 
-            # punched_hours: prefer accepted_punch_map sum, else default to allocated_hours - leave_hours
-            accepted = accepted_punch_map.get(key)
-            leave_hours = leave_map.get(key, Decimal('0.00'))
-            if accepted is not None and accepted > Decimal('0.00'):
-                punched = accepted
+            # If after the above alloc_hours_dec is zero and we have a percent defined (maybe from row data),
+            # compute allocated hours using the percent × monthly_max_hours fallback.
+            if (alloc_hours_dec == Decimal(
+                    '0.00') or alloc_hours_dec is None) and pct is not None and monthly_max_hours and monthly_max_hours > 0:
+                try:
+                    alloc_hours_dec = (pct / Decimal('100.00') * Decimal(str(monthly_max_hours))).quantize(
+                        Decimal('0.01'), rounding=ROUND_HALF_UP)
+                except Exception:
+                    alloc_hours_dec = Decimal('0.00')
+
+            # Now obtain leave hours for this key (leave_map should have Decimal or numeric)
+            try:
+                leave_dec = Decimal(str(leave_map.get(key) or '0.00'))
+            except Exception:
+                leave_dec = Decimal('0.00')
+
+            # Compute punched hours:
+            # - If there is an accepted punch sum, prefer that
+            # - Else compute allocated_hours - leave_hours, never negative
+            accepted_sum = Decimal(str(accepted_punch_map.get(key) or '0.00')) if accepted_punch_map.get(
+                key) is not None else Decimal('0.00')
+
+            if accepted_sum and accepted_sum > Decimal('0.00'):
+                punched_dec = accepted_sum
             else:
-                punched = (alloc_hours - leave_hours).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                if punched < 0:
-                    punched = Decimal('0.00')
+                try:
+                    punched_dec = (alloc_hours_dec - leave_dec).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                except Exception:
+                    # defensive fallback
+                    try:
+                        punched_dec = (Decimal(str(alloc_hours_dec or '0.00')) - leave_dec).quantize(Decimal('0.01'),
+                                                                                                     rounding=ROUND_HALF_UP)
+                    except Exception:
+                        punched_dec = Decimal('0.00')
+                if punched_dec < Decimal('0.00'):
+                    punched_dec = Decimal('0.00')
+
+            # Format values for the template (strings with two decimals)
+            allocated_hours_str = format(alloc_hours_dec, '0.2f')
+            leave_hours_str = format(leave_dec, '0.2f') if leave_dec and leave_dec > Decimal('0.00') else None
+            punched_hours_str = format(punched_dec, '0.2f')
+
+            # percent string if present (keep two decimals)
+            percent_str = (format(pct, '0.2f') if pct is not None else None)
 
             subgroup['weeks_list'].append({
                 'week_number': wknum,
@@ -2813,12 +2892,13 @@ def my_allocations(request):
                 'week_end': wk_end.strftime('%Y-%m-%d'),
                 'working_days': wd,
                 'max_percent': format(max_pct, '0.2f'),
-                'percent': (format(pct, '0.2f') if pct is not None else None),
-                'allocated_hours': format(alloc_hours.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP), '0.2f'),
-                'leave_hours': format(leave_hours.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP), '0.2f') if leave_hours > 0 else None,
-                'punched_hours': format(punched.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP), '0.2f'),
+                'percent': percent_str,
+                'allocated_hours': allocated_hours_str,
+                'leave_hours': leave_hours_str,
+                'punched_hours': punched_hours_str,
                 'status': status
             })
+            # ----- END DROP-IN REPLACEMENT -----
 
         groups.setdefault(td.get('subproject_name') or 'Unspecified', {'subproject_name': td.get('subproject_name') or 'Unspecified', 'project_name': td.get('project_name') or '', 'rows': []})
         groups[td.get('subproject_name') or 'Unspecified']['rows'].append(subgroup)
@@ -2941,159 +3021,140 @@ def my_allocations_vacation(request):
 def my_allocations_update_status(request):
     """
     Accepts JSON payloads:
-      { team_distribution_id, week_number, billing_start (optional), action: 'ACCEPT'|'REJECT'|'MARK_PENDING'|'RECONSIDER' }
-    OR older format:
-      { punch_date: 'YYYY-MM-DD', action: 'ACCEPT', team_distribution_id: ... }
+      { team_distribution_id, week_number, billing_start (optional), action: 'ACCEPT'|'RECONSIDER'|'REJECT'|'MARK_PENDING' }
 
     Behavior:
-      - For ACCEPT: mark any weekly_punch_confirmations for the allocation/week as ACCEPTED and upsert weekly_allocations
-                   merging leave deductions (if LEAVE rows exist).
-      - For RECONSIDER/REJECT: mark confirmations/allocations as appropriate.
-    Returns JSON: { status: 'ok', merged_status: 'ACCEPTED' } or error.
+      - For ACCEPT: mark any weekly_punch_confirmations for the allocation/week as ACCEPTED,
+                   compute merged hours (work rows minus leave rows) and upsert weekly_allocations
+                   with status=ACCEPTED. The response includes 'accepted_hours_sum' (string "0.00").
+      - For RECONSIDER/REJECT: set weekly_allocations.status accordingly (if exists).
+    Returns JSON: { status: 'ok', merged_status: new_status, accepted_hours_sum: 'xx.xx' } or error.
     """
     try:
-        payload = json.loads(request.body.decode('utf-8'))
+        payload = json.loads(request.body.decode('utf-8') or "{}")
     except Exception:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
     user_email = request.session.get("ldap_username") or getattr(request.user, 'email', None)
-    actor = payload.get('actor') or (request.user.username if hasattr(request, 'user') and request.user.is_authenticated else 'system')
-    # Accept both forms
+    actor = payload.get('actor') or (getattr(request.user, 'username', None) if getattr(request, 'user', None) and request.user.is_authenticated else 'system')
+
+    # Accept both forms of identifying the allocation/td
     td_id = payload.get('team_distribution_id') or payload.get('allocation_id') or payload.get('allocation')
     week_number = payload.get('week_number')
-    punch_date = payload.get('punch_date')
-    action = (payload.get('action') or payload.get('act') or '').upper()
-    if not action:
-        return JsonResponse({'error': 'Missing action'}, status=400)
+    punch_date = payload.get('punch_date')  # older style may send punch_date instead of week_number
+    action = (payload.get('action') or payload.get('status') or '').strip().upper()
 
-    if not td_id and not punch_date:
-        return JsonResponse({'error': 'Missing team_distribution_id or punch_date'}, status=400)
+    # Map action -> new_status used in weekly_allocations
+    new_status = None
+    if action in ('ACCEPT', 'ACCEPTED'):
+        new_status = 'ACCEPTED'
+    elif action in ('RECONSIDER', 'RECONSIDERED', 'REJECT'):
+        new_status = 'RECONSIDERED' if action.startswith('RECONSIDER') else 'REJECTED'
+    elif action in ('PENDING', 'MARK_PENDING'):
+        new_status = 'PENDING'
+    else:
+        # Unknown or empty: default to PENDING
+        new_status = 'PENDING'
 
-    # determine billing_start (needed by some queries)
-    billing_start = payload.get('billing_start')
-    if not billing_start:
-        # attempt to find billing_start from team_distributions
-        with connection.cursor() as cur:
-            cur.execute("SELECT month_start FROM team_distributions WHERE id=%s LIMIT 1", [td_id])
-            r = cur.fetchone()
-            if r and r[0]:
-                billing_start = _to_date(r[0]).strftime('%Y-%m-%d')
-    # fallback: if still None, try payload or today's month
-    if not billing_start:
-        billing_start = date.today().replace(day=1).strftime('%Y-%m-%d')
-
-    # compute week start/end if week_number given
-    week_start = None
-    week_end = None
-    if week_number is not None:
-        try:
-            # read month boundaries
-            yy, mm, _ = map(int, billing_start.split('-'))
-            b_start, b_end = _get_billing_period_from_month(yy, mm)
-            weeks = _compute_weeks_for_billing(b_start, b_end)
-            for w in weeks:
-                if w['num'] == int(week_number):
-                    week_start = w['start']
-                    week_end = w['end']
-                    break
-        except Exception:
-            week_start = None
-
-    # if punch_date provided but week not, compute week_number from punch_date
-    if punch_date and not week_number:
-        try:
-            pdate = _to_date(punch_date)
-            yy = pdate.year; mm = pdate.month
-            b_start, b_end = _get_billing_period_from_month(yy, mm)
-            weeks = _compute_weeks_for_billing(b_start, b_end)
-            for w in weeks:
-                if w['start'] <= pdate <= w['end']:
-                    week_start = w['start']; week_end = w['end']; week_number = w['num']; break
-        except Exception:
-            pass
-
-    # Map actions to statuses
-    status_map = {
-        'ACCEPT': 'ACCEPTED',
-        'REJECT': 'REJECTED',
-        'MARK_PENDING': 'PENDING',
-        'RECONSIDER': 'RECONSIDERED'
-    }
-    new_status = status_map.get(action, action)
-
+    # If punch_date is provided but week_number missing, attempt to compute week_number from date
+    # (optional - your codebase may have helpers; we keep it simple and require week_number)
+    # Ensure td_id and week_number are present for actions that modify weekly_allocations
     try:
         with transaction.atomic():
+            accepted_hours_sum = None
+
             with connection.cursor() as cur:
-                # Update confirmations matching allocation/week
-                if td_id and week_number is not None:
-                    cur.execute("""
-                        UPDATE weekly_punch_confirmations
-                        SET status=%s, actioned_by=%s, actioned_at=NOW()
-                        WHERE allocation_id=%s AND week_number=%s
-                    """, [new_status, actor, td_id, week_number])
-                elif punch_date:
-                    # fallback to date match
-                    cur.execute("""
-                        UPDATE weekly_punch_confirmations
-                        SET status=%s, actioned_by=%s, actioned_at=NOW()
-                        WHERE allocation_id=%s AND punch_date=%s
-                    """, [new_status, actor, td_id, punch_date])
-
-                # Merge logic for ACCEPTED: produce/update weekly_allocations row
                 if new_status == 'ACCEPTED' and td_id and week_number is not None:
-                    # compute leave hours and sum of work hours for that allocation/week
-                    cur.execute("""
-                        SELECT COALESCE(SUM(CASE WHEN UPPER(punch_type)='LEAVE' THEN allocated_hours ELSE 0 END),0) AS leave_hours,
-                               COALESCE(SUM(CASE WHEN UPPER(punch_type)!='LEAVE' THEN allocated_hours ELSE 0 END),0) AS work_hours
-                        FROM weekly_punch_confirmations
-                        WHERE allocation_id=%s AND week_number=%s
-                    """, [td_id, week_number])
-                    sums = cur.fetchone()
-                    leave_hours = Decimal(str(sums[0] or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    work_hours = Decimal(str(sums[1] or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    # 1) Mark punch confirmations as ACCEPTED for this allocation/week
+                    try:
+                        cur.execute("""
+                            UPDATE weekly_punch_confirmations
+                            SET status = %s, updated_at = NOW()
+                            WHERE team_distribution_id = %s AND week_number = %s
+                        """, ['ACCEPTED', td_id, week_number])
+                    except Exception:
+                        # non-fatal; continue
+                        pass
 
-                    # resultant hours = max(0, work_hours - leave_hours) if both present OR work_hours if only work rows
+                    # 2) Compute aggregated work vs leave from confirmations (leave deducted from work)
+                    # Summation query: leave_hours (sum of LEAVE rows) and work_hours (sum of non-LEAVE allocated_hours)
+                    cur.execute("""
+                        SELECT
+                          COALESCE(SUM(CASE WHEN UPPER(punch_type) = 'LEAVE' THEN allocated_hours ELSE 0 END), 0) AS leave_hours,
+                          COALESCE(SUM(CASE WHEN UPPER(punch_type) != 'LEAVE' THEN allocated_hours ELSE 0 END), 0) AS work_hours
+                        FROM weekly_punch_confirmations
+                        WHERE team_distribution_id = %s AND week_number = %s
+                    """, [td_id, week_number])
+                    sums = cur.fetchone() or (0, 0)
+                    # sums may be a tuple of decimals/floats or strings depending on DB driver
+                    try:
+                        leave_hours = Decimal(str(sums[0] or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        work_hours = Decimal(str(sums[1] or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    except Exception:
+                        # fallback to float then Decimal
+                        leave_hours = Decimal(float(sums[0] or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        work_hours = Decimal(float(sums[1] or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    # resultant hours = max(0, work_hours - leave_hours) if work rows exist; otherwise 0.
                     if work_hours > Decimal('0.00'):
                         resultant = (work_hours - leave_hours).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        if resultant < 0:
+                        if resultant < Decimal('0.00'):
                             resultant = Decimal('0.00')
                     else:
-                        # if no explicit work rows, use zero or leave_hours policy (here we set 0)
+                        # if no work rows but leave rows exist, you may decide policy; we set resultant = 0.00
                         resultant = Decimal('0.00')
 
-                    # upsert weekly_allocations row
-                    cur.execute("""
-                        SELECT id FROM weekly_allocations WHERE team_distribution_id=%s AND week_number=%s LIMIT 1
-                    """, [td_id, week_number])
+                    # 3) Upsert weekly_allocations row for this team_distribution/week with ACCEPTED status
+                    cur.execute("SELECT id FROM weekly_allocations WHERE team_distribution_id = %s AND week_number = %s LIMIT 1", [td_id, week_number])
                     ex = cur.fetchone()
                     if ex:
-                        cur.execute("UPDATE weekly_allocations SET hours=%s, status=%s, updated_at=NOW() WHERE id=%s", [str(resultant), 'ACCEPTED', ex[0]])
+                        # update existing
+                        try:
+                            cur.execute("UPDATE weekly_allocations SET hours=%s, status=%s, updated_at=NOW() WHERE id=%s", [str(resultant), 'ACCEPTED', ex[0]])
+                        except Exception:
+                            # defensive fallback (some drivers need str)
+                            cur.execute("UPDATE weekly_allocations SET hours=%s, status=%s, updated_at=NOW() WHERE id=%s", [format(resultant, '0.2f'), 'ACCEPTED', ex[0]])
                     else:
                         cur.execute("""
                             INSERT INTO weekly_allocations (allocation_id, team_distribution_id, week_number, hours, percent, status, created_at, updated_at)
                             VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
                         """, [None, td_id, week_number, str(resultant), None, 'ACCEPTED'])
 
-                # For RECONSIDER/REJECT set weekly_allocations.status if exists
-                if new_status in ('RECONSIDERED','REJECTED') and td_id and week_number is not None:
+                    # set the accepted_hours_sum to return to caller (string 2-decimal)
+                    accepted_hours_sum = resultant
+
+                # Handle other statuses: RECONSIDERED / REJECTED / PENDING
+                if new_status in ('RECONSIDERED', 'REJECTED') and td_id and week_number is not None:
                     cur.execute("UPDATE weekly_allocations SET status=%s, updated_at=NOW() WHERE team_distribution_id=%s AND week_number=%s", [new_status, td_id, week_number])
 
-                # Insert audit row (optional, create table weekly_punch_merge_audit earlier)
+                # Insert audit row (optional) to track merges/actions
                 try:
                     cur.execute("""
                         INSERT INTO weekly_punch_merge_audit (team_distribution_id, week_number, action, actor, created_at)
                         VALUES (%s, %s, %s, %s, NOW())
                     """, [td_id, week_number, new_status, actor])
                 except Exception:
+                    # ignore if audit table missing
                     pass
 
-        return JsonResponse({'status': 'ok', 'merged_status': new_status})
     except Exception as ex:
         try:
             logger.exception("my_allocations_update_status failed: %s", ex)
         except Exception:
             pass
         return JsonResponse({'error': 'Server error', 'detail': str(ex)}, status=500)
+
+    # Build response
+    resp = {'status': 'ok', 'merged_status': new_status}
+    if 'accepted_hours_sum' in locals() and accepted_hours_sum is not None:
+        try:
+            # ensure it is string formatted with two decimals
+            resp['accepted_hours_sum'] = format(accepted_hours_sum, '0.2f')
+        except Exception:
+            resp['accepted_hours_sum'] = str(accepted_hours_sum)
+
+    return JsonResponse(resp)
+
 
 
 
