@@ -5,23 +5,34 @@
 
 {% block extra_css %}
 <style>
+/* -- layout / card / header -- */
 .container { padding:28px; }
 .card { background:#fff; border-radius:10px; padding:18px; box-shadow:0 6px 18px rgba(15,30,60,0.06); }
 .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
 .controls { display:flex; gap:8px; align-items:center; }
+
+/* -- table -- */
 .table { width:100%; border-collapse:collapse; margin-top:10px; }
 .table th, .table td { padding:10px 12px; border-bottom:1px solid #f3f6f9; text-align:left; vertical-align:middle; }
 .table th { background:#fbfcfe; color:#334155; font-weight:600; font-size:13px; }
+.text-center { text-align:center; }
+.text-right { text-align:right; }
+
+/* -- buttons / badges -- */
 .btn { padding:6px 10px; border-radius:6px; border:none; cursor:pointer; color:#fff; font-weight:600; }
 .btn-accept { background:#16a34a; }
 .btn-reject { background:#ef4444; }
 .btn-leave { background:#f59e0b; color:#fff; }
 .small-muted { color:#6b7280; font-size:12px; }
 .input-leave { width:80px; padding:6px; border-radius:6px; border:1px solid #e6edf3; text-align:right; }
+
+/* badges */
 .badge { padding:6px 8px; border-radius:6px; font-weight:600; display:inline-block; }
 .badge-pending { background:#fff7ed; color:#92400e; }
 .badge-accepted { background:#ecfdf5; color:#065f46; }
 .badge-rejected { background:#fff1f2; color:#9f1239; }
+
+/* alerts */
 .alert { padding:10px; border-radius:8px; margin-bottom:10px; }
 .alert-success { background:#ecfdf5; color:#065f46; border:1px solid #d1fae5; }
 .alert-error { background:#fff1f2; color:#9f1239; border:1px solid #fecaca; }
@@ -40,6 +51,7 @@
         <h2 style="margin:0;">My Weekly Allocations — <small class="small-muted">{{ month_label }}</small></h2>
         <div class="small-muted">Billing: {{ billing_start }} — {{ billing_end }} &nbsp; • &nbsp; Max hours: {{ monthly_max_hours }}h</div>
       </div>
+
       <div class="controls">
         <label class="small-muted">Month:</label>
         <input id="month" type="month" value="{{ billing_start|date:'Y-m' }}" />
@@ -79,13 +91,26 @@
                   <td>{{ cell.week_start }}</td>
                   <td>{{ cell.week_end }}</td>
                   <td class="text-center">{{ cell.working_days }}</td>
+
+                  {# percent may be None; show 0.00% fallback #}
                   <td class="text-right">{% if cell.percent %}{{ cell.percent }}%{% else %}0.00%{% endif %}</td>
+
+                  {# allocated_hours shown as 'XX.XXh' #}
                   <td class="text-right">{{ cell.allocated_hours }}h</td>
-                  <td>
-                    <span class="small-muted">—</span>
+
+
+                  <td class="text-center">
+                    {% if cell.leave_hours %}
+                      <span>{{ cell.leave_hours }}h</span>
+                    {% else %}
+                      <span class="small-muted">—</span>
+                    {% endif %}
                     <button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">Leave</button>
                   </td>
-                  <td class="text-right">{{ cell.punched_hours }}h</td>
+
+
+                  <td class="text-right">{% if cell.punched_hours %}{{ cell.punched_hours }}h{% else %}{{ cell.allocated_hours }}h{% endif %}</td>
+
                   <td class="text-center">
                     {% if cell.status == 'ACCEPTED' %}
                       <span class="badge badge-accepted">ACCEPTED</span>
@@ -146,45 +171,69 @@
 {% block extra_js %}
 <script>
 (function(){
-  // CSRF cookie read
+  // Simple helper to read CSRF token cookie
   function cookie(name){ let m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)'); return m ? m.pop() : ''; }
   const csrftoken = cookie('csrftoken');
 
-  const UPDATE_URL = "{{ update_status_url }}";
-  const VACATION_URL = "{{ save_vacation_url }}";
+  const UPDATE_URL = "{{ update_status_url }}";      // my_allocations_update_status
+  const VACATION_URL = "{{ save_vacation_url }}";    // my_allocations_vacation
 
-  // Helper alerts
+  // small UI alert
   function showAlert(msg, ok=true){
     const c = document.getElementById('alertContainer');
+    if(!c) return;
     const el = document.createElement('div');
     el.className = 'alert ' + (ok ? 'alert-success' : 'alert-error');
     el.innerText = msg;
     c.appendChild(el);
-    setTimeout(()=> el.remove(), 4000);
+    setTimeout(()=> { try{ el.remove(); } catch(e){} }, 4000);
   }
 
-  // Accept handler
+  // -----------------------
+  // Accept (AJAX)
+  // -----------------------
   async function acceptWeek(tdid, week){
-    // fetch allocated_hours from DOM cell
     const row = document.querySelector('tr[data-tdid="'+tdid+'"][data-week="'+week+'"]');
     if(!row) return showAlert('Row not found', false);
-    const allocText = row.children[5].innerText || '0';
-    const alloc_hours = parseFloat(allocText.replace('h','').trim()) || 0;
+
+    // read allocated hours cell (6th cell, index 5)
+    const allocText = (row.children[5].innerText || '0').replace('h','').trim();
+    const alloc_hours = parseFloat(allocText) || 0;
+
     const payload = { allocation_id: tdid, week_number: week, billing_start: "{{ billing_start }}", action: 'accept', allocated_hours: alloc_hours };
     try {
-      const resp = await fetch(UPDATE_URL, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrftoken}, body: JSON.stringify(payload) });
+      const resp = await fetch(UPDATE_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type':'application/json', 'X-CSRFToken': csrftoken},
+        body: JSON.stringify(payload)
+      });
       const j = await resp.json();
-      if(resp.ok && j.ok){ showAlert('Week accepted');
-        // update UI badge
-        const cell = row.querySelector('td:nth-child(9)');
-        cell.innerHTML = '<span class="badge badge-accepted">ACCEPTED</span>';
-        // update punched hours value (only reliable if server had logic to increase)
-        row.children[7].innerText = ( (parseFloat(row.children[7].innerText) || 0) + alloc_hours ).toFixed(2) + 'h';
-      } else showAlert(j.error || 'Action failed', false);
-    } catch(err){ console.error(err); showAlert('Server error', false); }
+      if(resp.ok && j && j.ok){
+        showAlert('Week accepted');
+        // update UI: badge in last column (9th cell)
+        const badgeCell = row.querySelector('td:last-child');
+        if(badgeCell) badgeCell.innerHTML = '<span class="badge badge-accepted">ACCEPTED</span>';
+
+        // update punched hours (8th cell, index 7) - add alloc_hours (best-effort)
+        try {
+          const currPunchText = (row.children[7].innerText || '0').replace('h','').trim();
+          const currPunch = parseFloat(currPunchText) || 0;
+          row.children[7].innerText = ( (currPunch + alloc_hours).toFixed(2) ) + 'h';
+        } catch(e){ /* ignore */ }
+
+      } else {
+        showAlert((j && j.error) ? j.error : 'Action failed', false);
+      }
+    } catch(err){
+      console.error('Accept error', err);
+      showAlert('Server error', false);
+    }
   }
 
-  // Reconsider handler -> open modal to get comment
+  // -----------------------
+  // Reconsider (AJAX)
+  // -----------------------
   let reconTarget = null;
   function openReconsider(tdid, week){
     reconTarget = {tdid: tdid, week: week};
@@ -194,67 +243,133 @@
 
   async function sendReconsider(){
     if(!reconTarget) return;
-    const comment = document.getElementById('reconComment').value || '';
-    if(comment.trim().length < 3) return showAlert('Please enter a reason for TL', false);
+    const comment = (document.getElementById('reconComment').value || '').trim();
+    if(comment.length < 3) return showAlert('Please enter a reason for TL', false);
+
     const payload = { allocation_id: reconTarget.tdid, week_number: reconTarget.week, billing_start: "{{ billing_start }}", action: 'reject', comment: comment };
     try {
-      const resp = await fetch(UPDATE_URL, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrftoken}, body: JSON.stringify(payload) });
+      const resp = await fetch(UPDATE_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type':'application/json', 'X-CSRFToken': csrftoken},
+        body: JSON.stringify(payload)
+      });
       const j = await resp.json();
-      if(resp.ok && j.ok){ showAlert('Sent to TL for reconsideration');
+      if(resp.ok && j && j.ok){
+        showAlert('Sent to TL for reconsideration');
         const row = document.querySelector('tr[data-tdid="'+reconTarget.tdid+'"][data-week="'+reconTarget.week+'"]');
-        if(row) row.querySelector('td:nth-child(9)').innerHTML = '<span class="badge badge-rejected">RECONSIDERED</span>';
-      } else showAlert(j.error || 'Action failed', false);
-    } catch(err){ console.error(err); showAlert('Server error', false); }
+        if(row) row.querySelector('td:last-child').innerHTML = '<span class="badge badge-rejected">RECONSIDERED</span>';
+      } else {
+        showAlert((j && j.error) ? j.error : 'Action failed', false);
+      }
+    } catch(err){
+      console.error('Reconsider error', err);
+      showAlert('Server error', false);
+    }
     reconTarget = null;
     document.getElementById('reconModal').style.display = 'none';
   }
 
-  // Leave modal handling
+  // -----------------------
+  // Leave (AJAX)
+  // -----------------------
   let leaveTarget = null;
   function openLeave(tdid, week){
     leaveTarget = {tdid: tdid, week: week};
     document.getElementById('leaveHours').value = '';
     document.getElementById('leaveModal').style.display = 'block';
   }
+
   async function saveLeave(){
     if(!leaveTarget) return;
     const v = parseFloat(document.getElementById('leaveHours').value || 0);
-    if(v <= 0) return showAlert('Enter leave hours', false);
+    if(!(v > 0)) return showAlert('Enter leave hours greater than 0', false);
+
     const payload = { allocation_id: leaveTarget.tdid, week_number: leaveTarget.week, billing_start: "{{ billing_start }}", leave_hours: v };
     try {
-      const resp = await fetch(VACATION_URL, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrftoken}, body: JSON.stringify(payload) });
+      const resp = await fetch(VACATION_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type':'application/json', 'X-CSRFToken': csrftoken},
+        body: JSON.stringify(payload)
+      });
       const j = await resp.json();
-      if(resp.ok && j.ok){
+      if(resp.ok && j && j.ok){
         showAlert('Leave recorded');
-        // update allocated_hours shown to new value if returned
+
+        // Update the table row locally (best-effort). Server may return j.new_hours or j.leave_hours.
         const row = document.querySelector('tr[data-tdid="'+leaveTarget.tdid+'"][data-week="'+leaveTarget.week+'"]');
-        if(row && j.new_hours !== undefined){
-          row.children[5].innerText = j.new_hours + 'h';
-        } else if(row){
-          // deduct locally (best-effort)
-          const cur = parseFloat(row.children[5].innerText.replace('h','')) || 0;
-          const newv = Math.max(0, cur - v).toFixed(2);
-          row.children[5].innerText = newv + 'h';
+        if(row){
+          // update allocated hours (cell index 5)
+          if(j.new_hours !== undefined){
+            row.children[5].innerText = (parseFloat(j.new_hours).toFixed(2)) + 'h';
+          } else {
+            // deduct locally from allocated_hours
+            const curAlloc = parseFloat((row.children[5].innerText || '0').replace('h','').trim()) || 0;
+            const newAlloc = Math.max(0, (curAlloc - v)).toFixed(2);
+            row.children[5].innerText = newAlloc + 'h';
+          }
+
+          // update leave hrs display (cell index 6)
+          try {
+            const leaveCell = row.children[6];
+            leaveCell.querySelector('span') && (leaveCell.querySelector('span').innerText = (j.leave_hours !== undefined ? parseFloat(j.leave_hours).toFixed(2) : v) + 'h');
+          } catch(e){
+            // fallback: replace the entire cell content
+            row.children[6].innerHTML = '<span>' + ((j.leave_hours !== undefined) ? parseFloat(j.leave_hours).toFixed(2) : v) + 'h</span>' +
+                                        '<button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="'+leaveTarget.tdid+'" data-week="'+leaveTarget.week+'">Leave</button>';
+          }
+
+          // update punched hours (cell index 7) — reduce punched hrs by v (best-effort),
+          // but don't go below 0
+          try {
+            const curPunch = parseFloat((row.children[7].innerText || '0').replace('h','').trim()) || 0;
+            const newPunch = Math.max(0, (curPunch - v)).toFixed(2);
+            row.children[7].innerText = newPunch + 'h';
+          } catch(e){}
         }
-      } else showAlert(j.error || 'Failed to record leave', false);
-    } catch(err){ console.error(err); showAlert('Server error', false); }
+
+      } else {
+        showAlert((j && j.error) ? j.error : 'Failed to record leave', false);
+      }
+    } catch(err){
+      console.error('Leave error', err);
+      showAlert('Server error', false);
+    }
+
     leaveTarget = null;
     document.getElementById('leaveModal').style.display = 'none';
   }
 
-  // Event delegation for buttons
+  // -----------------------
+  // Event handling (delegated)
+  // -----------------------
   document.addEventListener('click', function(e){
     const t = e.target;
+    if(!t) return;
+
+    // Accept button
     if(t.classList.contains('js-accept') || t.classList.contains('btn-accept')){
       const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
       acceptWeek(tdid, week);
-    } else if(t.classList.contains('js-reconsider') || t.classList.contains('btn-reject')){
+      return;
+    }
+
+    // Reconsider
+    if(t.classList.contains('js-reconsider') || t.classList.contains('btn-reject')){
       const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
       openReconsider(tdid, week);
-    } else if(t.classList.contains('js-leave') || t.classList.contains('btn-leave')){
+      return;
+    }
+
+    // Open Leave
+    if(t.classList.contains('js-leave') || t.classList.contains('btn-leave')){
       const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
       openLeave(tdid, week);
+      return;
     }
+
+    // Leave modal may include buttons that re-trigger; handle clicks gracefully
   });
 
   // modal actions wiring
@@ -264,12 +379,16 @@
   document.getElementById('leaveCancel').addEventListener('click', ()=> document.getElementById('leaveModal').style.display = 'none');
   document.getElementById('leaveSave').addEventListener('click', saveLeave);
 
+  // -----------------------
   // Load month button
-  document.getElementById('btnLoad').addEventListener('click', function(){
+  // -----------------------
+  document.getElementById('btnLoad').addEventListener('click', function(ev){
+    ev.preventDefault();
     const m = document.getElementById('month').value;
     if(!m) return;
     const url = new URL(window.location.href);
-    url.searchParams.set('month', m);
+    url.searchParams.set('month', encodeURIComponent(m));
+    // navigate
     window.location.href = url.toString();
   });
 
