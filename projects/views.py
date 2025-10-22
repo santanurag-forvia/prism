@@ -5092,6 +5092,61 @@ def tl_allocations_view(request):
         reportees_list = [r for r in reportees_list if r["ldap"].lower() != session_ldap_l]
         reportees_map.pop(session_ldap_l, None)
 
+    # --- compute weeks info for template (WD and max%) -----------------------
+    # weeks list from existing helper: list of dicts {'num','start','end'}
+    pdate = _to_date(month_start)
+    yy = pdate.year;
+    mm = pdate.month
+    billing_start, billing_end = _get_billing_period_from_month(yy, mm)
+    weeks = _compute_weeks_for_billing(billing_start, billing_end)
+    print("Billing start and end  : ", (billing_start, billing_end))
+
+    # fetch holidays between billing start/end
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT holiday_date FROM holidays WHERE holiday_date BETWEEN %s AND %s",
+            [billing_start, billing_end]
+        )
+        holidays_rows = cur.fetchall() or []
+
+    holidays_set = set()
+    for hr in holidays_rows:
+        # hr may be tuple(date,) depending on cursor; handle defensively
+        try:
+            d = hr[0]
+        except Exception:
+            d = hr
+        if d:
+            holidays_set.add(d.strftime("%Y-%m-%d"))
+
+    # total working days in billing (exclude holidays and weekends)
+    total_working_days = 0
+    for w in weeks:
+        wd = _count_working_days(w['start'], w['end'], holidays_set)
+        total_working_days += wd
+    if total_working_days == 0:
+        total_working_days = 1
+
+    # Build weeks_info array for template: week num, start/end strings, working_days, max_pct
+    weeks_info = []
+    for w in weeks:
+        wd = _count_working_days(w['start'], w['end'], holidays_set)
+        max_pct = round((wd / total_working_days) * 100.0, 2)
+        weeks_info.append({
+            "num": int(w["num"]),
+            "start": w["start"].strftime("%Y-%m-%d"),
+            "end": w["end"].strftime("%Y-%m-%d"),
+            "working_days": int(wd),
+            "max_pct": float(max_pct)
+        })
+
+    # pass JSON string to template
+    import json
+    weeks_info_json = json.dumps(weeks_info)
+
+    # --- Add to template context later when calling render(...) ---
+    # example: context.update({"weeks_info": weeks_info, "weeks_info_json": weeks_info_json})
+
     # -----------------------------------------------------------
     # Fetch Projects and Subprojects
     # -----------------------------------------------------------
@@ -5155,44 +5210,62 @@ def tl_allocations_view(request):
         monthly_hours = float(mh[0]) if mh and mh[0] else 183.75
 
     # -----------------------------------------------------------
-    # Build Allocations Table Rows
-    # -----------------------------------------------------------
-    allocations = []
-    for r in td_rows:
-        tid = r["id"]
-        ldap = (r.get("reportee_ldap") or "").lower()
-        wmap = weekly_map.get(tid, {})
-        allocations.append({
-            "id": tid,
-            "reportee_ldap": ldap,
-            "project_id": r["project_id"],
-            "subproject_id": r["subproject_id"],
-            "hours": float(r.get("hours") or 0.0),
-            "week_perc": [
-                float(wmap.get(1, 0)),
-                float(wmap.get(2, 0)),
-                float(wmap.get(3, 0)),
-                float(wmap.get(4, 0)),
-            ]
-        })
-        # Merge into reportee totals
-        if ldap not in reportees_map:
-            reportees_map[ldap] = {
-                "ldap": ldap,
-                "mail": ldap,
-                "cn": ldap.split("@")[0],
-                "total_hours": 0.0,
-                "fte": 0.0
-            }
-        reportees_map[ldap]["total_hours"] += float(r["hours"] or 0.0)
-
-    # -----------------------------------------------------------
     # Compute Totals & FTEs
     # -----------------------------------------------------------
     for v in reportees_map.values():
         v["fte"] = round((v["total_hours"] / monthly_hours), 3) if monthly_hours else 0.0
 
     reportees_for_template = sorted(reportees_map.values(), key=lambda x: x["cn"].lower())
+    # --- Fetch existing TL allocations from DB (team_distributions + weekly_allocations) ---
+    # --- Fetch existing TL allocations from DB (team_distributions + weekly_allocations) ---
+    allocations = []
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT td.id, td.reportee_ldap, td.project_id, td.subproject_id, td.hours,
+                   GROUP_CONCAT(CONCAT(wa.week_number, ':', wa.percent) ORDER BY wa.week_number ASC) AS week_data
+              FROM team_distributions td
+         LEFT JOIN weekly_allocations wa ON wa.team_distribution_id = td.id
+             WHERE td.lead_ldap = %s
+               AND td.month_start BETWEEN %s AND %s
+          GROUP BY td.id, td.reportee_ldap, td.project_id, td.subproject_id, td.hours
+          ORDER BY td.id ASC
+        """, [logged_ldap, billing_start, billing_end])
+        rows = cur.fetchall() or []
+        print("Rows fetched : ",rows)
+    # rows are tuples (id, reportee_ldap, project_id, subproject_id, hours, week_data)
+    for r in rows:
+        # defensive unpack
+        tid = r[0]
+        reportee_ldap = r[1]
+        project_id = r[2]
+        subproject_id = r[3]
+        hours = float(r[4] or 0)
+        week_data = r[5] or ""
+
+        # build week map {week_number: percent}
+        week_map = {}
+        if week_data:
+            for pair in week_data.split(','):
+                try:
+                    wk, val = pair.split(':')
+                    wkn = int(wk)
+                    week_map[wkn] = float(val or 0)
+                except Exception:
+                    # skip malformed pair
+                    continue
+
+        allocations.append({
+            "id": tid,
+            "reportee_ldap": reportee_ldap,
+            "project_id": project_id,
+            "subproject_id": subproject_id,
+            "hours": hours,
+            # keep order same as weeks_info so template inputs align
+            "week_perc": [week_map.get(w["num"], 0.0) for w in weeks_info],
+        })
+    print("Allocations : ", allocations)
+    # also pass JSON-encoded version for safe client-side use (template expects a JS array)
+    allocations_json = json.dumps(allocations)
 
     # -----------------------------------------------------------
     # Render Page
@@ -5203,26 +5276,51 @@ def tl_allocations_view(request):
         "projects": projects,
         "subprojects": subprojects,
         "subprojects_json": json.dumps(subprojects),
+        "weeks_info": weeks_info,
+        "weeks_info_json": weeks_info_json,
         "allocations": allocations,
+        "allocations_json": allocations_json,  # <-- new
         "monthly_hours": monthly_hours,
     })
+
+
+from django.views.decorators.http import require_POST
 
 @require_POST
 def save_tl_allocations(request):
     """
     Save free-hand TL allocations (no restrictions).
 
-    Improvements:
-      - Determines canonical month_start using get_billing_period(year, month)
-        and stores that DATE into team_distributions.month_start (so lookups
-        later will match billing-range based queries).
-      - Accepts variable-length 'weeks' arrays and upserts weekly_allocations for each provided week.
+    - Accepts payload.month (YYYY-MM) and payload.allocations (array).
+    - Each allocation may contain:
+        {
+          "id": <existing_team_distribution_id|null>,
+          "reportee": "user@domain",
+          "project_id": 46,
+          "subproject_id": 221,
+          "hours": 175,
+          "weeks": [ {"week_number":1,"percent":25}, ... ]   OR   [25,25,25,25] (plain list -> mapped to 1..N)
+        }
+    - For each team_distribution: upsert the row, upsert provided weekly_allocations,
+      and delete any weekly_allocations for that team_distribution not present in the provided week set.
     """
-    try:
-        payload = json.loads(request.body.decode("utf-8"))
-    except Exception:
-        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
+    # local imports so this function remains drop-in
+    import json
+    import logging
+    import calendar
+    from datetime import date
+    from django.http import JsonResponse
+    from django.db import connection, transaction
 
+    logger = logging.getLogger(__name__)
+
+    # parse JSON payload
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": "Invalid JSON payload"}, status=400)
+
+    # auth check
     session_ldap = request.session.get("ldap_username")
     if not session_ldap:
         return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
@@ -5232,29 +5330,32 @@ def save_tl_allocations(request):
     if not month:
         return JsonResponse({"ok": False, "error": "Missing month"}, status=400)
 
-    # parse month into year, month and determine canonical billing_start (date)
+    # parse month into canonical billing_start / billing_end
     try:
         yy, mm = map(int, month.split("-"))
     except Exception:
         return JsonResponse({"ok": False, "error": "Invalid month format (expected YYYY-MM)"}, status=400)
 
-    # Use get_billing_period to obtain the canonical billing_start (and billing_end if needed)
+    # Try to use helper get_billing_period if available; otherwise fallback to first/last day of month
     try:
         billing_start, billing_end = get_billing_period(yy, mm)
     except Exception:
-        # fallback to first day of month if helper fails for any reason
+        # fallback: use first and last day of month
         billing_start = date(yy, mm, 1)
+        last_day = calendar.monthrange(yy, mm)[1]
+        billing_end = date(yy, mm, last_day)
 
-    # month_start is a date object now (DB driver will insert as DATE)
-    month_start = billing_start
+    # Normalize session_ldap to string
+    session_ldap = str(session_ldap)
 
     try:
+        saved_rows = 0
         with transaction.atomic():
             with connection.cursor() as cur:
-                for a in allocations:
+                for a in allocations or []:
                     reportee = (a.get("reportee") or "").strip()
                     if not reportee:
-                        # skip empty rows
+                        # skip empty/invalid row
                         continue
 
                     project_id = a.get("project_id") or None
@@ -5265,23 +5366,24 @@ def save_tl_allocations(request):
                         hours = 0.0
 
                     weeks = a.get("weeks") or []
-                    # ensure weeks is a list; if it's a single value, coerce to list
+                    # coerce scalar to list
                     if not isinstance(weeks, (list, tuple)):
                         weeks = [weeks]
 
-                    # 1) Try to find an existing team_distributions row for this lead/month/reportee/subproject
+                    # 1) find existing team_distributions row (match canonical billing_start window)
+                    # Use month_start BETWEEN billing_start AND billing_end to be robust if month_start values vary.
                     cur.execute("""
                         SELECT id
                         FROM team_distributions
-                        WHERE month_start = %s
-                          AND LOWER(lead_ldap) = LOWER(%s)
+                        WHERE LOWER(lead_ldap) = LOWER(%s)
+                          AND month_start BETWEEN %s AND %s
                           AND LOWER(reportee_ldap) = LOWER(%s)
                           AND (
                             (subproject_id = %s)
                             OR (subproject_id IS NULL AND %s IS NULL)
                           )
                         LIMIT 1
-                    """, [month_start, session_ldap, reportee, subproject_id, subproject_id])
+                    """, [session_ldap, billing_start, billing_end, reportee, subproject_id, subproject_id])
                     found = cur.fetchone()
 
                     if found and found[0]:
@@ -5296,39 +5398,76 @@ def save_tl_allocations(request):
                             WHERE id = %s
                         """, [project_id, subproject_id, hours, tdid])
                     else:
-                        # insert a new row; store the canonical month_start (DATE)
+                        # insert a new team_distributions row using canonical month_start
                         cur.execute("""
                             INSERT INTO team_distributions
                                 (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, created_at, updated_at)
                             VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-                        """, [month_start, session_ldap, project_id, subproject_id, reportee, hours])
-                        # get last inserted id
+                        """, [billing_start, session_ldap, project_id, subproject_id, reportee, hours])
+                        # get inserted id
                         try:
                             tdid = int(cur.lastrowid)
                         except Exception:
-                            # fallback: select the row we just inserted (best-effort)
+                            # fallback: query the most recent matching row
                             cur.execute("""
                                 SELECT id FROM team_distributions
-                                WHERE month_start=%s AND lead_ldap=%s AND LOWER(reportee_ldap)=LOWER(%s)
+                                WHERE LOWER(lead_ldap)=LOWER(%s) AND month_start BETWEEN %s AND %s
+                                  AND LOWER(reportee_ldap)=LOWER(%s)
                                   AND ( (subproject_id=%s) OR (subproject_id IS NULL AND %s IS NULL) )
                                 ORDER BY id DESC
                                 LIMIT 1
-                            """, [month_start, session_ldap, reportee, subproject_id, subproject_id])
+                            """, [session_ldap, billing_start, billing_end, reportee, subproject_id, subproject_id])
                             r2 = cur.fetchone()
                             if not r2:
                                 raise RuntimeError("Failed to determine team_distributions id after insert")
                             tdid = int(r2[0])
 
-                    # 2) Upsert weekly_allocations for this team_distribution id
-                    #    Iterate over provided weeks (list may be shorter/longer than 4).
-                    for i, pct in enumerate(weeks):
-                        wk = int(i) + 1
+                    # 2) Normalize incoming weeks into (week_number, percent) tuples
+                    normalized_weeks = []
+                    if isinstance(weeks, (list, tuple)) and len(weeks) > 0 and isinstance(weeks[0], dict):
+                        # list of objects expected: {"week_number": 1, "percent": 25}
+                        for item in weeks:
+                            try:
+                                wn = int(item.get("week_number"))
+                                pv = float(item.get("percent") or 0)
+                                normalized_weeks.append((wn, pv))
+                            except Exception:
+                                continue
+                    elif isinstance(weeks, (list, tuple)):
+                        # plain list - treat as percentages mapped to week 1..N
+                        for idx, item in enumerate(weeks):
+                            try:
+                                pv = float(item or 0)
+                            except Exception:
+                                pv = 0.0
+                            normalized_weeks.append((idx + 1, pv))
+                    else:
+                        # scalar
                         try:
-                            pct_val = float(pct or 0)
+                            pv = float(weeks)
+                            normalized_weeks.append((1, pv))
+                        except Exception:
+                            normalized_weeks = []
+
+                    # 3) Upsert each provided week; collect provided week numbers
+                    provided_week_numbers = []
+                    for (wk_num, pct_val) in normalized_weeks:
+                        try:
+                            wk_n = int(wk_num)
+                        except Exception:
+                            continue
+                        try:
+                            pct_val = float(pct_val or 0)
                         except Exception:
                             pct_val = 0.0
-                        # calculate hours for that week (round to 2 decimals)
+                        # clamp percent
+                        if pct_val < 0: pct_val = 0.0
+                        if pct_val > 100: pct_val = 100.0
+
+                        provided_week_numbers.append(wk_n)
                         week_hours = round((pct_val / 100.0) * hours, 2)
+
+                        # Upsert into weekly_allocations by unique (team_distribution_id, week_number)
                         cur.execute("""
                             INSERT INTO weekly_allocations
                                 (team_distribution_id, week_number, hours, percent, status, created_at, updated_at)
@@ -5338,16 +5477,31 @@ def save_tl_allocations(request):
                                 percent = VALUES(percent),
                                 status = VALUES(status),
                                 updated_at = NOW()
-                        """, [tdid, wk, week_hours, pct_val, 'PENDING'])
+                        """, [tdid, wk_n, week_hours, pct_val, 'PENDING'])
 
-        # success
-        return JsonResponse({"ok": True})
+                    # 4) Remove any weekly_allocations rows for this tdid not present in provided_week_numbers
+                    if provided_week_numbers:
+                        placeholders = ",".join(["%s"] * len(provided_week_numbers))
+                        delete_sql = f"""
+                            DELETE FROM weekly_allocations
+                            WHERE team_distribution_id = %s
+                              AND week_number NOT IN ({placeholders})
+                        """
+                        cur.execute(delete_sql, [tdid] + provided_week_numbers)
+                    else:
+                        # none provided -> delete existing weekly allocations for this tdid
+                        cur.execute("DELETE FROM weekly_allocations WHERE team_distribution_id = %s", [tdid])
+
+                    saved_rows += 1
+
+        return JsonResponse({"ok": True, "saved": saved_rows})
     except Exception as ex:
         try:
             logger.exception("save_tl_allocations failed: %s", ex)
         except Exception:
             pass
         return JsonResponse({"ok": False, "error": str(ex)}, status=500)
+
 
 
 @login_required

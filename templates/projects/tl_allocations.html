@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% load static %}
-
 {% block content %}
 <link rel="stylesheet" href="{% static 'projects/css/projects.css' %}">
 <link rel="stylesheet" href="{% static 'projects/css/team_allocations.css' %}">
@@ -31,6 +30,100 @@
 .compact-subproject { max-width:260px; }
 .sel-resource { min-width:220px; }
 
+ /* weekly header - flatter + KPI pill */
+th.week-header {
+  text-align: center;
+  vertical-align: middle;
+  background: linear-gradient(180deg, #fbfdff 0%, #f6fbff 100%);
+  border-right: 1px solid #eef3f8;
+  padding: 8px 6px;
+  min-width: 120px;
+  white-space: nowrap;
+}
+
+.week-top {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  margin-bottom:4px;
+}
+
+.week-label {
+  font-weight:700;
+  color:#0b2545;
+  font-size:13px;
+}
+
+.max-pill {
+  background: linear-gradient(90deg,#e6f7ed,#dff3e9);
+  color:#065f46;
+  font-weight:600;
+  font-size:11px;
+  padding:4px 6px;
+  border-radius:999px;
+  box-shadow: 0 1px 0 rgba(11,37,69,0.03);
+}
+
+.week-meta {
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+  color:#64748b;
+}
+
+.week-dates { font-weight:600; color:#0b2545; font-size:12px; }
+.week-wd { font-weight:600; color:#0b2545; }
+
+.alloc-table thead tr { border-bottom: 2px solid #e6eef6; }
+.alloc-table th, .alloc-table td { padding-top:8px; padding-bottom:8px; }
+
+/* small adjustments for inputs */
+.alloc-table input.wpct { width:72px; text-align:right; padding:6px 8px; }
+/* ----- Week percentage input styling ----- */
+/* --- % input visibility & shading --- */
+.input.wpct {
+  width: 84px;
+  text-align: right;
+  border: 1.6px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background-color: #ffffff;
+  font-weight: 600;
+  color: #0f172a;
+  transition: all 0.16s ease;
+  box-shadow: 0 1px 2px rgba(2,6,23,0.04);
+}
+
+.input.wpct:hover {
+  border-color: #60a5fa;
+}
+
+.input.wpct:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37,99,235,0.12);
+}
+
+/* filled vs zero shading */
+.input.wpct.filled {
+  background: linear-gradient(180deg, #f0fdf4 0%, #ecfdf3 100%);
+  border-color: #34d399;
+  color: #065f46;
+}
+
+.input.wpct.zero {
+  background: #fbfdff;
+  border-color: #e2e8f0;
+  color: #6b7280;
+}
+
+/* keep spinner hidden for nicer look */
+.input.wpct::-webkit-inner-spin-button,
+.input.wpct::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
 /* highlight rows that exceed monthly limit */
 .alloc-row.limit-exceeded { background: linear-gradient(90deg, rgba(255,234,234,0.9), rgba(255,244,244,0.6)); border-left:4px solid #ef4444; }
 
@@ -44,7 +137,62 @@
 
 /* small pill spacing (fix gaps around headings) */
 .card-header .pill { width:8px; height:28px; display:inline-block; background:linear-gradient(180deg,#2b7cff,#1a4ed8); border-radius:6px; margin-right:10px; vertical-align:middle; }
+
+/* -------- stronger vertical separators between weeks -------- */
+.alloc-table th.week-header,
+.alloc-table td.td-week {
+  position: relative;
+  /* subtle default right divider */
+  border-right: 1px solid rgba(14, 35, 58, 0.06);
+}
+
+/* visually stronger divider line (full height) */
+.alloc-table th.week-header::after,
+.alloc-table td.td-week::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  /* subtle vertical gradient to add depth */
+  background: linear-gradient(180deg, rgba(11,37,69,0.06), rgba(11,37,69,0.03));
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* reduce visual clutter on the last week column */
+.alloc-table th.week-header:last-child::after,
+.alloc-table td.td-week:last-child::after {
+  display: none;
+}
+
+/* -------- optional: explicit boundary highlight class -------- */
+.week-boundary::after {
+  /* strong accent color for the boundary */
+  background: linear-gradient(180deg, rgba(220,38,38,0.98), rgba(239,68,68,0.95));
+  width: 3px;
+  box-shadow: 0 0 8px rgba(239,68,68,0.08);
+}
+
+/* subtle pill over the divider to label boundary if desired */
+.week-boundary .boundary-pill {
+  position: absolute;
+  right: -26px; /* sits slightly right of the divider */
+  top: 8px;
+  background: #ffffff;
+  border: 1px solid rgba(14,35,58,0.06);
+  padding: 2px 6px;
+  font-size: 11px;
+  color: #dc2626;
+  border-radius: 999px;
+  box-shadow: 0 4px 10px rgba(2,6,23,0.06);
+  z-index: 4;
+  white-space: nowrap;
+}
 </style>
+
 
 <div class="page-card">
   <div class="page-header">
@@ -108,20 +256,35 @@
 
     <div class="card-body">
       <table class="alloc-table" id="allocTable">
-        <thead>
-          <tr>
-            <th style="min-width:220px;">Resource</th>
-            <th class="compact-project">Project</th>
-            <th class="compact-subproject">Subproject</th>
-            <th style="width:100px;">Hours</th>
-            <th style="width:80px;">FTE</th>
-            <th style="width:70px;">W1%</th>
-            <th style="width:70px;">W2%</th>
-            <th style="width:70px;">W3%</th>
-            <th style="width:70px;">W4%</th>
-            <th style="width:100px;">Action</th>
-          </tr>
-        </thead>
+        <!-- week header row (dynamic) -->
+            <thead>
+              <tr>
+                <th>Resource</th>
+                <th class="compact-project">Project</th>
+                <th class="compact-subproject">Subproject</th>
+                <th>Hours</th>
+                <th>FTE</th>
+
+                {% for w in weeks_info %}
+                  <th class="week-header">
+                    <div class="week-top">
+                      <span class="week-label">W{{ w.num }}</span>
+                      <span class="max-pill">Max {{ w.max_pct }}%</span>
+                    </div>
+
+                    <div class="week-meta">
+                      <span class="week-dates">
+                        {{ w.start|slice:"0:10" }} → {{ w.end|slice:"0:10" }}
+                      </span>
+                      <span class="dot">•</span>
+                      <span class="week-wd">{{ w.working_days }} WD</span>
+                    </div>
+                  </th>
+                {% endfor %}
+                <th class="action-cell">Action</th>
+              </tr>
+            </thead>
+
         <tbody id="allocBody">
           {# If server provides allocations, render rows now so Django-side values used #}
           {% for row in allocations %}
@@ -162,10 +325,14 @@
 
               <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>
               <td class="auto-fte">--</td>
-              <td><input class="input wpct-1" type="number" min="0" max="100" value="{{ row.week_perc.0|default:0 }}"></td>
-              <td><input class="input wpct-2" type="number" min="0" max="100" value="{{ row.week_perc.1|default:0 }}"></td>
-              <td><input class="input wpct-3" type="number" min="0" max="100" value="{{ row.week_perc.2|default:0 }}"></td>
-              <td><input class="input wpct-4" type="number" min="0" max="100" value="{{ row.week_perc.3|default:0 }}"></td>
+              {% for w in weeks_info %}
+              <td>
+                <input class="input wpct" type="number" min="0" max="100"
+                       data-week="{{ w.num }}" data-max="{{ w.max_pct }}"
+                       value="{{ row.week_perc|default_if_none:''|slice:forloop.counter0|default:'0' }}">
+              </td>
+            {% endfor %}
+
               <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
             </tr>
           {% endfor %}
@@ -210,10 +377,27 @@
     </td>
     <td><input type="number" min="0" step="0.25" class="input inp-hours" value="0"></td>
     <td class="auto-fte">--</td>
-    <td><input class="input wpct-1" type="number" min="0" max="100" value="0"></td>
-    <td><input class="input wpct-2" type="number" min="0" max="100" value="0"></td>
-    <td><input class="input wpct-3" type="number" min="0" max="100" value="0"></td>
-    <td><input class="input wpct-4" type="number" min="0" max="100" value="0"></td>
+    {# --- per-row, render week inputs from row.weeks_list if available --- #}
+    {% if row.weeks_list %}
+     {% for w in weeks_info %}
+          <td class="td-week text-center">
+            <input class="input wpct"
+                   type="number"
+                   step="0.01"
+                   min="0"
+                   max="100"
+                   data-week="{{ w.num }}"
+                   data-max="{{ w.max_pct }}"
+                   value="">
+          </td>
+        {% endfor %}
+
+
+    {% else %}
+      {# fallback: no server-side weeks present for this row (e.g. newly added template row)
+         leave empty; JS will populate week inputs for the row when it is inserted. #}
+    {% endif %}
+
     <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
   </tr>
 </template>
@@ -301,6 +485,10 @@
     const selProj = tr.querySelector('.sel-project');
     const selSub  = tr.querySelector('.sel-subproject');
     const inpH   = tr.querySelector('.inp-hours');
+    // after inserting row into DOM:
+if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function'){
+  tl_alloc_helpers.populateWeekInputsForRow(tr, {}); // {} -> no existing week values
+}
 
     selProj.addEventListener('change', function(){
       fillSubprojectOptions(selSub, this.value, null);
@@ -428,32 +616,36 @@
     recomputeSummaryTotals();
   }
 
-  // collect rows into payload for save
   function gatherAllocations(){
-    const rows = [];
-    document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
-      const tid = tr.getAttribute('data-team-dist-id') || null;
-      const reportee = tr.querySelector('.sel-resource')?.value || '';
-      const project_id = tr.querySelector('.sel-project')?.value || null;
-      const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
-      const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
-      const weeks = [
-        parseFloat(tr.querySelector('.wpct-1')?.value || 0) || 0,
-        parseFloat(tr.querySelector('.wpct-2')?.value || 0) || 0,
-        parseFloat(tr.querySelector('.wpct-3')?.value || 0) || 0,
-        parseFloat(tr.querySelector('.wpct-4')?.value || 0) || 0,
-      ];
-      rows.push({
-        id: tid,
-        reportee: reportee,
-        project_id: project_id,
-        subproject_id: subproject_id,
-        hours: hours,
-        weeks: weeks
-      });
+  const rows = [];
+  document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+    const tid = tr.getAttribute('data-team-dist-id') || null;
+    const reportee = tr.querySelector('.sel-resource')?.value || '';
+    const project_id = tr.querySelector('.sel-project')?.value || null;
+    const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
+    const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+
+    // collect all week inputs for this row, read their data-week attribute
+    const weekInputs = Array.from(tr.querySelectorAll('input.wpct'));
+    // produce an array of { week_number, percent } objects sorted by week_number
+    const weeks_payload = weekInputs.map(i => {
+      const wn = parseInt(i.getAttribute('data-week') || '0', 10) || 0;
+      const pv = parseFloat(i.value || 0) || 0;
+      return { week_number: wn, percent: parseFloat(pv.toFixed(2)) };
+    }).sort((a,b) => (a.week_number - b.week_number));
+
+    rows.push({
+      id: tid,
+      reportee: reportee,
+      project_id: project_id,
+      subproject_id: subproject_id,
+      hours: hours,
+      weeks: weeks_payload
     });
-    return rows;
-  }
+  });
+  return rows;
+}
+
 
   // Validate monthly limit across all allocations before save.
   // Highlights rows that cause exceedance and returns boolean valid/invalid.
@@ -611,6 +803,118 @@ document.getElementById("btnExportExcel").addEventListener("click", function(e){
   e.preventDefault();
   const month = document.getElementById("month")?.value || "{{ billing_month }}";
   window.location.href = "{% url 'projects:export_tl_allocations_excel' %}?month=" + encodeURIComponent(month);
+});
+// ----- ensure this runs inside your IIFE ----- //
+const WEEKS = JSON.parse('{{ weeks_info_json|default:"[]"|escapejs }}' || '[]');
+
+function mkWeekInput(weekNum, maxPct, initialValue){
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.min = 0;
+  inp.max = 100;
+  inp.step = 0.01;
+  inp.className = 'input wpct';
+  inp.setAttribute('data-week', String(weekNum));
+  inp.setAttribute('data-max', String(maxPct));
+  inp.value = (initialValue !== undefined && initialValue !== null) ? String(initialValue) : '0.00';
+  inp.addEventListener('input', function(e){
+    // clamp to data-max visually; exact validation on save will run as before
+    const maxv = parseFloat(inp.getAttribute('data-max')||'100');
+    let v = parseFloat(inp.value||'0') || 0;
+    if(v > maxv){ inp.value = String(maxv.toFixed(2)); inp.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.06)'; }
+    else inp.style.boxShadow = '';
+    // recompute row totals if you have such logic:
+    const r = inp.closest('tr.alloc-row'); if(r) validateTotalPctForRow(r);
+  });
+  return inp;
+}
+
+function populateWeekInputsForRow(tr, existingValues){
+  // remove any placeholder week tds first
+  Array.from(tr.querySelectorAll('td.td-week')).forEach(td => td.remove());
+  // insert each week cell before the action cell (if exists), else append
+  const actionCell = tr.querySelector('.action-cell');
+  WEEKS.forEach(w => {
+    const td = document.createElement('td');
+    td.className = 'td-week text-center';
+    const initial = (existingValues && typeof existingValues[String(w.num)] !== 'undefined') ? existingValues[String(w.num)] : (w.percent || '0.00');
+    const inp = mkWeekInput(w.num, w.max_pct || w.max_percent || 100, initial);
+    td.appendChild(inp);
+    if(actionCell) tr.insertBefore(td, actionCell);
+    else tr.appendChild(td);
+  });
+}
+
+// expose helper globally so the add-row handler can call it
+window.tl_alloc_helpers = window.tl_alloc_helpers || {};
+window.tl_alloc_helpers.populateWeekInputsForRow = populateWeekInputsForRow;
+window.tl_alloc_helpers.WEEKS = WEEKS;
+
+// --- early in the IIFE / after WEEKS and window.tl_alloc_helpers are defined ---
+const SERVER_ALLOCATIONS = JSON.parse('{{ allocations_json|default:"[]"|escapejs }}' || '[]');
+
+// build a map for quick lookup by team_distribution id (string keys)
+const ALLOC_BY_ID = {};
+if (Array.isArray(SERVER_ALLOCATIONS)) {
+  SERVER_ALLOCATIONS.forEach(a => {
+    if (a && (a.id !== null && typeof a.id !== 'undefined')) {
+      ALLOC_BY_ID[String(a.id)] = a;
+    }
+  });
+}
+
+// helper to update visual classes on a wpct input
+function updateWpctStyling(inp) {
+  const val = parseFloat(inp.value || 0) || 0;
+  inp.classList.remove('filled', 'zero');
+  if (val > 0.0001) inp.classList.add('filled');
+  else inp.classList.add('zero');
+}
+
+// Fill server-rendered week inputs from allocations_json if they are blank
+document.addEventListener('DOMContentLoaded', function(){
+  // (you probably already call populateInitialRows() here — keep that)
+  try {
+    // For each server-rendered row with a data-team-dist-id attribute, fill week inputs
+    document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+      const tdid = tr.getAttribute('data-team-dist-id') || tr.dataset.teamDistId || null;
+      if (!tdid) {
+        // nothing to populate for unsaved rows - but ensure JS will create inputs on add-row
+        // also mark any present wpct inputs as zero for styling
+        tr.querySelectorAll('input.wpct').forEach(i => updateWpctStyling(i));
+        return;
+      }
+      const alloc = ALLOC_BY_ID[String(tdid)];
+      if (!alloc) {
+        // no allocation object found — just style existing inputs
+        tr.querySelectorAll('input.wpct').forEach(i => updateWpctStyling(i));
+        return;
+      }
+
+      // alloc.week_perc is expected as an array aligned to WEEKS order
+      if (Array.isArray(alloc.week_perc)) {
+        // for each week index, find the corresponding input by data-week and set value
+        alloc.week_perc.forEach((val, idx) => {
+          // corresponding week number (safe fallback to index+1)
+          const weekNum = (WEEKS[idx] && WEEKS[idx].num) ? WEEKS[idx].num : (idx + 1);
+          const input = tr.querySelector('input.wpct[data-week="' + weekNum + '"]');
+          if (input) {
+            // set value to fixed 2 decimals for consistency
+            input.value = (typeof val === 'number') ? val.toFixed(2) : String(val || 0);
+            updateWpctStyling(input);
+          }
+        });
+      } else {
+        // no week_perc array — just style present inputs
+        tr.querySelectorAll('input.wpct').forEach(i => updateWpctStyling(i));
+      }
+    });
+  } catch (err) {
+    console.error('Error populating week pct inputs from allocations_json', err);
+  }
+
+  // Recompute FTEs/totals if you need (call your existing helpers)
+  try { recomputeSummaryTotals(); } catch(e) { /* ignore if not present */ }
 });
 
 })();
