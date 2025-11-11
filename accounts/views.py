@@ -70,12 +70,6 @@ def build_bind_username(input_username):
         return login_username, search_filter
 
 def check_credentials_bind(username: str, password: str):
-    """
-    Attempt to bind with provided username/password.
-    Returns (is_authenticated: bool, conn_or_none: ldap3.Connection or None, user_entry or None, error_message or None)
-    - conn is a bound ldap3.Connection using the user's credentials (caller must unbind() when done)
-    - user_entry is the ldap entry of the user (if found)
-    """
     AD_SERVER = getattr(settings, "LDAP_SERVER", None)
     AD_PORT = int(getattr(settings, "LDAP_PORT", 389))
     USER_SEARCH_BASE = getattr(settings, "LDAP_USER_SEARCH_BASE", None)
@@ -92,23 +86,42 @@ def check_credentials_bind(username: str, password: str):
         conn = Connection(server, user=bind_user, password=password, receive_timeout=10)
         if not conn.bind():
             logger.debug("Bind failed for user %s", username)
-            # ensure closed
             try:
                 conn.unbind()
             except Exception:
                 pass
             return False, None, None, None
 
-        # bound successfully. Now search the user entry to fetch attributes (reuse the same connection)
         search_base = f"{USER_SEARCH_BASE},{BASE_DN}" if USER_SEARCH_BASE else BASE_DN
         attributes = getattr(settings, "LDAP_ATTRIBUTES", [
             'cn', 'sAMAccountName', 'userPrincipalName', 'mail', 'department',
-            'title', 'telephoneNumber', 'lastLogonTimestamp', 'memberOf', 'jpegPhoto', 'manager', 'directReports'
+            'title', 'telephoneNumber', 'lastLogonTimestamp', 'memberOf', 'jpegPhoto',
+            'manager', 'directReports',
+            'physicalDeliveryOfficeName', 'l', 'st', 'c', 'co', 'postalCode', 'streetAddress'
         ])
-        conn.search(search_base=search_base, search_filter=search_filter, search_scope=SUBTREE, attributes=attributes)
+
+        conn.search(search_base=search_base, search_filter=search_filter, search_scope=SUBTREE, attributes=['*'])
         user_entry = conn.entries[0] if conn.entries else None
 
+        if user_entry:
+            print("\n--- Location Details ---")
+            location_info = {
+                "City": user_entry["l"].value if "l" in user_entry else None,
+                "Office": user_entry[
+                    "physicalDeliveryOfficeName"].value if "physicalDeliveryOfficeName" in user_entry else None,
+                "Street": user_entry["streetAddress"].value if "streetAddress" in user_entry else None,
+                "Postal Code": user_entry["postalCode"].value if "postalCode" in user_entry else None,
+                "Country": user_entry["co"].value if "co" in user_entry else None,
+                "Country Code": user_entry["c"].value if "c" in user_entry else None,
+                "Usage Location": user_entry[
+                    "msExchUsageLocation"].value if "msExchUsageLocation" in user_entry else None,
+                "Site Code": user_entry["extensionAttribute5"].value if "extensionAttribute5" in user_entry else None
+            }
+            for key, val in location_info.items():
+                print(f"{key}: {val}")
+
         return True, conn, user_entry, None
+
     except Exception as e:
         logger.exception("LDAP bind/search error: %s", e)
         return False, None, None, "LDAP connection error"
