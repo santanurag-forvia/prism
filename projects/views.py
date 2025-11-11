@@ -2555,35 +2555,65 @@ from datetime import timedelta
 def _compute_weeks_for_billing(billing_start, billing_end):
     """
     Build week slices starting at billing_start, each week ending on a Friday,
-    with last week end either billing_end (if weekday) or previous Friday (if billing_end is Sat/Sun).
-    Returns list of dicts {num, start, end}.
+    with last week end either billing_end (if it would make the final week valid)
+    or the nearest previous Friday — but never produce wk_end < cur_start.
+
+    Returns list of dicts {num, start, end} where start/end are date objects.
     """
     print(f"START: _compute_weeks_for_billing | billing_start={billing_start}, billing_end={billing_end}")
     weeks = []
     cur_start = billing_start
     wknum = 1
-    while cur_start <= billing_end:
+    # defensive sanity: avoid infinite loops by limiting iterations
+    MAX_WEEKS = 1000
+
+    while cur_start <= billing_end and wknum <= MAX_WEEKS:
         print(f"  Loop wknum={wknum} | cur_start={cur_start}")
+        # days_to_friday: how many days from cur_start to the next Friday (weekday 4)
         days_to_friday = (4 - cur_start.weekday()) % 7
-        wk_end = cur_start + timedelta(days=days_to_friday)
-        print(f"    days_to_friday={days_to_friday} | tentative wk_end={wk_end}")
+        tentative_wk_end = cur_start + timedelta(days=days_to_friday)
+        print(f"    days_to_friday={days_to_friday} | tentative wk_end={tentative_wk_end}")
+
+        wk_end = tentative_wk_end
+
+        # If tentative week end goes past billing_end, clamp it.
         if wk_end > billing_end:
             print(f"    wk_end {wk_end} > billing_end {billing_end}, clamping")
-            wk_end = billing_end
+            # Candidate Friday computed from billing_end (previous Friday)
+            candidate_friday = billing_end
             if billing_end.weekday() >= 5:
-                # Move back to previous Friday
-                wk_end = billing_end - timedelta(days=(billing_end.weekday() - 4))
-                print(f"    billing_end {billing_end} is Sat/Sun, moving back to Friday {wk_end}")
-            # Prevent endless loop: if clamped wk_end is before cur_start, set to cur_start
-            if wk_end < cur_start:
-                print(f"    wk_end {wk_end} < cur_start {cur_start}, fixing to cur_start")
-                wk_end = cur_start
+                # billing_end is Sat(5) or Sun(6)
+                candidate_friday = billing_end - timedelta(days=(billing_end.weekday() - 4))
+                print(f"    billing_end {billing_end} is weekend; candidate_friday={candidate_friday}")
+
+            # Use candidate_friday only if it's >= cur_start (keeps start <= end).
+            if candidate_friday >= cur_start:
+                wk_end = candidate_friday
+                print(f"    using candidate_friday as wk_end: {wk_end}")
+            else:
+                # candidate_friday would be before cur_start -> use billing_end instead
+                wk_end = billing_end
+                print(f"    candidate_friday {candidate_friday} < cur_start {cur_start}; using billing_end as wk_end: {wk_end}")
+
+        # Safety check: ensure wk_end >= cur_start (if not, clamp to cur_start)
+        if wk_end < cur_start:
+            print(f"    Safety clamp: wk_end {wk_end} < cur_start {cur_start} -> forcing wk_end = cur_start")
+            wk_end = cur_start
+
         weeks.append({'num': wknum, 'start': cur_start, 'end': wk_end})
         print(f"    Appended week: num={wknum}, start={cur_start}, end={wk_end}")
-        wknum += 1
+
+        # Advance to the day after wk_end for next week
         cur_start = wk_end + timedelta(days=1)
+        wknum += 1
+
+    if wknum > MAX_WEEKS:
+        # defensive: log if we hit the iteration cap
+        print(f"WARNING: _compute_weeks_for_billing reached MAX_WEEKS={MAX_WEEKS} and stopped to avoid infinite loop")
+
     print(f"END: _compute_weeks_for_billing | total weeks={len(weeks)}")
     return weeks
+
 
 def _get_billing_period_from_month(year, month):
     """
@@ -5006,62 +5036,61 @@ logger = logging.getLogger(__name__)
 @require_GET
 def tl_allocations_view(request):
     """
-    Team Lead Free Allocations View (memory-protected variant)
+    Team Lead Free Allocations View
+    --------------------------------
+    Shows all direct reportees (from LDAP) and any existing team distributions
+    for the selected month_start, including weekly allocation splits.
     """
     from datetime import date
-
-    print("START: tl_allocations_view")
+    import json
 
     session_ldap = request.session.get("ldap_username")
     session_pwd = request.session.get("ldap_password")
     if not request.session.get("is_authenticated") or not session_ldap:
-        print("User not authenticated, redirecting to login")
         return redirect("accounts:login")
     creds = (session_ldap, session_pwd)
 
+    # -----------------------------------------------------------
     # Determine Billing Month / Period
+    # -----------------------------------------------------------
     month_str = request.GET.get("month")
     if not month_str:
         month_str = date.today().strftime("%Y-%m")
-    print(f"Billing month: {month_str}")
 
     try:
         y, m = map(int, month_str.split("-"))
         month_start = date(y, m, 1)
-    except Exception as e:
-        print(f"Error parsing month_str: {e}")
+    except Exception:
         month_start = date.today().replace(day=1)
 
+    # -----------------------------------------------------------
     # LDAP: Get Direct Reportees
+    # -----------------------------------------------------------
     reportees_entries = []
     try:
-        print("Importing LDAP utilities for tl_allocations_view.")
+        print("Importing LDAP utilities...")
         from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
         print(f"Calling get_user_entry_by_username for: {session_ldap}")
         user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
+        print(f"user_entry: {user_entry}")
         entry_dn = getattr(user_entry, "entry_dn", None)
-
-        print("Calling get_reportees_for_user_dn.")
+        print(f"entry_dn: {entry_dn}")
+        print("Calling get_reportees_for_user_dn...")
         reportees_entries = get_reportees_for_user_dn(
             entry_dn,
             username_password_for_conn=creds
         ) or []
-
-        MAX_REPORTEES = 2000
-        if isinstance(reportees_entries, (list, tuple)) and len(reportees_entries) > MAX_REPORTEES:
-            print(f"get_reportees_for_user_dn returned {len(reportees_entries)} entries - truncating to {MAX_REPORTEES}")
-            reportees_entries = reportees_entries[:MAX_REPORTEES]
-
-        print(f"Fetched reportees_entries count: {len(reportees_entries) if reportees_entries else 0}")
+        print(f"Fetched reportees_entries: {reportees_entries}")
     except Exception as e:
-        print(f"LDAP fetch failed in tl_allocations_view: {e}")
+        print(f"LDAP fetch failed: {e}")
         reportees_entries = []
 
-    # Normalize LDAP reportees
+    # Normalize LDAP reportees into consistent dicts (handles dict or object from helper)
     reportees_map = {}
+    reportees_list = []
     for ent in reportees_entries:
-        mail = None
-        cn = None
+        mail = None;
+        cn = None;
         sam = None
         try:
             if isinstance(ent, dict):
@@ -5069,14 +5098,17 @@ def tl_allocations_view(request):
                 cn = ent.get("cn") or ent.get("displayName")
                 sam = ent.get("sAMAccountName") or ent.get("sAMAccountName".lower())
             else:
-                mail = getattr(ent, "mail", None) or getattr(ent, "email", None) or getattr(ent, "userPrincipalName", None)
+                mail = getattr(ent, "mail", None) or getattr(ent, "email", None) or getattr(ent, "userPrincipalName",
+                                                                                            None)
                 cn = getattr(ent, "cn", None) or getattr(ent, "displayName", None)
                 sam = getattr(ent, "sAMAccountName", None)
         except Exception:
+            # be defensive — skip broken entries
             continue
 
         identifier = (mail or sam or "").strip()
         if not identifier:
+            # fall back to dn-based identity if present
             try:
                 if isinstance(ent, dict):
                     dn = ent.get("dn")
@@ -5094,206 +5126,252 @@ def tl_allocations_view(request):
         if lid not in reportees_map:
             reportees_map[lid] = {
                 "ldap": identifier,
-                "mail": mail or "",
+                "mail": mail or identifier,
                 "cn": cn or identifier,
                 "total_hours": 0.0,
+                "fte": 0.0
             }
-    print(f"Normalized reportees_map count: {len(reportees_map)}")
+            reportees_list.append(reportees_map[lid])
 
-    # Compute billing period canonical boundaries and weeks_info
-    try:
+    # -------------------------------
+    # NEW: determine if logged-in user is a PDL and build logged-in identity
+    # -------------------------------
+    # determine logged in ldap/email and display name
+    logged_ldap = None
+    logged_cn = None
+    # prefer session values (your app sets these)
+    if request.session.get("ldap_username"):
+        logged_ldap = request.session.get("ldap_username")
+        logged_cn = request.session.get("cn") or request.session.get("display_name") or logged_ldap
+    # fallback to Django user
+    if not logged_ldap and getattr(request, "user", None) and request.user.is_authenticated:
+        logged_ldap = getattr(request.user, "email", None) or getattr(request.user, "username", None)
         try:
-            billing_start, billing_end = get_billing_period(int(month_str.split("-")[0]), int(month_str.split("-")[1]))
-        except Exception as e:
-            print(f"get_billing_period failed: {e}")
-            billing_start = month_start
-            from calendar import monthrange
-            last_day = monthrange(billing_start.year, billing_start.month)[1]
-            billing_end = date(billing_start.year, billing_start.month, last_day)
-    except Exception as e:
-        print(f"Billing period fallback: {e}")
-        billing_start = month_start
-        billing_end = month_start
-    print(f"Billing period: {billing_start} to {billing_end}")
+            logged_cn = request.user.get_full_name() or logged_ldap
+        except Exception:
+            logged_cn = logged_ldap
 
-    # Build weeks_info
-    weeks_info = []
+    # -------------------------------
+    # NEW (simpler): determine if logged-in user is a PDL using session['role']
+    # -------------------------------
+    is_pdl = False
     try:
-        weeks_info = _compute_weeks_for_billing(billing_start, billing_end)
-        weeks_info = [{"num": w["num"], "start": w["start"].strftime("%Y-%m-%d"), "end": w["end"].strftime("%Y-%m-%d")} for w in weeks_info]
-    except Exception as e:
-        print(f"Error computing weeks_info: {e}")
-        weeks_info = [{"num": 1, "start": billing_start.strftime("%Y-%m-%d"), "end": billing_end.strftime("%Y-%m-%d")}]
-    print(f"Weeks info: {weeks_info}")
+        role_val = (request.session.get('role') or "").strip()
+        # common cases: "PDL", "pdl", or compound roles like "PDL,MANAGER"
+        if role_val:
+            # normalize and check membership
+            role_norm = role_val.upper()
+            if role_norm == "PDL" or ",PDL" in "," + role_norm or "PDL," in role_norm or " PD L " in role_norm:
+                is_pdl = True
+            # also accept exact match or string that contains 'PDL'
+            elif "PDL" in role_norm:
+                is_pdl = True
+    except Exception:
+        # defensive fallback — if anything goes wrong, assume not PDL
+        is_pdl = False
 
+    print("is_pdl : ", is_pdl)
+    # If PDL, ensure logged-in user appears in reportees list (so PDL can allocate to self)
+    if is_pdl and logged_ldap:
+        lkey = (logged_ldap or "").lower()
+        if lkey not in reportees_map:
+            reportees_map[lkey] = {
+                "ldap": logged_ldap,
+                "mail": logged_ldap,
+                "cn": logged_cn or logged_ldap,
+                "total_hours": 0.0,
+                "fte": 0.0
+            }
+            # insert at beginning so it's easy to find in dropdown
+            reportees_list.insert(0, reportees_map[lkey])
+    # -------------------------------
+    # end NEW block
+    # -------------------------------
+
+    # remove self (lead) if present — only when NOT a PDL (PDL should be able to see themselves)
+    session_ldap_l = (session_ldap or "").lower()
+    if not is_pdl and session_ldap_l in reportees_map:
+        reportees_list = [r for r in reportees_list if r["ldap"].lower() != session_ldap_l]
+        reportees_map.pop(session_ldap_l, None)
+
+    # --- compute weeks info for template (WD and max%) -----------------------
+    # weeks list from existing helper: list of dicts {'num','start','end'}
+    pdate = _to_date(month_start)
+    yy = pdate.year;
+    mm = pdate.month
+    billing_start, billing_end = _get_billing_period_from_month(yy, mm)
+    weeks = _compute_weeks_for_billing(billing_start, billing_end)
+    print("Billing start and end  : ", (billing_start, billing_end))
+
+    # fetch holidays between billing start/end
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT holiday_date FROM holidays WHERE holiday_date BETWEEN %s AND %s",
+            [billing_start, billing_end]
+        )
+        holidays_rows = cur.fetchall() or []
+
+    holidays_set = set()
+    for hr in holidays_rows:
+        # hr may be tuple(date,) depending on cursor; handle defensively
+        try:
+            d = hr[0]
+        except Exception:
+            d = hr
+        if d:
+            holidays_set.add(d.strftime("%Y-%m-%d"))
+
+    # total working days in billing (exclude holidays and weekends)
+    total_working_days = 0
+    for w in weeks:
+        wd = _count_working_days(w['start'], w['end'], holidays_set)
+        total_working_days += wd
+    if total_working_days == 0:
+        total_working_days = 1
+
+    # Build weeks_info array for template: week num, start/end strings, working_days, max_pct
+    weeks_info = []
+    for w in weeks:
+        wd = _count_working_days(w['start'], w['end'], holidays_set)
+        max_pct = round((wd / total_working_days) * 100.0, 2)
+        weeks_info.append({
+            "num": int(w["num"]),
+            "start": w["start"].strftime("%Y-%m-%d"),
+            "end": w["end"].strftime("%Y-%m-%d"),
+            "working_days": int(wd),
+            "max_pct": float(max_pct)
+        })
+
+    # pass JSON string to template
+    import json
     weeks_info_json = json.dumps(weeks_info)
 
-    # Fetch subprojects / projects
-    projects = []
-    subprojects = []
-    try:
-        with connection.cursor() as cur:
-            cur.execute("SELECT id, name, oem_name FROM projects ORDER BY name LIMIT 1000")
-            proj_rows = cur.fetchall() or []
-            for p in proj_rows:
-                try:
-                    projects.append({"id": p[0], "name": p[1]})
-                except Exception:
-                    continue
+    # --- Add to template context later when calling render(...) ---
+    # example: context.update({"weeks_info": weeks_info, "weeks_info_json": weeks_info_json})
 
-            cur.execute("SELECT id, mdm_code, bg_code, description FROM subprojects ORDER BY priority LIMIT 5000")
-            sp_rows = cur.fetchall() or []
-            MAX_SUBPROJECTS = 5000
-            if len(sp_rows) > MAX_SUBPROJECTS:
-                print(f"subprojects query returned {len(sp_rows)} rows; trimming to {MAX_SUBPROJECTS}")
-                sp_rows = sp_rows[:MAX_SUBPROJECTS]
-            for s in sp_rows:
-                try:
-                    subprojects.append({"id": s[0], "mdm_code": s[1], "bg_code": s[2], "description": s[3]})
-                except Exception:
-                    continue
-    except Exception as e:
-        print(f"Error fetching projects/subprojects: {e}")
-    print(f"Projects count: {len(projects)}, Subprojects count: {len(subprojects)}")
+    # -----------------------------------------------------------
+    # Fetch Projects and Subprojects
+    # -----------------------------------------------------------
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT MIN(id) AS id,
+                   bg_code,
+                   MAX(project_id) AS project_id,
+                   CONCAT(bg_code, ' - ', MAX(buyer_bau)) AS name
+            FROM prism_wbs
+            WHERE bg_code IS NOT NULL AND bg_code <> ''
+            GROUP BY bg_code
+            ORDER BY bg_code
+        """)
+        projects = [
+            {"id": r["id"], "name": r["name"], "bg_code": r["bg_code"], "project_id": r["project_id"]}
+            for r in dictfetchall(cur)
+        ]
 
-    # Compute reportees totals
-    try:
-        td_userkeys = [k for k in reportees_map.keys()]
-        MAX_IN = 1000
-        if len(td_userkeys) > MAX_IN:
-            print(f"reportees set too large ({len(td_userkeys)}) - truncating to {MAX_IN}")
-            td_userkeys = td_userkeys[:MAX_IN]
+        cur.execute("""
+            SELECT id, project_id, name,
+                   COALESCE(mdm_code, '') AS mdm_code,
+                   COALESCE(bg_code, '') AS bg_code
+            FROM subprojects
+            ORDER BY priority DESC, name
+        """)
+        subprojects = dictfetchall(cur)
 
-        in_clause, params = _sql_in_clause([k for k in td_userkeys]) if ' _sql_in_clause' in globals() else None
+    # -----------------------------------------------------------
+    # Monthly Team Distributions (core data for allocations)
+    # -----------------------------------------------------------
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT id, project_id, subproject_id, reportee_ldap, hours
+            FROM team_distributions
+            WHERE lead_ldap = %s AND month_start = %s
+        """, [session_ldap, month_start])
+        td_rows = dictfetchall(cur)
+        td_ids = [r["id"] for r in td_rows if r.get("id")]
 
-        with connection.cursor() as cur:
-            if in_clause and params:
-                cur.execute(f"""
-                    SELECT LOWER(user_ldap) as user_ldap, SUM(total_hours) as total_hours
-                      FROM monthly_allocation_entries
-                     WHERE DATE(month_start) = %s
-                       AND LOWER(user_ldap) IN {in_clause}
-                     GROUP BY LOWER(user_ldap)
-                """, [billing_start] + params)
-            else:
-                totals_map = {}
-                batch_size = 250
-                keys_list = td_userkeys
-                for i in range(0, len(keys_list), batch_size):
-                    batch = keys_list[i:i + batch_size]
-                    placeholders = ",".join(["%s"] * len(batch))
-                    cur.execute(f"""
-                        SELECT LOWER(user_ldap) as user_ldap, SUM(total_hours) as total_hours
-                          FROM monthly_allocation_entries
-                         WHERE DATE(month_start) = %s
-                           AND LOWER(user_ldap) IN ({placeholders})
-                         GROUP BY LOWER(user_ldap)
-                    """, [billing_start] + batch)
-                    for row in cur.fetchall() or []:
-                        totals_map[row[0]] = float(row[1] or 0.0)
-                for k in reportees_map.keys():
-                    reportees_map[k]["total_hours"] = totals_map.get(k, 0.0)
-    except Exception as e:
-        print(f"Error computing reportees totals: {e}")
+        # Weekly splits
+        weekly_map = {}
+        if td_ids:
+            placeholders = ",".join(["%s"] * len(td_ids))
+            cur.execute(f"""
+                SELECT team_distribution_id, week_number, percent
+                FROM weekly_allocations
+                WHERE team_distribution_id IN ({placeholders})
+            """, td_ids)
+            for w in dictfetchall(cur):
+                tid = int(w["team_distribution_id"])
+                weekly_map.setdefault(tid, {})[int(w["week_number"])] = float(w["percent"] or 0)
 
-    # compute default monthly_hours
-    monthly_hours = 183.75
-    try:
-        with connection.cursor() as cur:
-            cur.execute("""
-                SELECT max_hours FROM monthly_hours_limit
-                WHERE %s BETWEEN start_date AND end_date
-                LIMIT 1
-            """, [billing_start])
-            mh = cur.fetchone()
-            monthly_hours = float(mh[0]) if mh and mh[0] else monthly_hours
-    except Exception as e:
-        print(f"Could not fetch monthly_hours_limit: {e}")
+        # Monthly hours limit (for FTE calculation)
+        cur.execute("""
+            SELECT max_hours FROM monthly_hours_limit
+            WHERE %s BETWEEN start_date AND end_date
+            LIMIT 1
+        """, [month_start])
+        mh = cur.fetchone()
+        monthly_hours = float(mh[0]) if mh and mh[0] else 183.75
 
+    # -----------------------------------------------------------
+    # Compute Totals & FTEs
+    # -----------------------------------------------------------
     for v in reportees_map.values():
-        try:
-            v["fte"] = round((float(v.get("total_hours") or 0.0) / float(monthly_hours or 1)), 3)
-        except Exception:
-            v["fte"] = 0.0
+        v["fte"] = round((v["total_hours"] / monthly_hours), 3) if monthly_hours else 0.0
 
-    reportees_for_template = sorted(reportees_map.values(), key=lambda x: (x.get("cn") or "").lower())
-    print(f"Reportees for template: {len(reportees_for_template)}")
-
-    # Fetch existing TL allocations
+    reportees_for_template = sorted(reportees_map.values(), key=lambda x: x["cn"].lower())
+    # --- Fetch existing TL allocations from DB (team_distributions + weekly_allocations) ---
+    # --- Fetch existing TL allocations from DB (team_distributions + weekly_allocations) ---
     allocations = []
-    try:
-        with connection.cursor() as cur:
-            cur.execute("""
-                SELECT td.id, td.reportee_ldap, td.project_id, td.subproject_id, td.hours,
-                       GROUP_CONCAT(CONCAT(wa.week_number, ':', wa.percent) ORDER BY wa.week_number ASC) AS week_data
-                  FROM team_distributions td
-             LEFT JOIN weekly_allocations wa ON wa.team_distribution_id = td.id
-                 WHERE td.lead_ldap = %s
-                   AND td.month_start BETWEEN %s AND %s
-              GROUP BY td.id, td.reportee_ldap, td.project_id, td.subproject_id, td.hours
-              ORDER BY td.id ASC
-            """, [session_ldap, billing_start, billing_end])
-            rows = cur.fetchall() or []
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT td.id, td.reportee_ldap, td.project_id, td.subproject_id, td.hours,
+                   GROUP_CONCAT(CONCAT(wa.week_number, ':', wa.percent) ORDER BY wa.week_number ASC) AS week_data
+              FROM team_distributions td
+         LEFT JOIN weekly_allocations wa ON wa.team_distribution_id = td.id
+             WHERE td.lead_ldap = %s
+               AND td.month_start BETWEEN %s AND %s
+          GROUP BY td.id, td.reportee_ldap, td.project_id, td.subproject_id, td.hours
+          ORDER BY td.id ASC
+        """, [logged_ldap, billing_start, billing_end])
+        rows = cur.fetchall() or []
+        print("Rows fetched : ",rows)
+    # rows are tuples (id, reportee_ldap, project_id, subproject_id, hours, week_data)
+    for r in rows:
+        # defensive unpack
+        tid = r[0]
+        reportee_ldap = r[1]
+        project_id = r[2]
+        subproject_id = r[3]
+        hours = float(r[4] or 0)
+        week_data = r[5] or ""
 
-            MAX_ROWS = 3000
-            if len(rows) > MAX_ROWS:
-                print(f"tl_allocations_view: fetched {len(rows)} team_distribution rows; trimming to {MAX_ROWS}")
-                rows = rows[:MAX_ROWS]
+        # build week map {week_number: percent}
+        week_map = {}
+        if week_data:
+            for pair in week_data.split(','):
+                try:
+                    wk, val = pair.split(':')
+                    wkn = int(wk)
+                    week_map[wkn] = float(val or 0)
+                except Exception:
+                    # skip malformed pair
+                    continue
 
-        for r in rows:
-            try:
-                tid = r[0]
-                reportee_ldap = r[1]
-                project_id = r[2]
-                subproject_id = r[3]
-                hours = float(r[4] or 0)
-                week_data = r[5] or ""
-            except Exception:
-                continue
+        allocations.append({
+            "id": tid,
+            "reportee_ldap": reportee_ldap,
+            "project_id": project_id,
+            "subproject_id": subproject_id,
+            "hours": hours,
+            # keep order same as weeks_info so template inputs align
+            "week_perc": [week_map.get(w["num"], 0.0) for w in weeks_info],
+        })
+    print("Allocations : ", allocations)
+    # also pass JSON-encoded version for safe client-side use (template expects a JS array)
+    allocations_json = json.dumps(allocations)
 
-            week_map = {}
-            if week_data:
-                for pair in (week_data or "").split(','):
-                    try:
-                        wk, val = pair.split(':')
-                        wkn = int(wk)
-                        week_map[wkn] = float(val or 0)
-                    except Exception:
-                        continue
-
-            allocations.append({
-                "id": tid,
-                "reportee_ldap": reportee_ldap,
-                "project_id": project_id,
-                "subproject_id": subproject_id,
-                "hours": hours,
-                "week_perc": [week_map.get(w["num"], 0.0) for w in weeks_info],
-            })
-    except Exception as e:
-        print(f"Error fetching team_distributions / weekly_allocations: {e}")
-
-    print(f"Allocations count: {len(allocations)}")
-    if len(allocations) > 0:
-        print(f"Allocations sample: {allocations[:5]}")
-
-    allocations_json = "[]"
-    try:
-        MAX_ALLOC_ROWS_FOR_RENDER = 500
-        if isinstance(allocations, list) and len(allocations) > MAX_ALLOC_ROWS_FOR_RENDER:
-            print(f"tl_allocations_view: allocations length {len(allocations)} exceeds inline limit {MAX_ALLOC_ROWS_FOR_RENDER}; truncating JSON payload for initial render")
-            allocations_json = json.dumps(allocations[:MAX_ALLOC_ROWS_FOR_RENDER])
-            request.session['tl_allocations_truncated'] = True
-        else:
-            allocations_json = json.dumps(allocations)
-    except MemoryError:
-        print("MemoryError while json.dumps(allocations) in tl_allocations_view - sending empty array")
-        allocations_json = "[]"
-        request.session['tl_allocations_truncated'] = True
-    except Exception as e:
-        print(f"Unexpected error while creating allocations_json: {e}")
-        allocations_json = "[]"
-
-    print("RENDERING TEMPLATE projects/tl_allocations.html")
+    # -----------------------------------------------------------
+    # Render Page
+    # -----------------------------------------------------------
     return render(request, "projects/tl_allocations.html", {
         "billing_month": month_str,
         "reportees": reportees_for_template,
@@ -5303,9 +5381,10 @@ def tl_allocations_view(request):
         "weeks_info": weeks_info,
         "weeks_info_json": weeks_info_json,
         "allocations": allocations,
-        "allocations_json": allocations_json,
+        "allocations_json": allocations_json,  # <-- new
         "monthly_hours": monthly_hours,
     })
+
 
 
 
