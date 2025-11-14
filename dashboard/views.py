@@ -69,7 +69,7 @@ def dashboard_view(request):
 
     if is_pdl:
         context["pdl_view"] = True
-        context["pdl_totals"] = compute_pdl_totals(year, request)
+        context["pdl_totals"] = 10 #compute_pdl_totals(year, request)
         context["pdl_variances"] = []
     else:
         context["pdl_view"] = False

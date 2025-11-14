@@ -180,20 +180,18 @@ class DatabaseInitializer:
         # 4) Projects and Prism WBS (projects referenced by many tables)
         print("Adding DDL for table: projects")
         ddls.append("""
-            CREATE TABLE IF NOT EXISTS `projects` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `name` VARCHAR(255) NOT NULL,
-                `oem_name` VARCHAR(255),
-                `pdl_user_id` BIGINT,
-                `pm_user_id` BIGINT,
-                `start_date` DATE,
-                `end_date` DATE,
-                `description` TEXT,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_project_name` (`name`),
-                FOREIGN KEY (`pdl_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
-                FOREIGN KEY (`pm_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                CREATE TABLE IF NOT EXISTS `projects` (
+                    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    `name` VARCHAR(255) NOT NULL,
+                    `oem_name` VARCHAR(255),
+                    `pdl_name` VARCHAR(255),
+                    `pm_name` VARCHAR(255),
+                    `start_date` DATE,
+                    `end_date` DATE,
+                    `description` TEXT,
+                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY `uq_project_name` (`name`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
         print("Adding DDL for table: prism_wbs")
