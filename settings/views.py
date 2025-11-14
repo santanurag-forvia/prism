@@ -236,46 +236,69 @@ def import_master(request):
         messages.error(request, "No file uploaded.")
         return redirect(reverse("settings:import_master"))
 
+    print("\n" + "="*80)
+    print("=== IMPORT MASTER START ===")
+    print("="*80)
+
     started_at = datetime.datetime.now()
     importer = getattr(request.user, "username", None) or "anonymous"
     filename = getattr(uploaded_file, "name", "uploaded.xlsx")
 
+    print(f"Importer: {importer}")
+    print(f"Filename: {filename}")
+    print(f"Started at: {started_at}")
+
     # Read first sheet into pandas
     try:
+        print("\n--- Reading Excel File ---")
         xls = pd.ExcelFile(uploaded_file)
         sheet_name = xls.sheet_names[0]
+        print(f"Sheet name: {sheet_name}")
         df = pd.read_excel(xls, sheet_name=sheet_name, dtype=object)
+        print(f"DataFrame shape: {df.shape} (rows × columns)")
+        print(f"DataFrame columns ({len(df.columns)}): {list(df.columns)[:10]}...")
     except Exception as e:
+        print(f"ERROR: Failed to read Excel - {e}")
         messages.error(request, f"Failed to read Excel first sheet: {e}")
         return redirect(reverse("settings:import_master"))
 
     if df.shape[0] == 0:
+        print("ERROR: DataFrame is empty")
         messages.error(request, "Uploaded sheet is empty.")
         return redirect(reverse("settings:import_master"))
 
+    print(f"\n--- Column Mapping ---")
     orig_headers = list(df.columns)
     used = set()
     mapping: List[Tuple[str, str]] = []
     for i, h in enumerate(orig_headers):
         col = _sanitize_column(h, used, i)
         mapping.append((h, col))
+        if i < 10:  # Print first 10 mappings
+            print(f"  {i+1}. '{h}' → '{col}'")
     sanitized_cols = [col for (_orig, col) in mapping]
+    print(f"Total columns mapped: {len(mapping)}")
 
     # Step A: create master table (all TEXT) and persist mapping
+    print("\n--- STEP A: Creating Master Table ---")
     ddl_warnings: List[str] = []
     master_inserted = 0
     master_failed = 0
     try:
         with connection.cursor() as cursor:
+            print("Ensuring meta and history tables exist...")
             _ensure_meta_table(cursor)
             _ensure_import_history_table(cursor)
 
             if DROP_IF_EXISTS:
+                print(f"Dropping existing table: {MASTER_TABLE}")
                 try:
                     cursor.execute(f"DROP TABLE IF EXISTS `{MASTER_TABLE}`;")
                 except Exception as e:
                     ddl_warnings.append(f"DROP master table warning: {e}")
+                    print(f"WARNING: {e}")
 
+            print(f"Creating table: {MASTER_TABLE}")
             cols_def = ",\n  ".join([f"`{c}` TEXT NULL" for _, c in mapping])
             create_sql = f"""
                 CREATE TABLE `{MASTER_TABLE}` (
@@ -285,21 +308,26 @@ def import_master(request):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
             cursor.execute(create_sql)
+            print(f"✓ Table {MASTER_TABLE} created successfully")
 
             # Save mapping
+            print(f"Saving column mappings to {META_TABLE}...")
             cursor.execute(f"DELETE FROM `{META_TABLE}` WHERE table_name = %s", [MASTER_TABLE])
             for ord_idx, (orig, col) in enumerate(mapping, start=1):
                 cursor.execute(
                     f"INSERT INTO `{META_TABLE}` (table_name, col_order, col_name, orig_header) VALUES (%s,%s,%s,%s)",
                     [MASTER_TABLE, ord_idx, col, str(orig)]
                 )
+            print(f"✓ Saved {len(mapping)} column mappings")
 
             # Insert rows in batches
+            print(f"\nInserting {len(df)} rows into master table (batch size: {BATCH_SIZE})...")
             cols_clause = ", ".join([f"`{c}`" for c in sanitized_cols])
             placeholders = ", ".join(["%s"] * len(sanitized_cols))
             insert_sql = f"INSERT INTO `{MASTER_TABLE}` ({cols_clause}) VALUES ({placeholders})"
+
             rows_values = []
-            for _, row in df.iterrows():
+            for idx, row in df.iterrows():
                 vals = []
                 for orig, col in mapping:
                     raw = row.get(orig, None)
@@ -308,21 +336,33 @@ def import_master(request):
                 rows_values.append(tuple(vals))
 
             # batch insert
-            for i in range(0, len(rows_values), BATCH_SIZE):
+            total_batches = (len(rows_values) + BATCH_SIZE - 1) // BATCH_SIZE
+            print(f"Processing {total_batches} batches...")
+            for batch_num, i in enumerate(range(0, len(rows_values), BATCH_SIZE), 1):
                 batch = rows_values[i:i + BATCH_SIZE]
                 try:
                     cursor.executemany(insert_sql, batch)
                     master_inserted += len(batch)
-                except Exception:
+                    if batch_num % 5 == 0 or batch_num == total_batches:
+                        print(f"  Batch {batch_num}/{total_batches}: {master_inserted} rows inserted")
+                except Exception as e:
+                    print(f"  Batch {batch_num} failed, trying row-by-row: {e}")
                     # fallback to row-by-row to capture faults precisely
                     for j, r in enumerate(batch):
                         try:
                             cursor.execute(insert_sql, r)
                             master_inserted += 1
-                        except Exception as e:
+                        except Exception as row_e:
                             master_failed += 1
-                            messages.warning(request, f"Master insert row {i + j + 1} failed: {e}")
+                            messages.warning(request, f"Master insert row {i + j + 1} failed: {row_e}")
+                            if master_failed <= 5:  # Print first 5 failures
+                                print(f"    Row {i+j+1} failed: {row_e}")
+
+            print(f"✓ Master table insert complete: {master_inserted} inserted, {master_failed} failed")
     except Exception as e:
+        print(f"ERROR: Failed to create/populate master table: {e}")
+        import traceback
+        print(traceback.format_exc())
         messages.error(request, f"Failed to create/populate master table: {e}")
         return redirect(reverse("settings:import_master"))
 
@@ -331,16 +371,29 @@ def import_master(request):
         messages.warning(request, w)
 
     # Step B: create application tables
+    print("\n--- STEP B: Creating Application Tables ---")
     try:
         with connection.cursor() as cursor:
+            print("Creating projects table...")
             _create_projects_table(cursor)
+            print("✓ projects table ready")
+
+            print("Creating project_contacts table...")
             _create_project_contacts_table(cursor)
+            print("✓ project_contacts table ready")
+
+            print("Creating prism_wbs table...")
             _create_prism_wbs_table(cursor)
+            print("✓ prism_wbs table ready")
     except Exception as e:
+        print(f"ERROR: Failed to create application tables: {e}")
+        import traceback
+        print(traceback.format_exc())
         messages.error(request, f"Failed to create application tables: {e}")
         return redirect(reverse("settings:import_master"))
 
-    # Step C: populate projects and prism_wbs (kept same as previously)
+    # Step C: populate projects and prism_wbs
+    print("\n--- STEP C: Populating Application Tables ---")
     mapping_lookup: Dict[str, str] = {}
     col_to_orig = {}
     for orig, col in mapping:
@@ -356,6 +409,7 @@ def import_master(request):
                 return c
         return None
 
+    print("\nMapping critical columns...")
     prog_col = find_col_by_variants(["Program", "program", "Program "])
     buyer_oem_col = find_col_by_variants(["Buyer OEM", "Buyer_OEM", "BuyerOEM"])
     id_col = find_col_by_variants(["ID", "Id", "id"])
@@ -363,6 +417,10 @@ def import_master(request):
     seller_wbs_col = find_col_by_variants(["Seller WBS/CC", "Seller WBS", "Seller_WBS_CC"])
     total_hours_col = find_col_by_variants(["Total Hours", "TotalHours"])
     total_fte_col = find_col_by_variants(["Total FTE", "TotalFTE"])
+
+    print(f"  Program column: {prog_col} → {col_to_orig.get(prog_col) if prog_col else 'NOT FOUND'}")
+    print(f"  ID column: {id_col} → {col_to_orig.get(id_col) if id_col else 'NOT FOUND'}")
+    print(f"  Buyer OEM column: {buyer_oem_col} → {col_to_orig.get(buyer_oem_col) if buyer_oem_col else 'NOT FOUND'}")
 
     projects_created = 0
     wbs_inserted = 0
@@ -372,13 +430,16 @@ def import_master(request):
     try:
         with connection.cursor() as cursor:
             # Build a local cache of existing projects for faster lookup
+            print("\nLoading existing projects...")
             cursor.execute("SELECT id, name FROM projects")
             existing_projects = {row[1]: row[0] for row in cursor.fetchall()}
+            print(f"✓ Found {len(existing_projects)} existing projects")
 
             # Populate projects (unique by Program)
+            print("\nPopulating projects table...")
             if prog_col:
                 programs: Dict[str, Dict[str, Optional[str]]] = {}
-                for _, row in df.iterrows():
+                for idx, row in df.iterrows():
                     orig_prog = col_to_orig.get(prog_col)
                     prog_val = row.get(orig_prog) if orig_prog else None
                     if prog_val is None or (isinstance(prog_val, float) and pd.isna(prog_val)):
@@ -391,6 +452,7 @@ def import_master(request):
                     prog_name = str(prog_val).strip()
                     if prog_name == "":
                         continue
+
                     oem_val = None
                     if buyer_oem_col:
                         orig_oem = col_to_orig.get(buyer_oem_col)
@@ -398,16 +460,23 @@ def import_master(request):
                             v = row.get(orig_oem)
                             if v is not None and not (isinstance(v, float) and pd.isna(v)):
                                 oem_val = str(v).strip()
+
                     if prog_name not in programs:
                         programs[prog_name] = {"oem_name": oem_val}
+                        if len(programs) <= 5:  # Print first 5 programs
+                            print(f"  Found program: '{prog_name}' (OEM: {oem_val})")
                     else:
                         if programs[prog_name].get("oem_name") in (None, "") and oem_val:
                             programs[prog_name]["oem_name"] = oem_val
 
-                for p in sorted(programs.keys()):
+                print(f"✓ Identified {len(programs)} unique programs")
+
+                for p_idx, p in enumerate(sorted(programs.keys()), 1):
                     if p == "":
                         continue
                     if p in existing_projects:
+                        if p_idx <= 3:  # Print first 3 skipped
+                            print(f"  Skipping existing project: '{p}'")
                         continue
                     try:
                         oem_for_p = programs[p].get("oem_name")
@@ -417,10 +486,19 @@ def import_master(request):
                         if res:
                             existing_projects[p] = res[0]
                         projects_created += 1
+                        if projects_created <= 5:  # Print first 5 created
+                            print(f"  ✓ Created project: '{p}' (ID: {res[0] if res else '?'})")
                     except Exception as e:
                         errors.append(f"Failed to insert project '{p}': {e}")
+                        if len(errors) <= 3:
+                            print(f"  ✗ Failed to create project '{p}': {e}")
+
+                print(f"✓ Projects created: {projects_created}")
+            else:
+                print("WARNING: Program column not found, skipping project creation")
 
             # Populate prism_wbs using ON DUPLICATE KEY UPDATE
+            print("\nPopulating prism_wbs table...")
             def _find(orig_variants):
                 return find_col_by_variants(orig_variants)
 
@@ -439,6 +517,9 @@ def import_master(request):
             buyer_wbs_col = buyer_wbs_col or _find(["Buyer WBS/CC", "Buyer WBS", "Buyer_WBS_CC", "Buyer_WBS"])
             seller_wbs_col = seller_wbs_col or _find(["Seller WBS/CC", "Seller WBS", "Seller_WBS_CC", "Seller_WBS"])
 
+            print(f"  Creator column: {creator_col} → {col_to_orig.get(creator_col) if creator_col else 'NOT FOUND'}")
+            print(f"  Status column: {status_col} → {col_to_orig.get(status_col) if status_col else 'NOT FOUND'}")
+
             months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
             month_hours_cols = {}
             month_fte_cols = {}
@@ -448,7 +529,10 @@ def import_master(request):
                 month_fte_cols[m] = _find([f"{m}_fte", f"{m.title()} FTE", f"{m.title()}_FTE"])
 
             # iterate rows and upsert
-            for _, row in df.iterrows():
+            print(f"Processing {len(df)} rows for prism_wbs insertion...")
+            row_num = 0
+            for idx, row in df.iterrows():
+                row_num += 1
                 iom_val = None
                 if id_col:
                     orig = col_to_orig.get(id_col)
@@ -459,8 +543,13 @@ def import_master(request):
                             iom_val = row.get(orig_header)
                             break
                 if iom_val is None:
+                    if row_num <= 3:
+                        print(f"  Row {row_num}: Skipping - no IOM ID found")
                     continue
                 iom_val = str(iom_val).strip()
+
+                if row_num <= 3:
+                    print(f"  Row {row_num}: Processing IOM '{iom_val}'")
 
                 project_id = None
                 if prog_col:
@@ -468,6 +557,8 @@ def import_master(request):
                     progname = row.get(orig) if orig else None
                     if progname:
                         project_id = existing_projects.get(str(progname).strip())
+                        if row_num <= 3:
+                            print(f"    Program: '{progname}' → Project ID: {project_id}")
 
                 def read_val(col_sanitized):
                     if not col_sanitized:
@@ -493,6 +584,9 @@ def import_master(request):
                 department_val = read_val(department_col)
                 total_hours_val = read_val(total_hours_col)
                 total_fte_val = read_val(total_fte_col)
+
+                if row_num <= 3:
+                    print(f"    Creator: '{creator_val}', Status: '{status_val}'")
 
                 months_hours_vals = {m: (read_val(month_hours_cols[m]) or 0) for m in months}
                 months_fte_vals = {m: (read_val(month_fte_cols[m]) or 0) for m in months}
@@ -546,18 +640,47 @@ def import_master(request):
                           {update_clause}
                     """, params)
                     wbs_inserted += 1
+                    if wbs_inserted % 100 == 0:
+                        print(f"  Progress: {wbs_inserted} WBS entries inserted...")
                 except Exception as e:
                     wbs_failed += 1
-                    errors.append(f"IOM {iom_val} upsert failed: {e}")
+                    error_msg = f"IOM {iom_val} upsert failed: {e}"
+                    errors.append(error_msg)
+                    if wbs_failed <= 5:  # Print first 5 failures
+                        print(f"  ✗ {error_msg}")
 
+            print(f"✓ WBS insert complete: {wbs_inserted} inserted, {wbs_failed} failed")
+
+            # Verify prism_wbs population
+            print("\nVerifying prism_wbs table...")
+            cursor.execute("SELECT COUNT(*) FROM prism_wbs")
+            wbs_count = cursor.fetchone()[0]
+            print(f"✓ Total entries in prism_wbs: {wbs_count}")
+
+            cursor.execute("SELECT COUNT(DISTINCT creator) FROM prism_wbs WHERE creator IS NOT NULL")
+            creator_count = cursor.fetchone()[0]
+            print(f"✓ Unique creators in prism_wbs: {creator_count}")
+
+            cursor.execute("SELECT creator, COUNT(*) as cnt FROM prism_wbs WHERE creator IS NOT NULL GROUP BY creator LIMIT 5")
+            sample_creators = cursor.fetchall()
+            print("Sample creators:")
+            for creator, cnt in sample_creators:
+                print(f"  - '{creator}': {cnt} IOMs")
 
     except Exception as e:
+        print(f"ERROR: Failed during projects/WBS population: {e}")
+        import traceback
+        print(traceback.format_exc())
         messages.error(request, f"Failed during projects/WBS population: {e}")
         return redirect(reverse("settings:import_master"))
 
     finished_at = datetime.datetime.now()
+    print(f"\nFinished at: {finished_at}")
+    print(f"Duration: {(finished_at - started_at).total_seconds():.2f} seconds")
+
     try:
         with connection.cursor() as cursor:
+            print("\nSaving import history...")
             cursor.execute(f"""
                 INSERT INTO `{IMPORT_HISTORY}`
                 (`imported_by`,`filename`,`started_at`,`finished_at`,`total_rows`,
@@ -577,7 +700,9 @@ def import_master(request):
                 json.dumps(errors[:2000]),
                 json.dumps({orig: col for orig, col in mapping})
             ])
+            print("✓ Import history saved")
     except Exception as e:
+        print(f"WARNING: Failed to write import history: {e}")
         messages.warning(request, f"Failed to write import history: {e}")
 
     messages.info(request, f"Projects created: {projects_created}.")
@@ -590,11 +715,14 @@ def import_master(request):
     for _, row in df.head(6).iterrows():
         preview_rows.append([str(row.get(h, "")) if not pd.isna(row.get(h, "")) else "" for h in orig_headers])
 
+    print("\n" + "="*80)
+    print("=== IMPORT MASTER END ===")
+    print("="*80 + "\n")
+
     return render(request, "settings/import_master.html", {
         "preview_headers": preview_headers,
         "preview_rows": preview_rows,
     })
-
 
 # ---------------------- Utilities & Settings endpoints ----------------------
 
@@ -883,7 +1011,7 @@ def import_fce_projects(request):
         return str(v).strip()
 
     # Column mappings
-    col_mdm = "MDM code"
+    col_mdm = "MDM Code "
     col_customer = "Customer"
     col_pdl = "PDL"
     col_pm = "PM"

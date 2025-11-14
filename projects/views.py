@@ -43,7 +43,7 @@ allocations with the following main capabilities:
 
 6) Security and authorization
    - Edit/project-selection logic ensures users can only edit projects where
-     they are either PDL (`projects.pdl_user_id`) or are the creator of a WBS
+     they are either PDL (`projects.pdl_name`) or are the creator of a WBS
      row (`prism_wbs.creator` after converting CN to “First … Last” format).
    - `team_allocations` constructs the “reportees set” from LDAP; if the viewer
      is PDL/manager (`is_pdl_user`) they are included in the set (self-view).
@@ -51,7 +51,7 @@ allocations with the following main capabilities:
 Key Tables (as referenced by SQL in this module)
 ------------------------------------------------
 - projects(id, name, oem_name, description, start_date, end_date,
-           pdl_user_id, pdl_name, pm_user_id, pm_name, created_at, …)
+           pdl_name, pdl_name, pm_user_id, pm_name, created_at, …)
 - coes(id, name, leader_user_id, description)
 - domains(id, coe_id, name, lead_user_id)
 - project_coes(project_id, coe_id) — mapping
@@ -743,7 +743,7 @@ from django.shortcuts import render
 def project_list(request):
     """
     Return projects visible to the logged-in user:
-      - projects where p.pdl_user_id == ldap_username (email)
+      - projects where p.pdl_name == ldap_username (email)
       - OR projects linked (prism_wbs.project_id) where prism_wbs.creator matches converted CN
 
     The view returns projects (as before) for client-side pagination.
@@ -778,7 +778,7 @@ def project_list(request):
         # We use LEFT JOIN with prism_wbs and GROUP BY project to avoid duplicates.
         sql = """
             SELECT DISTINCT p.id, p.name, p.oem_name, p.description,
-                   p.start_date, p.end_date, p.pdl_user_id, p.pdl_name,
+                   p.start_date, p.end_date, p.pdl_name, p.pdl_name,
                    p.pm_user_id, p.pm_name, p.created_at
             FROM projects p
             LEFT JOIN prism_wbs w ON w.project_id = p.id
@@ -787,7 +787,7 @@ def project_list(request):
         params = []
 
         if ldap_username:
-            sql += " OR (p.pdl_user_id = %s)"
+            sql += " OR (p.pdl_name = %s)"
             params.append(ldap_username)
 
         if creator_name:
@@ -809,7 +809,7 @@ def project_list(request):
                 "description": r.get("description") or "",
                 "start_date": (r.get("start_date").isoformat() if r.get("start_date") else None),
                 "end_date": (r.get("end_date").isoformat() if r.get("end_date") else None),
-                "pdl_user_id": r.get("pdl_user_id") or "",
+                "pdl_name": r.get("pdl_name") or "",
                 "pdl_name": r.get("pdl_name") or "",
                 "pm_user_id": r.get("pm_user_id") or "",
                 "pm_name": r.get("pm_name") or "",
@@ -1232,20 +1232,20 @@ def create_project(request):
                 "users": users, "coes": coes, "projects": projects, "domains": domains, "error": "Project name is required."
             })
 
-        pdl_user_id = None
+        pdl_name = None
         if pdl_username:
             # prefer local ldap_directory email; otherwise use the supplied identifier
-            pdl_user_id = None
+            pdl_name = None
             if pdl_username:
                 local = _get_local_ldap_entry(pdl_username)
                 if local:
-                    pdl_user_id = local.get("email") or local.get("username")
+                    pdl_name = local.get("email") or local.get("username")
                     try:
-                        _ensure_user_from_ldap(request, pdl_user_id)
+                        _ensure_user_from_ldap(request, pdl_name)
                     except Exception:
-                        logger.exception("Failed to ensure users row for pdl %s", pdl_user_id)
+                        logger.exception("Failed to ensure users row for pdl %s", pdl_name)
                 else:
-                    pdl_user_id = pdl_username if "@" in pdl_username else pdl_username
+                    pdl_name = pdl_username if "@" in pdl_username else pdl_username
                     try:
                         _ensure_user_from_ldap(request, pdl_username)
                     except Exception:
@@ -1256,8 +1256,8 @@ def create_project(request):
         project_id = None
         try:
             cur.execute(
-                "INSERT INTO projects (name, description, start_date, end_date, pdl_user_id) VALUES (%s, %s, %s, %s, %s)",
-                (name, desc or None, start_date, end_date, pdl_user_id)
+                "INSERT INTO projects (name, description, start_date, end_date, pdl_name) VALUES (%s, %s, %s, %s, %s)",
+                (name, desc or None, start_date, end_date, pdl_name)
             )
             conn.commit()
             project_id = cur.lastrowid
@@ -1294,7 +1294,7 @@ def edit_project(request, project_id=None):
     """
     Edit project page:
       - Shows a dropdown of projects where the logged-in user is the creator (derived from prism_wbs.creator).
-      - Allows editing of fields: oem_name, pdl_user_id, pdl_name (auto), pm_user_id, pm_name (auto),
+      - Allows editing of fields: oem_name, pdl_name, pdl_name (auto), pm_user_id, pm_name (auto),
         start_date, end_date, description.
       - Uses LDAP helper get_user_entry_by_username(...) to populate CN (pdl_name/pm_name).
     """
@@ -1350,38 +1350,38 @@ def edit_project(request, project_id=None):
 
         # gather posted values
         oem_name = (request.POST.get("oem_name") or "").strip() or None
-        pdl_sel = (request.POST.get("pdl_user_id") or "").strip() or None  # we expect email primarily
+        pdl_sel = (request.POST.get("pdl_name") or "").strip() or None  # we expect email primarily
         pm_sel = (request.POST.get("pm_user_id") or "").strip() or None
         start_date = request.POST.get("start_date") or None
         end_date = request.POST.get("end_date") or None
         description = (request.POST.get("description") or "").strip() or None
 
         # helper: ensure user exists in users table and return user_id (re-uses existing helper)
-        pdl_user_id_db = None
+        pdl_name_db = None
         pm_user_id_db = None
         pdl_name_val = None
         pm_name_val = None
 
         # -------------------------
-        # PDL handling - prefer local ldap_directory.email (store email string in projects.pdl_user_id)
+        # PDL handling - prefer local ldap_directory.email (store email string in projects.pdl_name)
         # -------------------------
-        pdl_user_id_db = None   # will hold the email string (or fallback identifier)
+        pdl_name_db = None   # will hold the email string (or fallback identifier)
         pdl_name_val = None
         if pdl_sel:
             # first try local ldap_directory (preferred)
             local = _get_local_ldap_entry(pdl_sel)
             if local:
                 # prefer email from local directory
-                pdl_user_id_db = local.get("email") or local.get("username") or pdl_sel
+                pdl_name_db = local.get("email") or local.get("username") or pdl_sel
                 pdl_name_val = local.get("cn") or local.get("username")
                 # ensure users row exists (do not use its id for saving - we store email string)
                 try:
-                    _ensure_user_from_ldap(request, pdl_user_id_db)
+                    _ensure_user_from_ldap(request, pdl_name_db)
                 except Exception:
-                    logger.exception("Failed to ensure users row for PDL %s", pdl_user_id_db)
+                    logger.exception("Failed to ensure users row for PDL %s", pdl_name_db)
             else:
                 # fallback: if supplied value looks like an email, use it; else use supplied identifier as-is
-                pdl_user_id_db = pdl_sel if "@" in pdl_sel else pdl_sel
+                pdl_name_db = pdl_sel if "@" in pdl_sel else pdl_sel
                 try:
                     _ensure_user_from_ldap(request, pdl_sel)
                 except Exception:
@@ -1465,7 +1465,7 @@ def edit_project(request, project_id=None):
                 cur.execute("""
                     UPDATE projects
                     SET oem_name=%s,
-                        pdl_user_id=%s,
+                        pdl_name=%s,
                         pdl_name=%s,
                         pm_user_id=%s,
                         pm_name=%s,
@@ -1473,7 +1473,7 @@ def edit_project(request, project_id=None):
                         end_date=%s,
                         description=%s
                     WHERE id=%s
-                """, (oem_name, pdl_user_id_db, pdl_name_val, pm_user_id_db, pm_name_val, start_date, end_date, description, form_project_id))
+                """, (oem_name, pdl_name_db, pdl_name_val, pm_user_id_db, pm_name_val, start_date, end_date, description, form_project_id))
                 conn.commit()
             finally:
                 cur.close(); conn.close()
@@ -1528,17 +1528,17 @@ def map_coes(request):
         start_date = request.POST.get("start_date") or None
         end_date = request.POST.get("end_date") or None
         pdl_username = request.POST.get("pdl_username") or None
-        pdl_user_id = None
+        pdl_name = None
         if pdl_username:
-            pdl_user_id = _ensure_user_from_ldap(request.pdl_username)
+            pdl_name = _ensure_user_from_ldap(request.pdl_username)
 
         conn = get_connection()
         cur = conn.cursor()
         project_id = None
         try:
             cur.execute(
-                "INSERT INTO projects (name, description, start_date, end_date, pdl_user_id) VALUES (%s, %s, %s, %s, %s)",
-                (name, desc or None, start_date, end_date, pdl_user_id)
+                "INSERT INTO projects (name, description, start_date, end_date, pdl_name) VALUES (%s, %s, %s, %s, %s)",
+                (name, desc or None, start_date, end_date, pdl_name)
             )
             conn.commit()
             project_id = cur.lastrowid
@@ -1629,52 +1629,142 @@ def api_subprojects(request):
     Matching rule: subprojects.mdm_code = bg_code
     If project_id provided but bg_code missing, derive bg_code from prism_wbs.bg_code
     """
+    print("\n" + "="*80)
+    print("=== api_subprojects START ===")
+    print("="*80)
+
     bg_code = (request.GET.get('bg_code') or '').strip()
     project_id = (request.GET.get('project_id') or '').strip()
 
+    print(f"Request params:")
+    print(f"  bg_code: '{bg_code}'")
+    print(f"  project_id: '{project_id}'")
+
     try:
-        # If bg_code not supplied, try to derive using prism_wbs for the project_id
-        if not bg_code and project_id:
-            try:
-                with connection.cursor() as cur:
-                    cur.execute("""
-                      SELECT NULLIF(pw.bg_code, '') AS code
-                      FROM prism_wbs pw
-                      WHERE pw.project_id = %s
-                        AND COALESCE(pw.bg_code, '') <> ''
-                      LIMIT 1
-                    """, [project_id])
-                    rows = dictfetchall(cur)
-                    if rows:
-                        bg_code = (rows[0].get('code') or '').strip()
-            except Exception:
-                logger.exception("api_subprojects: error deriving bg_code from prism_wbs for project_id=%s", project_id)
+        project_id = int(project_id) if project_id else None
+    except ValueError:
+        print(f"ERROR: Invalid project_id '{project_id}' (not an integer)")
+        return JsonResponse({"ok": False, "error": "Invalid project_id", "subprojects": []})
 
-        # If still no bg_code -> return empty (safe)
-        if not bg_code:
-            return JsonResponse({"ok": True, "subprojects": []})
+    # Step 1: If bg_code missing but project_id provided, fetch bg_code from prism_wbs
+    if not bg_code and project_id:
+        print(f"\n--- Fetching bg_code from prism_wbs for project_id={project_id} ---")
+        try:
+            with connection.cursor() as cur:
+                cur.execute("""
+                    SELECT bg_code 
+                    FROM prism_wbs 
+                    WHERE project_id = %s AND bg_code IS NOT NULL AND TRIM(bg_code) != ''
+                    LIMIT 1
+                """, [project_id])
+                row = cur.fetchone()
+                if row:
+                    bg_code = (row[0] or '').strip()
+                    print(f"✓ Found bg_code from prism_wbs: '{bg_code}'")
+                else:
+                    print(f"⚠ No bg_code found in prism_wbs for project_id={project_id}")
+        except Exception as ex:
+            print(f"ERROR: Failed to fetch bg_code from prism_wbs: {ex}")
+            import traceback
+            print(traceback.format_exc())
 
-        # Query subprojects where mdm_code = bg_code
+    # Step 2: Query subprojects table
+    print(f"\n--- Querying subprojects table ---")
+    if not bg_code:
+        print("⚠ No bg_code available - returning empty subprojects list")
+        return JsonResponse({"ok": True, "subprojects": [], "message": "No bg_code found"})
+
+    rows = []
+    try:
         with connection.cursor() as cur:
+            # Check if subprojects table exists
             cur.execute("""
-              SELECT id, name, mdm_code, bg_code
-              FROM subprojects
-              WHERE mdm_code = %s
-              ORDER BY priority DESC, name
-            """, [bg_code])
-            rows = dictfetchall(cur)
-    except Exception as e:
-        logger.exception("api_subprojects: DB error for bg_code=%s project_id=%s", bg_code, project_id)
-        return JsonResponse({"ok": False, "error": "DB error"}, status=500)
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_schema = DATABASE() AND table_name = 'subprojects'
+            """)
+            table_exists = cur.fetchone()[0] > 0
+            print(f"subprojects table exists: {table_exists}")
 
+            if not table_exists:
+                print("ERROR: subprojects table does not exist")
+                return JsonResponse({"ok": False, "error": "subprojects table missing", "subprojects": []})
+
+            # Check total subprojects in table
+            cur.execute("SELECT COUNT(*) FROM subprojects")
+            total_count = cur.fetchone()[0]
+            print(f"Total subprojects in database: {total_count}")
+
+            # Check subprojects with this mdm_code
+            cur.execute("""
+                SELECT COUNT(*) 
+                FROM subprojects 
+                WHERE mdm_code = %s
+            """, [bg_code])
+            matching_count = cur.fetchone()[0]
+            print(f"Subprojects matching bg_code '{bg_code}': {matching_count}")
+
+            # Get sample mdm_codes to see format differences
+            cur.execute("""
+                SELECT DISTINCT mdm_code 
+                FROM subprojects 
+                WHERE mdm_code IS NOT NULL 
+                LIMIT 10
+            """)
+            sample_codes = [r[0] for r in cur.fetchall()]
+            print(f"Sample mdm_codes in subprojects table: {sample_codes}")
+
+            # Try exact match
+            print(f"\nQuerying: SELECT id, name, mdm_code FROM subprojects WHERE mdm_code = '{bg_code}'")
+            cur.execute("""
+                SELECT id, name, mdm_code 
+                FROM subprojects 
+                WHERE mdm_code = %s
+            """, [bg_code])
+            rows = cur.fetchall()
+            print(f"✓ Query executed, returned {len(rows)} rows")
+
+            if not rows:
+                # Try case-insensitive match
+                print(f"\nTrying case-insensitive match...")
+                cur.execute("""
+                    SELECT id, name, mdm_code 
+                    FROM subprojects 
+                    WHERE LOWER(mdm_code) = LOWER(%s)
+                """, [bg_code])
+                rows = cur.fetchall()
+                print(f"Case-insensitive match returned {len(rows)} rows")
+
+            if not rows:
+                # Try partial match
+                print(f"\nTrying partial match (LIKE)...")
+                cur.execute("""
+                    SELECT id, name, mdm_code 
+                    FROM subprojects 
+                    WHERE mdm_code LIKE %s
+                """, [f"%{bg_code}%"])
+                rows = cur.fetchall()
+                print(f"Partial match returned {len(rows)} rows")
+
+    except Exception as e:
+        print(f"ERROR: Database query failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return JsonResponse({"ok": False, "error": str(e), "subprojects": []})
+
+    # Step 3: Format results
     subs = []
     for r in rows:
-        subs.append({
-            "id": r.get("id"),
-            "name": r.get("name") or "",
-            "mdm_code": r.get("mdm_code"),
-            "bg_code": r.get("bg_code")
-        })
+        sub = {"id": r[0], "name": r[1], "mdm_code": r[2] or ""}
+        subs.append(sub)
+        if len(subs) <= 5:  # Print first 5
+            print(f"  Subproject {sub['id']}: {sub['name']} (mdm_code: {sub['mdm_code']})")
+
+    print(f"\n--- RESULT: Returning {len(subs)} subprojects ---")
+    print("="*80)
+    print("=== api_subprojects END ===")
+    print("="*80 + "\n")
+
     return JsonResponse({"ok": True, "subprojects": subs})
 
 
@@ -3568,15 +3658,96 @@ def _cn_to_creator(cn: str):
 
 def _get_user_projects_for_allocations(request):
     """
-    Return list of projects (dicts with id,name) where session user is:
-      - PDL (projects.pdl_user_id == session ldap identifier string)
-      - OR creator of any prism_wbs rows (prism_wbs.creator matches converted CN or ldap username)
-    This aligns with project_list / edit_project logic (pdl_user_id stored as email/username string).
+    Return list of projects where session user is PDL, PM, or creator.
+    Enhanced with direct database inspection for name format debugging.
     """
+    print("\n=== _get_user_projects_for_allocations START ===")
+
     session_ldap = request.session.get("ldap_username")
     session_cn = request.session.get("cn", "")
-    creator_name = _cn_to_creator(session_cn) if session_cn else ""
+    print(f"Session LDAP: {session_ldap}")
+    print(f"Session CN: {session_cn}")
 
+    # Generate name variations
+    name_variations = set()
+    if session_ldap:
+        name_variations.add(session_ldap.strip())
+    if session_cn:
+        creator_name = _cn_to_creator(session_cn)
+        name_variations.add(creator_name)
+        print(f"Converted Creator Name (CN): {creator_name}")
+
+    if session_ldap and '@' not in session_ldap:
+        parts = session_ldap.strip().split()
+        if len(parts) >= 2:
+            variation1 = ' '.join(parts[1:] + [parts[0]])
+            name_variations.add(variation1)
+            variation2 = ' '.join(parts[1:] + [parts[0].title()])
+            name_variations.add(variation2)
+            variation3 = ' '.join(parts[1:] + [parts[0].upper()])
+            name_variations.add(variation3)
+
+    print(f"All name variations to match: {name_variations}")
+
+    # DIRECT DATABASE INSPECTION: Find all creators that might match
+    print("\n=== DIRECT DATABASE INSPECTION ===")
+    with connection.cursor() as cur:
+        # Get all unique creators from prism_wbs
+        cur.execute("""
+            SELECT DISTINCT creator, COUNT(*) as count
+            FROM prism_wbs
+            WHERE creator IS NOT NULL AND TRIM(creator) != ''
+            ORDER BY creator
+        """)
+        all_creators = cur.fetchall()
+        print(f"Total unique creators in prism_wbs: {len(all_creators)}")
+
+        # Search for creators containing any part of the user's name
+        name_parts = []
+        for var in name_variations:
+            name_parts.extend([p for p in var.split() if len(p) > 2 and '@' not in p])
+        unique_parts = list(set(name_parts))
+
+        print(f"\nSearching for name parts: {unique_parts}")
+
+        matching_creators = []
+        for part in unique_parts[:5]:  # Limit to avoid too many queries
+            cur.execute("""
+                SELECT DISTINCT creator, COUNT(*) as iom_count
+                FROM prism_wbs
+                WHERE LOWER(creator) LIKE LOWER(%s)
+                GROUP BY creator
+                ORDER BY iom_count DESC
+                LIMIT 20
+            """, (f'%{part}%',))
+            matches = cur.fetchall()
+            if matches:
+                print(f"\nCreators matching '{part}':")
+                for creator, cnt in matches:
+                    print(f"  - '{creator}' ({cnt} IOMs)")
+                    matching_creators.append(creator)
+
+        # Also check if any project has this user as PDL/PM
+        print(f"\n=== Checking PDL/PM matches ===")
+        for var in list(name_variations)[:3]:
+            cur.execute("""
+                SELECT id, name, pdl_name, pm_name
+                FROM projects
+                WHERE LOWER(pdl_name) LIKE LOWER(%s)
+                   OR LOWER(pm_name) LIKE LOWER(%s)
+                LIMIT 5
+            """, (f'%{var}%', f'%{var}%'))
+            pdl_pm_matches = cur.fetchall()
+            if pdl_pm_matches:
+                print(f"\nProjects where '{var}' is PDL/PM:")
+                for pid, pname, pdl, pm in pdl_pm_matches:
+                    print(f"  - Project {pid}: {pname} (PDL: {pdl}, PM: {pm})")
+
+    if not name_variations:
+        logger.warning("_get_user_projects_for_allocations: no session identifiers found")
+        return []
+
+    # Original query logic (unchanged)
     sql = """
         SELECT DISTINCT p.id, p.name
         FROM projects p
@@ -3585,86 +3756,103 @@ def _get_user_projects_for_allocations(request):
     """
     params = []
 
-    # match pdl_user_id string directly (projects.pdl_user_id is stored as email/username)
-    if session_ldap:
-        sql += " OR p.pdl_user_id = %s"
-        params.append(session_ldap)
-
-    # match prism_wbs.creator converted CN (or other creators if you need to add more)
-    if creator_name:
-        sql += " OR TRIM(pw.creator) = %s"
-        params.append(creator_name)
+    for variation in name_variations:
+        sql += " OR TRIM(LOWER(p.pdl_name)) = TRIM(LOWER(%s))"
+        params.append(variation)
+        sql += " OR TRIM(LOWER(p.pm_name)) = TRIM(LOWER(%s))"
+        params.append(variation)
+        sql += " OR TRIM(LOWER(pw.creator)) = TRIM(LOWER(%s))"
+        params.append(variation)
 
     sql += " ORDER BY p.name"
+
+    print(f"\n--- Executing Query with {len(params)} parameters ---")
 
     try:
         with connection.cursor() as cur:
             cur.execute(sql, params)
             projects = dictfetchall(cur)
-    except Exception:
-        logger.exception("Error in _get_user_projects_for_allocations")
-        projects = []
 
-    # normalize to simple dicts for template (id,name)
-    out = [{"id": p.get("id"), "name": p.get("name") or ""} for p in projects]
-    return out
+        print(f"\n--- Query Results: {len(projects)} projects found ---")
+
+        if projects:
+            for idx, proj in enumerate(projects[:10], 1):
+                print(f"  {idx}. Project {proj['id']}: {proj['name']}")
+        else:
+            print("No projects matched. Check database inspection output above.")
+
+        print(f"\n=== _get_user_projects_for_allocations END ===\n")
+        return projects
+
+    except Exception as exc:
+        logger.exception(f"_get_user_projects_for_allocations failed: {exc}")
+        print(f"\n!!! ERROR: {type(exc).__name__}: {str(exc)}")
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}")
+        return []
 
 
 def monthly_allocations(request):
     """
     Render monthly allocations page (billing-period aware). Accepts ?month=YYYY-MM
     and uses billing_start resolved via get_billing_period(year, month).
-    Now supports filtering by subproject_id.
+    Now supports filtering by subproject_id and adapted for projects.pdl_name/pm_name string columns.
     """
     print("monthly_allocations called")
     session_ldap = request.session.get("ldap_username")
+    session_cn = request.session.get("cn", "")
 
     # Parse month param (YYYY-MM) -> billing_start
     month_str = request.GET.get("month")
     if month_str:
         try:
-            year, mon = map(int, month_str.split("-"))
-            month_start, month_end = get_billing_period(year, mon)
+            year, month = map(int, month_str.split("-"))
+            billing_start, billing_end = get_billing_period(year, month)
         except Exception:
-            logger.exception("monthly_allocations: invalid month param '%s'", month_str)
-            from datetime import date
             today = date.today()
-            month_start, month_end = get_billing_period(today.year, today.month)
+            billing_start, billing_end = get_billing_period(today.year, today.month)
     else:
-        from datetime import date
         today = date.today()
-        month_start, month_end = get_billing_period(today.year, today.month)
+        billing_start, billing_end = get_billing_period(today.year, today.month)
 
     project_id_param = request.GET.get("project_id")
     subproject_id_param = request.GET.get("subproject_id")
-    print("project id param : ", project_id_param , "   Sub project id param : ", subproject_id_param)
+    print("project id param: ", project_id_param, "   Sub project id param: ", subproject_id_param)
+
+    active_project_id = None
     try:
-        active_project_id = int(project_id_param) if project_id_param else 0
+        if project_id_param:
+            active_project_id = int(project_id_param)
     except Exception:
-        active_project_id = 0
+        active_project_id = None
+
+    active_subproject_id = None
     try:
-        active_subproject_id = int(subproject_id_param) if subproject_id_param else None
+        if subproject_id_param:
+            active_subproject_id = int(subproject_id_param)
     except Exception:
         active_subproject_id = None
 
-    # Fetch projects user can allocate for
+    # Fetch projects user can allocate for (updated query for string-based pdl_name)
     projects = _get_user_projects_for_allocations(request)
+    print("projects fetched: ", projects)
     if not active_project_id and projects:
-        active_project_id = projects[0].get("id", 0)
+        active_project_id = projects[0]["id"]
 
     if not active_project_id:
         return render(request, "projects/monthly_allocations.html", {
-            "projects": projects,
-            "active_project_id": active_project_id,
-            "active_subproject_id": active_subproject_id,
-            "month_start": month_start,
+            "projects": [],
             "coes": [],
             "domains_map": {},
             "allocation_map": {},
-            "capacity_map": {},
-            "hours_available": HOURS_AVAILABLE_PER_MONTH,
             "weekly_map": {},
-            "now": datetime.now(),
+            "capacity_map": {},
+            "active_project_id": None,
+            "active_subproject_id": None,
+            "billing_month": billing_start.strftime("%Y-%m"),
+            "billing_start": billing_start.strftime("%Y-%m-%d"),
+            "billing_end": billing_end.strftime("%Y-%m-%d"),
+            "month_hours_limit": 0,
         })
 
     # Fetch COEs and domains
@@ -3675,155 +3863,157 @@ def monthly_allocations(request):
     except Exception:
         logger.exception("Error fetching COEs")
         coes = []
+
     coe_ids = [c["id"] for c in coes] if coes else []
 
     domains_map = {}
     if coe_ids:
         try:
             with connection.cursor() as cur:
-                cur.execute("SELECT id, name, coe_id FROM domains WHERE coe_id IN %s ORDER BY name", [tuple(coe_ids)])
-                doms = dictfetchall(cur)
-            for d in doms:
-                domains_map.setdefault(d["coe_id"], []).append({"id": d["id"], "name": d["name"]})
+                placeholders = ','.join(['%s'] * len(coe_ids))
+                cur.execute(f"SELECT id, coe_id, name FROM domains WHERE coe_id IN ({placeholders}) ORDER BY name", coe_ids)
+                domains = dictfetchall(cur)
+                for d in domains:
+                    coe_id = d.get("coe_id")
+                    if coe_id not in domains_map:
+                        domains_map[coe_id] = []
+                    domains_map[coe_id].append(d)
         except Exception:
             logger.exception("Error fetching domains")
-            domains_map = {}
 
-    # fetch allocation_items for this project/subproject/billing_start (canonical)
+    # Fetch allocation_items for this project/subproject/billing_start (canonical)
     allocation_map = {}
     capacity_accumulator = {}
     allocation_ids = []
+
     try:
         with connection.cursor() as cur:
-            sql = """
-                SELECT ai.id AS item_id,
-                       ai.allocation_id,
-                       ai.coe_id,
-                       ai.domain_id,
-                       ai.user_ldap,
-                       u.username AS username,
-                       u.email AS email,
-                       COALESCE(ai.total_hours,0) as total_hours
-                FROM allocation_items ai
-                JOIN allocations a ON ai.allocation_id = a.id
-                LEFT JOIN users u ON ai.user_id = u.id
-                WHERE ai.project_id = %s
-                  AND a.month_start = %s
+            # Base query for monthly_allocation_entries
+            base_sql = """
+                SELECT 
+                    mae.id as allocation_id,
+                    mae.project_id,
+                    mae.subproject_id,
+                    mae.iom_id,
+                    mae.user_ldap,
+                    mae.total_hours,
+                    mae.month_start,
+                    p.name as project_name,
+                    sp.name as subproject_name,
+                    COALESCE(pw.bg_code, '') as bg_code
+                FROM monthly_allocation_entries mae
+                LEFT JOIN projects p ON p.id = mae.project_id
+                LEFT JOIN subprojects sp ON sp.id = mae.subproject_id
+                LEFT JOIN prism_wbs pw ON pw.id = mae.iom_id
+                WHERE mae.project_id = %s
+                  AND DATE(mae.month_start) = %s
             """
-            params = [active_project_id, month_start]
-            if active_subproject_id:
-                sql += " AND ai.subproject_id = %s"
-                params.append(active_subproject_id)
-            sql += " ORDER BY ai.coe_id"
-            cur.execute(sql, params)
-            items = dictfetchall(cur)
-        print("Items :", items)
-        for it in items:
-            coe_id = it.get("coe_id") or 0
-            ldap_val = (it.get("user_ldap") or "").strip()
-            try:
-                total_hours = round(float(it.get("total_hours") or 0.0), 2)
-            except Exception:
-                total_hours = 0.0
+            params = [active_project_id, billing_start]
 
-            allocation_map.setdefault(coe_id, []).append({
-                "item_id": it.get("item_id"),
-                "allocation_id": it.get("allocation_id"),
-                "coe_id": coe_id,
-                "domain_id": it.get("domain_id"),
-                "user_ldap": ldap_val,
-                "username": it.get("username"),
-                "email": it.get("email"),
-                "total_hours": total_hours,
-                "w1": 0, "w2": 0, "w3": 0, "w4": 0,
-                "s1": "", "s2": "", "s3": "", "s4": ""
-            })
-            if ldap_val:
-                key = ldap_val.lower()
-                capacity_accumulator[key] = round(capacity_accumulator.get(key, 0.0) + total_hours, 2)
-            aid = it.get("allocation_id")
-            if aid and aid not in allocation_ids:
-                allocation_ids.append(aid)
+            # Add subproject filter if provided
+            if active_subproject_id:
+                base_sql += " AND mae.subproject_id = %s"
+                params.append(active_subproject_id)
+
+            base_sql += " ORDER BY mae.user_ldap, sp.name"
+
+            cur.execute(base_sql, params)
+            rows = dictfetchall(cur)
+
+            for r in rows:
+                alloc_id = r.get("allocation_id")
+                user_ldap = r.get("user_ldap")
+                total_hours = Decimal(str(r.get("total_hours") or "0.00"))
+
+                allocation_ids.append(alloc_id)
+
+                key = (r.get("subproject_id"), user_ldap)
+                if key not in allocation_map:
+                    allocation_map[key] = {
+                        "allocation_id": alloc_id,
+                        "subproject_id": r.get("subproject_id"),
+                        "subproject_name": r.get("subproject_name") or "Unspecified",
+                        "user_ldap": user_ldap,
+                        "total_hours": Decimal("0.00"),
+                        "bg_code": r.get("bg_code") or "",
+                        "iom_id": r.get("iom_id"),
+                    }
+
+                allocation_map[key]["total_hours"] += total_hours
+
+                if user_ldap not in capacity_accumulator:
+                    capacity_accumulator[user_ldap] = Decimal("0.00")
+                capacity_accumulator[user_ldap] += total_hours
 
     except Exception:
-        logger.exception("Error fetching allocation_items")
-        allocation_map = {}
-        capacity_accumulator = {}
-        allocation_ids = []
+        logger.exception("Error fetching allocation items")
 
-    # weekly allocations attach (unchanged)
+    # Fetch weekly allocations (unchanged)
     weekly_map = {}
     if allocation_ids:
         try:
             with connection.cursor() as cur:
-                cur.execute("""
-                    SELECT allocation_id, week_number, percent, status
-                    FROM weekly_allocations
-                    WHERE allocation_id IN %s
-                """, [tuple(allocation_ids)])
-                for r in dictfetchall(cur):
-                    alloc = r["allocation_id"]
-                    wk = int(r["week_number"])
-                    weekly_map.setdefault(alloc, {})[wk] = {
-                        "percent": float(r["percent"] or 0.0),
-                        "status": (r.get("status") or "")
+                placeholders = ','.join(['%s'] * len(allocation_ids))
+                cur.execute(
+                    f"""
+                    SELECT wa.allocation_id, wa.week_number, wa.percent, wa.hours, wa.status
+                    FROM weekly_allocations wa
+                    WHERE wa.allocation_id IN ({placeholders})
+                    """,
+                    allocation_ids
+                )
+                weekly_rows = dictfetchall(cur)
+                for wr in weekly_rows:
+                    aid = wr.get("allocation_id")
+                    wnum = wr.get("week_number")
+                    if aid not in weekly_map:
+                        weekly_map[aid] = {}
+                    weekly_map[aid][wnum] = {
+                        "percent": wr.get("percent"),
+                        "hours": wr.get("hours"),
+                        "status": wr.get("status"),
                     }
         except Exception:
-            logger.exception("Error fetching weekly_allocations")
-            weekly_map = {}
+            logger.exception("Error fetching weekly allocations")
 
-        for coe_id, items in allocation_map.items():
-            for it in items:
-                aid = it["allocation_id"]
-                wk = weekly_map.get(aid, {})
-                it["w1"] = wk.get(1, {}).get("percent", 0)
-                it["w2"] = wk.get(2, {}).get("percent", 0)
-                it["w3"] = wk.get(3, {}).get("percent", 0)
-                it["w4"] = wk.get(4, {}).get("percent", 0)
-                it["s1"] = wk.get(1, {}).get("status", "")
-                it["s2"] = wk.get(2, {}).get("status", "")
-                it["s3"] = wk.get(3, {}).get("status", "")
-                it["s4"] = wk.get(4, {}).get("status", "")
+    # Calculate capacity map
+    month_hours_limit = _get_month_hours_limit(billing_start.year, billing_start.month)
 
     capacity_map = {}
     for ldap_key, allocated in capacity_accumulator.items():
-        remaining = round(max(0.0, float(HOURS_AVAILABLE_PER_MONTH) - float(allocated)), 2)
-        capacity_map[ldap_key] = {"allocated": round(float(allocated), 2), "remaining": remaining}
+        remaining = Decimal(str(month_hours_limit)) - allocated
+        capacity_map[ldap_key] = {
+            "allocated": float(allocated),
+            "remaining": float(remaining),
+            "limit": month_hours_limit,
+        }
 
-    # ensure every user in allocation_items has an entry in capacity_map
+    # Ensure every user in allocation_items has an entry in capacity_map
     try:
-        with connection.cursor() as cur:
-            sql = """
-                SELECT DISTINCT COALESCE(ai.user_ldap, '') as user_ldap
-                FROM allocation_items ai
-                JOIN allocations a ON ai.allocation_id = a.id
-                WHERE ai.project_id = %s AND a.month_start = %s
-            """
-            params = [active_project_id, month_start]
-            if active_subproject_id:
-                sql += " AND ai.subproject_id = %s"
-                params.append(active_subproject_id)
-            cur.execute(sql, params)
-            for row in cur.fetchall():
-                val = row[0] or ""
-                key = val.strip().lower()
-                if key and key not in capacity_map:
-                    capacity_map[key] = {"allocated": 0, "remaining": HOURS_AVAILABLE_PER_MONTH}
+        all_users = set(k[1] for k in allocation_map.keys())
+        for u in all_users:
+            if u not in capacity_map:
+                capacity_map[u] = {
+                    "allocated": 0.0,
+                    "remaining": float(month_hours_limit),
+                    "limit": month_hours_limit,
+                }
     except Exception:
-        pass
+        logger.exception("Error ensuring capacity map entries")
 
     return render(request, "projects/monthly_allocations.html", {
         "projects": projects,
-        "active_project_id": active_project_id,
-        "active_subproject_id": active_subproject_id,
-        "month_start": month_start,
         "coes": coes,
         "domains_map": domains_map,
         "allocation_map": allocation_map,
-        "capacity_map": capacity_map,
-        "hours_available": HOURS_AVAILABLE_PER_MONTH,
         "weekly_map": weekly_map,
-        "now": datetime.now(),
+        "capacity_map": capacity_map,
+        "active_project_id": active_project_id,
+        "active_subproject_id": active_subproject_id,
+        "billing_month": billing_start.strftime("%Y-%m"),
+        "billing_start": billing_start.strftime("%Y-%m-%d"),
+        "billing_end": billing_end.strftime("%Y-%m-%d"),
+        "month_hours_limit": month_hours_limit,
     })
 
 
