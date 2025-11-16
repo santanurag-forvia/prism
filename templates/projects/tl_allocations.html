@@ -191,6 +191,16 @@ th.week-header {
   z-index: 4;
   white-space: nowrap;
 }
+
+#two-tabs .tabs {
+    display: flex; gap: 8px; border-bottom: 1px solid #e5e7eb; margin-bottom: 12px;
+  }
+  #two-tabs .tab-btn {
+    appearance: none; background: none; border: none; padding: 10px 14px;
+    cursor: pointer; border-bottom: 2px solid transparent; color: #475569; font-weight: 600;
+  }
+  #two-tabs .tab-btn.active { border-color: #0ea5e9; color: #0f172a; }
+  #two-tabs .tab-panel[hidden] { display: none; }
 </style>
 
 
@@ -210,14 +220,28 @@ th.week-header {
 
   <!-- Direct reportees summary -->
   <div class="card">
-    <div class="card-header"><span><span class="pill"></span>Direct Reportees Summary</span></div>
-    <div class="card-body">
-      <table class="summary-table" id="summaryTable">
+    <div class="card-header"><span><span class="pill"></span>Reportees Allocation Summary</span></div>
+   <div class="card-body">
+       <!--Start of tab-->
+       <div id="two-tabs" style="margin: 16px auto;">
+  <!-- Tab buttons -->
+  <div class="tabs" role="tablist" aria-label="Two tabs">
+    <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one">Direct reportees summary</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-two">Project View</button>
+      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-three">View Allottment</button>
+  </div>
+
+  <!-- Tab panels -->
+  <div class="tab-panels">
+    <section id="panel-one" class="tab-panel" role="tabpanel" tabindex="0">
+      <!-- Content for Tab One -->
+        <table class="summary-table" id="summaryTable">
         <thead>
           <tr>
             <th>Reportee</th>
-            <th style="width:180px;">Total Allocated Hours</th>
-            <th style="width:120px;">FTE</th>
+            <th>Total Allocated Hours</th>
+            <th>FTE</th>
+              <th>%</th>
           </tr>
         </thead>
         <tbody id="summaryBody">
@@ -235,7 +259,8 @@ th.week-header {
                 {% endif %}
               </td>
               <td class="r-hours">{{ r.total_hours|default:"0.00" }}</td>
-              <td class="r-fte">{{ r.fte|default:"0.000" }}</td>
+              <td class="r-fte">{{ r.fte|default:"0.000" }}
+              </td><td class="r-ptge">{{ r.ptge|default:"0.000" }}</td>
             </tr>
             {% endfor %}
           {% else %}
@@ -243,15 +268,120 @@ th.week-header {
           {% endif %}
         </tbody>
       </table>
+    </section>
+
+    <section id="panel-two" class="tab-panel" role="tabpanel" tabindex="1" hidden>
+      <!-- Content for Tab Two -->
+        <table class="summary-table" id="summaryTable1">
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th style="">Resource</th>
+            <th style="">Start Date</th>
+              <th style="">End Date</th>
+              <th style="">%</th>
+          </tr>
+        </thead>
+<!--        <tbody id="summaryBodyprojectview">-->
+<!--          {% if reportees %}-->
+<!--            {% for r in reportees %}-->
+<!--            <tr class="reportee-row" data-ldap="{{ r.ldap }}">-->
+<!--              <td>-->
+<!--                {# robust fallback: prefer cn -> name -> mail -> ldap #}-->
+<!--                {% if r.cn %}-->
+<!--                  {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% elif r.name %}-->
+<!--                  {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% else %}-->
+<!--                  &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% endif %}-->
+<!--              </td>-->
+<!--              <td class="r-hours">{{ r.total_hours|default:"0.00" }}</td>-->
+<!--              <td class="r-fte">{{ r.fte|default:"0.000" }}</td>-->
+<!--            </tr>-->
+<!--            {% endfor %}-->
+<!--          {% else %}-->
+<!--            <tr><td colspan="3" class="small-muted">No reportees found.</td></tr>-->
+<!--          {% endif %}-->
+<!--        </tbody>-->
+      </table>
+    </section>
+      <section id="panel-three" class="tab-panel" role="tabpanel" tabindex="2" hidden>
+      <!-- Content for Tab Two -->
+        <table class="summary-table" id="summaryTable2">
+        <thead>
+          <tr>
+            <th style="width:120px;">Project</th>
+            <th style="width:120px;">Allocation (in Hrs)</th>
+          </tr>
+        </thead>
+<!--        <tbody id="summaryBodyallottmentview">-->
+<!--          {% if reportees %}-->
+<!--            {% for r in reportees %}-->
+<!--            <tr class="reportee-row" data-ldap="{{ r.ldap }}">-->
+<!--              <td>-->
+<!--                {# robust fallback: prefer cn -> name -> mail -> ldap #}-->
+<!--                {% if r.cn %}-->
+<!--                  {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% elif r.name %}-->
+<!--                  {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% else %}-->
+<!--                  &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% endif %}-->
+<!--              </td>-->
+<!--              <td class="r-hours">{{ r.total_hours|default:"0.00" }}</td>-->
+<!--            </tr>-->
+<!--            {% endfor %}-->
+<!--          {% else %}-->
+<!--            <tr><td colspan="3" class="small-muted">No reportees found.</td></tr>-->
+<!--          {% endif %}-->
+<!--        </tbody>-->
+      </table>
+    </section>
+  </div>
+</div>
+       <!--End of Start tab-->
+
+<!--      <table class="summary-table" id="summaryTable">-->
+<!--        <thead>-->
+<!--          <tr>-->
+<!--            <th>Reportee</th>-->
+<!--            <th style="width:180px;">Total Allocated Hours</th>-->
+<!--            <th style="width:120px;">FTE</th>-->
+<!--          </tr>-->
+<!--        </thead>-->
+<!--        <tbody id="summaryBody">-->
+<!--          {% if reportees %}-->
+<!--            {% for r in reportees %}-->
+<!--            <tr class="reportee-row" data-ldap="{{ r.ldap }}">-->
+<!--              <td>-->
+<!--                {# robust fallback: prefer cn -> name -> mail -> ldap #}-->
+<!--                {% if r.cn %}-->
+<!--                  {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% elif r.name %}-->
+<!--                  {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% else %}-->
+<!--                  &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% endif %}-->
+<!--              </td>-->
+<!--              <td class="r-hours">{{ r.total_hours|default:"0.00" }}</td>-->
+<!--              <td class="r-fte">{{ r.fte|default:"0.000" }}</td>-->
+<!--            </tr>-->
+<!--            {% endfor %}-->
+<!--          {% else %}-->
+<!--            <tr><td colspan="3" class="small-muted">No reportees found.</td></tr>-->
+<!--          {% endif %}-->
+<!--        </tbody>-->
+<!--      </table>-->
     </div>
   </div>
+    <!--End of Direct reportees-->
 
   <!-- Allocation section -->
   <div class="card">
     <div class="card-header">
       <span><span class="pill"></span>Allocate Bandwidth</span>
       <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
-
     </div>
 
     <div class="card-body">
@@ -345,6 +475,7 @@ th.week-header {
       </div>
     </div>
   </div>
+    <!--ENd of Allocation section-->
 </div>
 
 <!-- template to clone for new rows -->
@@ -408,6 +539,7 @@ th.week-header {
   const MONTHLY_LIMIT = {{ monthly_hours|default:183.75 }};           // per-billing-cycle maximum hours (one scalar)
   const SUBPROJECTS = JSON.parse('{{ subprojects_json|escapejs }}' || '[]');
   const CSRF = (document.cookie.split('; ').find(x=>x.trim().startsWith('csrftoken='))||'').split('=')[1] || '';
+  const MAX_FTE_PM = {{175}};
 
   // Helper: populate subproject select for a row given a project id and optional selected subproject id
   function fillSubprojectOptions(selSub, projectId, selectedId){
@@ -560,9 +692,23 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
       const hrs = totals[ldap] || 0;
       const hrsEl = rr.querySelector('.r-hours');
       const fteEl = rr.querySelector('.r-fte');
+      const ptgeEl = rr.querySelector('.r-ptge');
       if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
       if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(3) : '0.000');
+      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
+      // if(ptgeEl) hrsEl.textContent = hrs.toFixed(2);
     });
+
+    //JS:
+    document.querySelectorAll('#summaryBodyallottmentview .reportee-row').forEach(rr => {
+        //Project
+        // Resource
+        //Start Date
+        //END date
+        //Percentage
+    });
+    //JS:
+
   }
 
   // Build initial rows from server-provided allocations
@@ -918,6 +1064,41 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 
 })();
+
+
+// new code for tabs
+(function(){
+    const root = document.getElementById('two-tabs');
+    const btns = Array.from(root.querySelectorAll('.tab-btn'));
+    const panels = {
+      'panel-one': root.querySelector('#panel-one'),
+      'panel-two': root.querySelector('#panel-two'),
+       'panel-three': root.querySelector('#panel-three')
+    };
+
+    function activate(button){
+      btns.forEach(b => {
+        b.classList.toggle('active', b === button);
+        b.setAttribute('aria-selected', b === button ? 'true' : 'false');
+      });
+      Object.values(panels).forEach(p => p.hidden = true);
+      const targetId = button.getAttribute('aria-controls');
+      panels[targetId].hidden = false;
+      panels[targetId].focus({ preventScroll: true });
+    }
+    btns.forEach(b => b.addEventListener('click', () => activate(b)));
+
+    // Optional keyboard navigation
+    btns.forEach((b, idx) => {
+      b.addEventListener('keydown', (e) => {
+        if (!['ArrowLeft','ArrowRight'].includes(e.key)) return;
+        e.preventDefault();
+        const next = e.key === 'ArrowRight' ? (idx + 1) % btns.length : (idx - 1 + btns.length) % btns.length;
+        btns[next].focus();
+        activate(btns[next]);
+      });
+    });
+  })();
 </script>
 
 {% endblock %}
