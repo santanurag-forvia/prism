@@ -8,18 +8,22 @@
 
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="{% static 'base/js/dashboard.js' %}"></script>
 
-  <!-- ✅ Font Awesome (CDN - latest, no integrity) -->
+  <!-- Font Awesome 6.5.1 - Updated with integrity check -->
   <link
     rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
     crossorigin="anonymous"
+    referrerpolicy="no-referrer"
   />
 
   <!-- Base CSS -->
   <link rel="stylesheet" href="{% static 'base/css/base.css' %}">
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{% static 'base/js/dashboard.js' %}"></script>
+
   {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -80,11 +84,11 @@
         {% for item in feas_menu %}
           <li class="side-item">
             {% if item.submenus %}
-              <!-- Parent link -->
+              <!-- Parent link with submenu -->
               <a href="{{ item.url|default:projects_edit_default_url|default:'#' }}" class="side-link has-sub-toggle" aria-expanded="false">
-                <span class="icon" data-fallback="{{ item.title|slice:':1'|upper }}">
+                <span class="icon">
                   {% if item.icon %}
-                    <i class="fas fa-{{ item.icon }}" aria-hidden="true"></i>
+                    <i class="fa-solid fa-{{ item.icon }}" aria-hidden="true"></i>
                   {% else %}
                     {{ item.title|slice:":1"|upper }}
                   {% endif %}
@@ -99,19 +103,19 @@
                   <li>
                     <a class="sub-item" href="{{ s.url|default:projects_edit_default_url|default:'#' }}">
                       {% if s.icon %}
-                        <i class="fas fa-{{ s.icon }}" aria-hidden="true"></i>
+                        <i class="fa-solid fa-{{ s.icon }}" aria-hidden="true"></i>
                       {% endif %}
-                      {{ s.title }}
+                      <span>{{ s.title }}</span>
                     </a>
                   </li>
                 {% endfor %}
               </ul>
             {% else %}
-              <!-- Single link -->
+              <!-- Single link without submenu -->
               <a href="{{ item.url|default:projects_edit_default_url|default:'#' }}" class="side-link">
-                <span class="icon" data-fallback="{{ item.title|slice:':1'|upper }}">
+                <span class="icon">
                   {% if item.icon %}
-                    <i class="fas fa-{{ item.icon }}" aria-hidden="true"></i>
+                    <i class="fa-solid fa-{{ item.icon }}" aria-hidden="true"></i>
                   {% else %}
                     {{ item.title|slice:":1"|upper }}
                   {% endif %}
@@ -139,14 +143,6 @@
         <p class="small-muted">This is your corporate resource allocation system. Use the left menu to navigate.</p>
         {% endblock %}
       </div>
-
-      <!-- Debug: remove after testing -->
-      <!--
-      <pre style="font-size:12px;color:#222;background:#fff;padding:12px;border-radius:8px;margin-top:20px;">
-      feas_menu debug:
-      {{ feas_menu|default:"(no menu)"|safe }}
-      </pre>
-      -->
     </div>
   </main>
 </div>
