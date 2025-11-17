@@ -687,7 +687,7 @@
                                     <thead>
                                         <tr>
                                             <th style="width: 10%;">Week</th>
-                                            <th style="width: 18%;">Date Range</th>
+
                                             <th style="width: 12%;">Working Days</th>
                                             <th style="width: 10%;">Max %</th>
                                             <th style="width: 12%;">Allocated Hours</th>
@@ -702,7 +702,7 @@
                                             data-week="{{ week.week_number }}"
                                             data-editable="{{ week.is_editable|yesno:'true,false' }}">
                                             <td><strong>Week {{ week.week_number }}</strong></td>
-                                            <td>{{ week.week_start|date:"M d" }} - {{ week.week_end|date:"M d" }}</td>
+
                                             <td>{{ week.working_days }} days</td>
                                             <td>{{ week.max_percent }}%</td>
                                             <td><strong>{{ week.allocated_hours }}h</strong></td>
