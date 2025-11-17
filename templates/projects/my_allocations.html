@@ -1,451 +1,1366 @@
-{# templates/projects/my_allocations.html #}
 {% extends "base.html" %}
-{% load static %}
-{% block title %}My Weekly Allocations{% endblock %}
+        {% load static %}
 
-{% block extra_css %}
-<style>
-/* -- layout / card / header -- */
-.container { padding:28px; }
-.card { background:#fff; border-radius:10px; padding:18px; box-shadow:0 6px 18px rgba(15,30,60,0.06); }
-.header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
-.controls { display:flex; gap:8px; align-items:center; }
+        {% block title %}My Weekly Allocations{% endblock %}
 
-/* -- table -- */
-.table { width:100%; border-collapse:collapse; margin-top:10px; }
-.table th, .table td { padding:10px 12px; border-bottom:1px solid #f3f6f9; text-align:left; vertical-align:middle; }
-.table th { background:#fbfcfe; color:#334155; font-weight:600; font-size:13px; }
-.text-center { text-align:center; }
-.text-right { text-align:right; }
-
-/* -- buttons / badges -- */
-.btn { padding:6px 10px; border-radius:6px; border:none; cursor:pointer; color:#fff; font-weight:600; }
-.btn-accept { background:#16a34a; }
-.btn-reject { background:#ef4444; }
-.btn-leave { background:#f59e0b; color:#fff; }
-.small-muted { color:#6b7280; font-size:12px; }
-.input-leave { width:80px; padding:6px; border-radius:6px; border:1px solid #e6edf3; text-align:right; }
-
-/* badges */
-.badge { padding:6px 8px; border-radius:6px; font-weight:600; display:inline-block; }
-.badge-pending { background:#fff7ed; color:#92400e; }
-.badge-accepted { background:#ecfdf5; color:#065f46; }
-.badge-rejected { background:#fff1f2; color:#9f1239; }
-
-/* alerts */
-.alert { padding:10px; border-radius:8px; margin-bottom:10px; }
-.alert-success { background:#ecfdf5; color:#065f46; border:1px solid #d1fae5; }
-.alert-error { background:#fff1f2; color:#9f1239; border:1px solid #fecaca; }
-
-/* modal simple styling */
-.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; }
-.modal { background:#fff; border-radius:8px; padding:16px; width:420px; }
-
-/* ensure action buttons inline and compact */
-.table .action-cell { white-space:nowrap; }
-.table .action-cell button { display:inline-block; vertical-align:middle; margin:0 6px 0 0; }
-
-/* emphasize hours punched text */
-.hours-punched { font-weight:700; color:#0b2545; }
-
-/* small responsive tweak */
-@media (max-width: 880px) {
-  .table th, .table td { padding:8px; font-size:13px; }
-}
-</style>
-{% endblock %}
-
-{% block content %}
-<div class="container">
-  <div class="card">
-    <div class="header">
-      <div>
-        <h2 style="margin:0;">My Weekly Allocations — <small class="small-muted">{{ month_label }}</small></h2>
-        <div class="small-muted">Billing: {{ billing_start }} — {{ billing_end }} &nbsp; • &nbsp; Max hours: {{ monthly_max_hours }}h</div>
-      </div>
-
-      <div class="controls">
-        <label class="small-muted">Month:</label>
-        <input id="month" type="month" value="{{ billing_start|date:'Y-m' }}" />
-        <button id="btnLoad" class="btn" style="background:#2563eb">Load</button>
-        <a href="{{ tl_reconsider_url }}" class="btn" style="background:#6b7280; text-decoration:none;">TL Reconsiderations</a>
-      </div>
-    </div>
-
-    <div id="alertContainer"></div>
-
-    {% if not groups %}
-      <div class="small-muted">No allocations found for {{ month_label }}.</div>
-    {% else %}
-      {% for spid, group in groups.items %}
-        <h4 style="margin:8px 0 6px 0;">{{ group.subproject_name }} <small class="small-muted">— {{ group.project_name }}</small></h4>
-
-        {% for row in group.rows %}
-          <table class="table">
-            <thead>
-              <tr>
-                <th style="width:60px;">Week#</th>
-                <th style="width:160px;">Week Start Date</th>
-                <th style="width:160px;">Week End Date</th>
-                <th style="width:120px;">Working Days</th>
-                <th style="width:140px;">Allocated Efforts %</th>
-                <th style="width:160px;">Allocated Efforts (hrs)</th>
-                <th style="width:120px;">Leave Hrs</th>
-                <th style="width:120px;">Hours Punched</th>
-                <th style="width:220px;">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {# iterate ordered weeks prepared by the view: row.weeks_list #}
-              {% for cell in row.weeks_list %}
-                <tr data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">
-                  <td>{{ cell.week_number }}</td>
-                  <td>{{ cell.week_start }}</td>
-                  <td>{{ cell.week_end }}</td>
-                  <td class="text-center">{{ cell.working_days }}</td>
-
-                  {# percent may be None; show 0.00% fallback #}
-                  <td class="text-right">{% if cell.percent %}{{ cell.percent }}%{% else %}0.00%{% endif %}</td>
-
-                  {# allocated_hours shown as 'XX.XXh' #}
-                  <td class="text-right allocated-hours">{{ cell.allocated_hours }}h</td>
-
-                  <td class="text-center">
-                    {% if cell.leave_hours %}
-                      <span>{{ cell.leave_hours }}h</span>
-                    {% else %}
-                      <span class="small-muted">—</span>
-                    {% endif %}
-                    <button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">Leave</button>
-                  </td>
-
-                  {# Hours punched — wrap in span.hours-punched for JS updates; include data attributes #}
-                  <td class="text-right hours-cell" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">
-                    <span class="hours-punched">{% if cell.punched_hours %}{{ cell.punched_hours }}h{% else %}{{ cell.allocated_hours }}h{% endif %}</span>
-                  </td>
-
-                  <td class="text-center action-cell">
-                    {% if cell.status == 'ACCEPTED' %}
-                      <span class="badge badge-accepted">ACCEPTED</span>
-                    {% elif cell.status == 'RECONSIDERED' %}
-                      <span class="badge badge-rejected">RECONSIDERED</span>
-                    {% elif cell.status == 'REJECTED' %}
-                      <span class="badge badge-rejected">REJECTED</span>
-                    {% else %}
-                      {# inline Accept + Reconsider with data attributes used by JS #}
-                      <button class="btn btn-accept js-accept" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}">Accept</button>
-                      <button class="btn btn-reject js-reconsider" data-tdid="{{ row.team_distribution_id }}" data-week="{{ cell.week_number }}" style="margin-left:8px;">Reconsider</button>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% endfor %}
-      {% endfor %}
-    {% endif %}
-  </div>
-</div>
-
-{# Leave modal #}
-<div id="leaveModal" style="display:none;">
-  <div class="modal-backdrop" id="leaveBackdrop">
-    <div class="modal">
-      <h3 style="margin-top:0;">Record Leave</h3>
-      <p class="small-muted">Enter leave hours for this week (1 day = 8.75 hrs).</p>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <input id="leaveHours" type="number" step="0.01" min="0" class="input-leave" />
-        <div style="flex:1;"></div>
-      </div>
-      <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:8px;">
-        <button id="leaveCancel" class="btn" style="background:#6b7280;">Cancel</button>
-        <button id="leaveSave" class="btn btn-leave">Save Leave</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-{# Reconsider modal (comment required) #}
-<div id="reconModal" style="display:none;">
-  <div class="modal-backdrop" id="reconBackdrop">
-    <div class="modal">
-      <h3 style="margin-top:0;">Send to TL for Reconsideration</h3>
-      <p class="small-muted">Please enter reason/details for TL review (required):</p>
-      <textarea id="reconComment" rows="4" style="width:100%; padding:8px; border-radius:6px; border:1px solid #e6edf3;"></textarea>
-      <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:8px;">
-        <button id="reconCancel" class="btn" style="background:#6b7280;">Cancel</button>
-        <button id="reconSend" class="btn btn-reject">Send</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-{% endblock %}
-
-{% block extra_js %}
-<script>
-(function(){
-  // Simple helper to read CSRF token cookie
-  function cookie(name){ let m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)'); return m ? m.pop() : ''; }
-  const csrftoken = cookie('csrftoken');
-
-  const UPDATE_URL = "{{ update_status_url }}";      // my_allocations_update_status
-  const VACATION_URL = "{{ save_vacation_url }}";    // my_allocations_vacation
-
-  // small UI alert
-  function showAlert(msg, ok=true){
-    const c = document.getElementById('alertContainer');
-    if(!c) return;
-    const el = document.createElement('div');
-    el.className = 'alert ' + (ok ? 'alert-success' : 'alert-error');
-    el.innerText = msg;
-    c.appendChild(el);
-    setTimeout(()=> { try{ el.remove(); } catch(e){} }, 4000);
-  }
-
-  // -----------------------
-  // Accept (AJAX) - robust replacement
-  // -----------------------
-  function acceptWeek(allocationId, weekNumber, allocatedHours, billingStart) {
-    const url = UPDATE_URL || "{{ update_status_url }}";
-    // If allocatedHours not provided, try to read from the row's .allocated-hours cell
-    let allocH = allocatedHours;
-    try {
-      if (typeof allocH === 'undefined' || allocH === null) {
-        const row = document.querySelector('tr[data-tdid="'+allocationId+'"][data-week="'+weekNumber+'"]');
-        if (row) {
-          const allocCell = row.querySelector('.allocated-hours');
-          if (allocCell) {
-            allocH = parseFloat((allocCell.innerText||'0').replace('h','').trim()) || 0;
-          }
-        }
-      }
-    } catch(e) { allocH = allocH || 0; }
-
-    const payload = {
-      allocation_id: allocationId,
-      week_number: weekNumber,
-      billing_start: billingStart || "{{ billing_start }}",
-      action: 'accept',
-      allocated_hours: allocH || 0
-    };
-
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken
-      },
-      body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(resp => {
-      if (!resp || resp.error || resp.status === 'error') {
-        const msg = resp && (resp.error || resp.detail || 'Server error');
-        showAlert(msg, false);
-        return;
-      }
-
-      // server authoritative values (prefer these)
-      let newPunched = null;
-      if (typeof resp.accepted_hours_sum !== 'undefined') newPunched = parseFloat(resp.accepted_hours_sum);
-      else if (typeof resp.new_hours !== 'undefined') newPunched = parseFloat(resp.new_hours);
-      else if (typeof resp.punched_hours !== 'undefined') newPunched = parseFloat(resp.punched_hours);
-
-      // find the row and hours-punched span
-      const row = document.querySelector('tr[data-tdid="'+allocationId+'"][data-week="'+weekNumber+'"]');
-      if (row) {
-        const hp = row.querySelector('.hours-punched');
-        if (hp) {
-          if (!isNaN(newPunched)) {
-            hp.textContent = `${newPunched.toFixed(2)}h`;
-          } else if (typeof resp.percent !== 'undefined') {
-            const monthly = parseFloat(window.monthly_hours || {{ monthly_max_hours|default:"183.75" }});
-            const computed = (parseFloat(resp.percent)/100.0) * monthly;
-            hp.textContent = `${computed.toFixed(2)}h`;
-          } else {
-            // no server value — do not add to existing to avoid duplication
-          }
-        }
-
-        // update action cell badge (replace buttons with accepted badge)
-        const actionCell = row.querySelector('.action-cell');
-        if (actionCell) {
-          actionCell.innerHTML = '<span class="badge badge-accepted">ACCEPTED</span>';
-        }
-      } else {
-        // fallback selector - try generic hours cell with matching data-week
-        const hp2 = document.querySelector('.hours-cell[data-week="'+weekNumber+'"] .hours-punched');
-        if (hp2 && !isNaN(newPunched)) hp2.textContent = `${newPunched.toFixed(2)}h`;
-      }
-
-      showAlert('Week accepted', true);
-    })
-    .catch(err => {
-      console.error('Accept request failed', err);
-      showAlert('Network error', false);
-    });
-  }
-
-  // -----------------------
-  // Reconsider flow
-  // -----------------------
-  let reconTarget = null;
-  function openReconsider(tdid, week){
-    reconTarget = {tdid: tdid, week: week};
-    document.getElementById('reconComment').value = '';
-    document.getElementById('reconModal').style.display = 'block';
-  }
-
-  async function sendReconsider(){
-    if(!reconTarget) return;
-    const comment = (document.getElementById('reconComment').value || '').trim();
-    if(comment.length < 3) return showAlert('Please enter a reason for TL', false);
-
-    const payload = { allocation_id: reconTarget.tdid, week_number: reconTarget.week, billing_start: "{{ billing_start }}", action: 'reject', comment: comment };
-    try {
-      const resp = await fetch(UPDATE_URL, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {'Content-Type':'application/json', 'X-CSRFToken': csrftoken},
-        body: JSON.stringify(payload)
-      });
-      const j = await resp.json();
-      if(resp.ok && j && j.ok){
-        showAlert('Sent to TL for reconsideration');
-        const row = document.querySelector('tr[data-tdid="'+reconTarget.tdid+'"][data-week="'+reconTarget.week+'"]');
-        if(row) row.querySelector('td.action-cell').innerHTML = '<span class="badge badge-rejected">RECONSIDERED</span>';
-      } else {
-        showAlert((j && j.error) ? j.error : 'Action failed', false);
-      }
-    } catch(err){
-      console.error('Reconsider error', err);
-      showAlert('Server error', false);
-    }
-    reconTarget = null;
-    document.getElementById('reconModal').style.display = 'none';
-  }
-
-  // -----------------------
-  // Leave flow (unchanged; minor fix to read data attributes)
-  // -----------------------
-  let leaveTarget = null;
-  function openLeave(tdid, week){
-    leaveTarget = {tdid: tdid, week: week};
-    document.getElementById('leaveHours').value = '';
-    document.getElementById('leaveModal').style.display = 'block';
-  }
-
-  async function saveLeave(){
-    if(!leaveTarget) return;
-    const v = parseFloat(document.getElementById('leaveHours').value || 0);
-    if(!(v > 0)) return showAlert('Enter leave hours greater than 0', false);
-
-    const payload = { allocation_id: leaveTarget.tdid, week_number: leaveTarget.week, billing_start: "{{ billing_start }}", leave_hours: v };
-    try {
-      const resp = await fetch(VACATION_URL, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {'Content-Type':'application/json', 'X-CSRFToken': csrftoken},
-        body: JSON.stringify(payload)
-      });
-      const j = await resp.json();
-      if(resp.ok && j && j.ok){
-        showAlert('Leave recorded');
-
-        // Update the table row locally (best-effort). Server may return j.new_hours or j.leave_hours.
-        const row = document.querySelector('tr[data-tdid="'+leaveTarget.tdid+'"][data-week="'+leaveTarget.week+'"]');
-        if(row){
-          // update allocated hours (cell .allocated-hours)
-          if(j.new_hours !== undefined){
-            const allocCell = row.querySelector('.allocated-hours');
-            if(allocCell) allocCell.innerText = (parseFloat(j.new_hours).toFixed(2)) + 'h';
-          } else {
-            const allocCell = row.querySelector('.allocated-hours');
-            if(allocCell){
-              const curAlloc = parseFloat((allocCell.innerText || '0').replace('h','').trim()) || 0;
-              const newAlloc = Math.max(0, (curAlloc - v)).toFixed(2);
-              allocCell.innerText = newAlloc + 'h';
+        {% block extra_css %}
+        <style>
+            /* === GLOBAL STYLES === */
+            .page-container {
+                padding: 30px;
+                max-width: 1600px;
+                margin: 0 auto;
             }
-          }
 
-          // update leave hrs display
-          const leaveCell = row.querySelector('td:nth-child(7)');
-          if(leaveCell){
-            leaveCell.innerHTML = '<span>' + ((j.leave_hours !== undefined) ? parseFloat(j.leave_hours).toFixed(2) : v) + 'h</span>'
-                                  + '<button class="btn btn-leave js-leave" style="margin-left:8px;" data-tdid="'+leaveTarget.tdid+'" data-week="'+leaveTarget.week+'">Leave</button>';
-          }
+            .page-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 30px;
+            }
 
-          // update punched hours (cell .hours-punched)
-          const hp = row.querySelector('.hours-punched');
-          if(hp){
-            const curPunch = parseFloat((hp.innerText || '0').replace('h','').trim()) || 0;
-            const newPunch = Math.max(0, (curPunch - v)).toFixed(2);
-            hp.innerText = newPunch + 'h';
-          }
-        }
+            .page-title {
+                font-size: 28px;
+                font-weight: 700;
+                color: #1a202c;
+                margin: 0;
+            }
 
-      } else {
-        showAlert((j && j.error) ? j.error : 'Failed to record leave', false);
-      }
-    } catch(err){
-      console.error('Leave error', err);
-      showAlert('Server error', false);
-    }
+            /* === MONTH/YEAR PICKER === */
+            .month-year-picker {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+                background: white;
+                padding: 12px 20px;
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            }
 
-    leaveTarget = null;
-    document.getElementById('leaveModal').style.display = 'none';
-  }
+            .month-year-picker label {
+                font-weight: 600;
+                color: #4a5568;
+                margin: 0;
+                font-size: 14px;
+            }
 
-  // -----------------------
-  // Event handling (delegated)
-  // -----------------------
-  document.addEventListener('click', function(e){
-    const t = e.target;
-    if(!t) return;
+            .month-year-picker select {
+                padding: 8px 15px;
+                border: 2px solid #e2e8f0;
+                border-radius: 8px;
+                font-size: 14px;
+                min-width: 120px;
+                transition: all 0.3s ease;
+            }
 
-    // Accept button
-    if(t.classList.contains('js-accept') || t.classList.contains('btn-accept')){
-      const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
-      acceptWeek(tdid, week);
-      return;
-    }
+            .month-year-picker select:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
 
-    // Reconsider
-    if(t.classList.contains('js-reconsider') || t.classList.contains('btn-reject')){
-      const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
-      openReconsider(tdid, week);
-      return;
-    }
+            /* === ACTION BAR === */
+            .action-bar {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 20px 25px;
+                border-radius: 12px;
+                margin-bottom: 25px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            }
 
-    // Open Leave
-    if(t.classList.contains('js-leave') || t.classList.contains('btn-leave')){
-      const tdid = t.getAttribute('data-tdid'), week = parseInt(t.getAttribute('data-week'),10);
-      openLeave(tdid, week);
-      return;
-    }
-  });
+            .action-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 20px;
+            }
 
-  // modal actions wiring
-  document.getElementById('reconCancel').addEventListener('click', ()=> document.getElementById('reconModal').style.display = 'none');
-  document.getElementById('reconSend').addEventListener('click', sendReconsider);
+            .week-selector-group {
+                flex: 0 0 auto;
+                min-width: 280px;
+            }
 
-  document.getElementById('leaveCancel').addEventListener('click', ()=> document.getElementById('leaveModal').style.display = 'none');
-  document.getElementById('leaveSave').addEventListener('click', saveLeave);
+            .week-selector-group label {
+                color: white;
+                font-weight: 600;
+                font-size: 13px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 8px;
+                display: block;
+            }
 
-  // -----------------------
-  // Load month button
-  // -----------------------
-  document.getElementById('btnLoad').addEventListener('click', function(ev){
-    ev.preventDefault();
-    const m = document.getElementById('month').value;
-    if(!m) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set('month', encodeURIComponent(m));
-    // navigate
-    window.location.href = url.toString();
-  });
+            .week-selector-group select {
+                width: 100%;
+                padding: 10px 15px;
+                border: 2px solid rgba(255,255,255,0.3);
+                border-radius: 8px;
+                background: rgba(255,255,255,0.95);
+                font-size: 14px;
+                font-weight: 500;
+                transition: all 0.3s ease;
+            }
 
-})();
-</script>
-{% endblock %}
+            .week-selector-group select:focus {
+                outline: none;
+                border-color: #fff;
+                box-shadow: 0 0 0 3px rgba(255,255,255,0.3);
+            }
+
+            .action-buttons {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+
+            .action-bar .btn {
+                padding: 12px 28px;
+                font-weight: 600;
+                font-size: 14px;
+                border-radius: 8px;
+                border: none;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                transition: all 0.3s ease;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                white-space: nowrap;
+            }
+
+            .btn-save-draft {
+                background: #ffffff;
+                color: #667eea;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+
+            .btn-save-draft:hover {
+                background: #f7fafc;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }
+
+            .btn-submit-effort {
+                background: #48bb78;
+                color: white;
+                box-shadow: 0 2px 8px rgba(72,187,120,0.3);
+            }
+
+            .btn-submit-effort:hover {
+                background: #38a169;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(72,187,120,0.5);
+            }
+
+            .btn-add-allocation {
+                background: #ed8936;
+                color: white;
+                box-shadow: 0 2px 8px rgba(237,137,54,0.3);
+            }
+
+            .btn-add-allocation:hover {
+                background: #dd6b20;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(237,137,54,0.5);
+            }
+
+            /* === ALLOCATION CARDS === */
+            .allocations-container {
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            .allocation-card {
+                background: white;
+                border-radius: 12px;
+                overflow: hidden;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+
+            .allocation-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+            }
+
+            .card-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 18px 25px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .card-title {
+                color: white;
+                font-size: 18px;
+                font-weight: 700;
+                margin: 0;
+            }
+
+            .card-subtitle {
+                color: rgba(255,255,255,0.85);
+                font-size: 14px;
+                margin-top: 4px;
+            }
+
+            .self-allocation-badge {
+                background: rgba(255,255,255,0.2);
+                color: white;
+                padding: 6px 14px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .card-body {
+                padding: 0;
+            }
+
+            /* === ALLOCATION TABLE === */
+            .allocation-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            .allocation-table thead {
+                background: #f7fafc;
+            }
+
+            .allocation-table th {
+                padding: 15px 20px;
+                text-align: left;
+                font-size: 12px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #4a5568;
+                border-bottom: 2px solid #e2e8f0;
+            }
+
+            .allocation-table td {
+                padding: 16px 20px;
+                border-bottom: 1px solid #f1f1f1;
+                vertical-align: middle;
+            }
+
+            .allocation-table tbody tr:last-child td {
+                border-bottom: none;
+            }
+
+            .allocation-table tbody tr:hover {
+                background-color: #f7fafc;
+            }
+
+            .allocation-table input[type="number"] {
+                width: 100px;
+                padding: 8px 12px;
+                border: 2px solid #e2e8f0;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 600;
+                transition: all 0.3s ease;
+            }
+
+            .allocation-table input[type="number"]:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+
+            .allocation-table input:disabled {
+                background-color: #f7fafc;
+                color: #a0aec0;
+                cursor: not-allowed;
+            }
+
+            .status-badge {
+                display: inline-block;
+                padding: 6px 14px;
+                border-radius: 20px;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .status-draft {
+                background: #fef5e7;
+                color: #d68910;
+            }
+
+            .status-submitted {
+                background: #d5f4e6;
+                color: #0e7c4e;
+            }
+
+            .status-approved {
+                background: #d6eaf8;
+                color: #1a5490;
+            }
+
+            .status-rejected {
+                background: #fadbd8;
+                color: #a93226;
+            }
+
+            .empty-state {
+                text-align: center;
+                padding: 60px 20px;
+                color: #a0aec0;
+            }
+
+            .empty-state i {
+                font-size: 64px;
+                margin-bottom: 20px;
+                opacity: 0.3;
+            }
+
+            .empty-state h3 {
+                font-size: 20px;
+                margin-bottom: 10px;
+                color: #718096;
+            }
+
+            /* === MODAL OVERLAY === */
+            .modal-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.65);
+                z-index: 9999;
+                animation: fadeIn 0.3s ease;
+                backdrop-filter: blur(4px);
+            }
+
+            .modal-overlay.active {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+
+            .modal-dialog {
+                background: white;
+                border-radius: 16px;
+                width: 100%;
+                max-width: 900px;
+                max-height: 85vh;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                animation: slideUp 0.4s ease;
+            }
+
+            .modal-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 25px 30px;
+                border-radius: 16px 16px 0 0;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .modal-title {
+                color: white;
+                font-size: 22px;
+                font-weight: 700;
+                margin: 0;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .modal-close {
+                background: rgba(255,255,255,0.2);
+                border: none;
+                color: white;
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                font-size: 20px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .modal-close:hover {
+                background: rgba(255,255,255,0.3);
+                transform: rotate(90deg);
+            }
+
+            .modal-body {
+                padding: 30px;
+                overflow-y: auto;
+                flex: 1;
+            }
+
+            .form-section {
+                margin-bottom: 25px;
+            }
+
+            .form-section-title {
+                font-size: 16px;
+                font-weight: 700;
+                color: #2d3748;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #e2e8f0;
+            }
+
+            .form-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-bottom: 20px;
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+
+            .form-group label {
+                display: block;
+                font-weight: 600;
+                font-size: 14px;
+                color: #4a5568;
+                margin-bottom: 8px;
+            }
+
+            .form-group select,
+            .form-group input {
+                width: 100%;
+                padding: 12px 16px;
+                border: 2px solid #e2e8f0;
+                border-radius: 8px;
+                font-size: 14px;
+                transition: all 0.3s ease;
+            }
+
+            .form-group select:focus,
+            .form-group input:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+
+            .form-group select:disabled {
+                background-color: #f7fafc;
+                color: #a0aec0;
+                cursor: not-allowed;
+            }
+
+            .week-allocation-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 15px;
+            }
+
+            .week-allocation-table thead {
+                background: #f7fafc;
+            }
+
+            .week-allocation-table th {
+                padding: 12px 15px;
+                text-align: left;
+                font-size: 12px;
+                font-weight: 700;
+                text-transform: uppercase;
+                color: #4a5568;
+                border-bottom: 2px solid #e2e8f0;
+            }
+
+            .week-allocation-table td {
+                padding: 12px 15px;
+                border-bottom: 1px solid #f1f1f1;
+            }
+
+            .week-allocation-table tbody tr:hover {
+                background-color: #f7fafc;
+            }
+
+            .week-allocation-table input[type="number"] {
+                width: 100%;
+                padding: 8px 12px;
+                border: 2px solid #e2e8f0;
+                border-radius: 6px;
+                font-size: 14px;
+                transition: border-color 0.3s ease;
+            }
+
+            .week-allocation-table input[type="number"]:focus {
+                outline: none;
+                border-color: #667eea;
+            }
+
+            .modal-footer {
+                padding: 20px 30px;
+                border-top: 2px solid #f1f1f1;
+                display: flex;
+                justify-content: flex-end;
+                gap: 12px;
+                background: #fafafa;
+                border-radius: 0 0 16px 16px;
+            }
+
+            .modal-footer .btn {
+                padding: 12px 30px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 14px;
+                border: none;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .btn-secondary {
+                background: #e2e8f0;
+                color: #4a5568;
+            }
+
+            .btn-secondary:hover {
+                background: #cbd5e0;
+            }
+
+            .btn-primary {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            }
+
+            .btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+            }
+            .btn-record-leave {
+                background: #e53e3e;
+                color: white;
+                box-shadow: 0 2px 8px rgba(229, 62, 62, 0.3);
+            }
+
+            .btn-record-leave:hover {
+                background: #c53030;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(229, 62, 62, 0.5);
+            }
+
+            /* === ANIMATIONS === */
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+
+            @keyframes slideUp {
+                from {
+                    transform: translateY(50px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+
+            /* === RESPONSIVE === */
+            @media (max-width: 1200px) {
+                .action-row {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .action-buttons {
+                    justify-content: center;
+                }
+            }
+
+            @media (max-width: 768px) {
+                .form-row {
+                    grid-template-columns: 1fr;
+                }
+
+                .modal-dialog {
+                    max-width: 100%;
+                    max-height: 95vh;
+                }
+            }
+        </style>
+        {% endblock %}
+
+        {% block content %}
+        <div class="page-container">
+            <!-- Page Header with Month/Year Picker -->
+            <div class="page-header">
+                <h1 class="page-title">My Weekly Allocations - {{ display_month }}</h1>
+
+                <div class="month-year-picker">
+                    <label for="monthSelect">Month:</label>
+                    <select id="monthSelect" onchange="changeMonthYear()">
+                        {% for m in available_months %}
+                        <option value="{{ m.value }}" {% if m.selected %}selected{% endif %}>
+                            {{ m.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+
+                    <label for="yearSelect">Year:</label>
+                    <select id="yearSelect" onchange="changeMonthYear()">
+                        {% for y in available_years %}
+                        <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>
+                            {{ y }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Action Bar with Week Selector and Buttons -->
+            <div class="action-bar">
+                <div class="action-row">
+                    <div class="week-selector-group">
+                        <label for="weekSelector">Select Week</label>
+                        <select id="weekSelector">
+                            <option value="all" {% if selected_week == 'all' %}selected{% endif %}>
+                                All Weeks
+                            </option>
+                            {% for week in all_weeks_list %}
+                            <option value="{{ week.num }}"
+                                    {% if selected_week|stringformat:"s" == week.num|stringformat:"s" %}selected{% endif %}
+                                    {% if week.num == current_week %}data-current="true"{% endif %}>
+                                Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
+                                {% if week.num == current_week %} ★{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-save-draft" id="btnSaveDraft">
+                            <i class="fas fa-save"></i>
+                            Save Draft
+                        </button>
+                        <button class="btn btn-submit-effort" id="btnSubmit">
+                            <i class="fas fa-check-circle"></i>
+                            Submit Efforts
+                        </button>
+                        <button class="btn btn-add-allocation" id="btnAddAllocation">
+                            <i class="fas fa-plus-circle"></i>
+                            Add Allocation
+                        </button>
+                        <button class="btn btn-record-leave" id="btnRecordLeave">
+                            <i class="fas fa-calendar-times"></i>
+                            Record Leave
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Allocations Container -->
+            <div class="allocations-container">
+                {% if groups %}
+                    {% for group_key, group in groups.items %}
+                        {% for row in group.rows %}
+                        <div class="allocation-card" data-tdid="{{ row.team_distribution_id }}">
+                            <div class="card-header">
+                                <div>
+                                    <div class="card-title">{{ row.project_name }}</div>
+                                    <div class="card-subtitle">{{ row.subproject_name }}</div>
+                                </div>
+                                {% if row.is_self_allocation %}
+                                <span class="self-allocation-badge">
+                                    <i class="fas fa-user-plus"></i> Self Added
+                                </span>
+                                {% endif %}
+                            </div>
+
+                            <div class="card-body">
+                                <table class="allocation-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 10%;">Week</th>
+
+                                            <th style="width: 12%;">Working Days</th>
+                                            <th style="width: 10%;">Max %</th>
+                                            <th style="width: 12%;">Allocated Hours</th>
+                                            <th style="width: 10%;">Leave Hours</th>
+                                            <th style="width: 13%;">Punched Hours</th>
+                                            <th style="width: 15%;">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for week in row.weeks_list %}
+                                        <tr data-tdid="{{ row.team_distribution_id }}"
+                                            data-week="{{ week.week_number }}"
+                                            data-editable="{{ week.is_editable|yesno:'true,false' }}">
+                                            <td><strong>Week {{ week.week_number }}</strong></td>
+
+                                            <td>{{ week.working_days }} days</td>
+                                            <td>{{ week.max_percent }}%</td>
+                                            <td><strong>{{ week.allocated_hours }}h</strong></td>
+                                            <td>
+                                                {% if week.leave_hours %}
+                                                    <span class="badge badge-warning" style="background: #fef5e7; color: #d68910; padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                                        {{ week.leave_hours }}h Leave
+                                                    </span>
+                                                {% else %}
+                                                    <span style="color: #cbd5e0;">—</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <input type="number"
+                                                       class="effort-input"
+                                                       value="{{ week.available_hours }}"
+                                                       step="0.01"
+                                                       min="0"
+                                                       max="{{ week.available_hours }}"
+                                                       {% if not week.is_editable %}disabled{% endif %}>
+                                                {% if week.leave_hours %}
+                                                    <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
+                                                        Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours }}h leave)
+                                                    </small>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <span class="status-badge status-{{ week.status|lower }}">
+                                                    {{ week.status }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% endfor %}
+                {% else %}
+                    <div class="allocation-card">
+                        <div class="card-body">
+                            <div class="empty-state">
+                                <i class="fas fa-calendar-times"></i>
+                                <h3>No Allocations Found</h3>
+                                <p>You don't have any allocations for this period. Use "Add Allocation" to create one.</p>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Add Allocation Modal -->
+        <div id="addAllocationModal" class="modal-overlay">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h4 class="modal-title">
+                        <i class="fas fa-plus-circle"></i>
+                        Add Self Allocation
+                    </h4>
+                    <button class="modal-close" id="btnModalClose">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+                    <!-- Project Selection -->
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-project-diagram"></i>
+                            Project Selection
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="modalProject">
+                                    Project <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <select id="modalProject" required>
+                                    <option value="">Select Project...</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="modalSubproject">
+                                    Subproject <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <select id="modalSubproject" disabled required>
+                                    <option value="">Select Subproject...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Week-wise Allocation -->
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-calendar-week"></i>
+                            Week-wise Effort Allocation
+                        </div>
+
+                        <table class="week-allocation-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 15%;">Week</th>
+                                    <th style="width: 45%;">Date Range</th>
+                                    <th style="width: 40%;">% Effort</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for week in all_weeks_list %}
+                                <tr>
+                                    <td><strong>Week {{ week.num }}</strong></td>
+                                    <td>{{ week.start|date:"M d, Y" }} - {{ week.end|date:"M d, Y" }}</td>
+                                    <td>
+                                        <input type="number"
+                                               class="modal-percent-input"
+                                               data-week="{{ week.num }}"
+                                               step="0.01"
+                                               min="0"
+                                               max="100"
+                                               value="0"
+                                               placeholder="0.00">
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnModalCancel">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button class="btn btn-primary" id="btnModalSave">
+                        <i class="fas fa-check"></i> Save Allocation
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Record Leave Modal -->
+        <div id="recordLeaveModal" class="modal-overlay">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h4 class="modal-title">
+                        <i class="fas fa-calendar-times"></i>
+                        Record Leave
+                    </h4>
+                    <button class="modal-close" id="btnLeaveModalClose">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-info-circle"></i>
+                            Leave Details
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leaveWeek">
+                                    Week <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <select id="leaveWeek" required>
+                                    <option value="">Select Week...</option>
+                                    {% for week in all_weeks_list %}
+                                    <option value="{{ week.num }}">
+                                        Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="leaveType">
+                                    Leave Type <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <select id="leaveType" required>
+                                    <option value="">Select Type...</option>
+                                    <option value="CASUAL">Casual Leave</option>
+                                    <option value="SICK">Sick Leave</option>
+                                    <option value="EARNED">Earned Leave</option>
+                                    <option value="UNPAID">Unpaid Leave</option>
+                                    <option value="MATERNITY">Maternity Leave</option>
+                                    <option value="PATERNITY">Paternity Leave</option>
+                                    <option value="COMPENSATORY">Compensatory Off</option>
+                                    <option value="OTHER">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leaveHours">
+                                    Leave Hours <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <input type="number"
+                                       id="leaveHours"
+                                       step="0.01"
+                                       min="0"
+                                       max="40"
+                                       placeholder="0.00"
+                                       required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="leaveDays">
+                                    Leave Days (auto-calculated)
+                                </label>
+                                <input type="text"
+                                       id="leaveDays"
+                                       readonly
+                                       style="background: #f7fafc;">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="leaveReason">
+                                Reason (Optional)
+                            </label>
+                            <textarea id="leaveReason"
+                                      rows="3"
+                                      maxlength="500"
+                                      placeholder="Enter reason for leave..."
+                                      style="width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnLeaveModalCancel">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button class="btn btn-primary" id="btnLeaveModalSave">
+                        <i class="fas fa-check"></i> Save Leave
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endblock %}
+
+        {% block extra_js %}
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // === DOM ELEMENTS ===
+            const weekSelector = document.getElementById('weekSelector');
+            const btnSaveDraft = document.getElementById('btnSaveDraft');
+            const btnSubmit = document.getElementById('btnSubmit');
+            const btnAddAllocation = document.getElementById('btnAddAllocation');
+            const btnRecordLeave = document.getElementById('btnRecordLeave');
+            const monthSelect = document.getElementById('monthSelect');
+            const yearSelect = document.getElementById('yearSelect');
+
+            // Add Allocation Modal
+            const modal = document.getElementById('addAllocationModal');
+            const modalProject = document.getElementById('modalProject');
+            const modalSubproject = document.getElementById('modalSubproject');
+            const btnModalClose = document.getElementById('btnModalClose');
+            const btnModalCancel = document.getElementById('btnModalCancel');
+            const btnModalSave = document.getElementById('btnModalSave');
+
+            // Record Leave Modal
+            const leaveModal = document.getElementById('recordLeaveModal');
+            const leaveWeek = document.getElementById('leaveWeek');
+            const leaveType = document.getElementById('leaveType');
+            const leaveHours = document.getElementById('leaveHours');
+            const leaveDays = document.getElementById('leaveDays');
+            const leaveReason = document.getElementById('leaveReason');
+            const btnLeaveModalClose = document.getElementById('btnLeaveModalClose');
+            const btnLeaveModalCancel = document.getElementById('btnLeaveModalCancel');
+            const btnLeaveModalSave = document.getElementById('btnLeaveModalSave');
+
+            let projectsData = [];
+            const BILLING_START = '{{ billing_start|date:"Y-m-d" }}';
+            const BILLING_END = '{{ billing_end|date:"Y-m-d" }}';
+            const HOURS_PER_DAY = 8;
+
+            // === MONTH/YEAR CHANGE ===
+            window.changeMonthYear = function() {
+                const month = monthSelect.value;
+                const year = yearSelect.value;
+                const url = new URL(window.location.href);
+                url.searchParams.set('month', `${year}-${month.padStart(2, '0')}`);
+                window.location.href = url.toString();
+            };
+
+            // === WEEK SELECTOR ===
+            weekSelector.addEventListener('change', function() {
+                const url = new URL(window.location.href);
+                url.searchParams.set('week', this.value);
+                window.location.href = url.toString();
+            });
+
+            // === RECORD LEAVE MODAL ===
+            btnRecordLeave.addEventListener('click', function() {
+                // Reset form
+                leaveWeek.value = '';
+                leaveType.value = '';
+                leaveHours.value = '';
+                leaveDays.value = '';
+                leaveReason.value = '';
+
+                leaveModal.classList.add('active');
+            });
+
+            // Auto-calculate leave days
+            leaveHours.addEventListener('input', function() {
+                const hours = parseFloat(this.value) || 0;
+                const days = (hours / HOURS_PER_DAY).toFixed(2);
+                leaveDays.value = `${days} days`;
+            });
+
+            btnLeaveModalClose.addEventListener('click', closeLeaveModal);
+            btnLeaveModalCancel.addEventListener('click', closeLeaveModal);
+
+            leaveModal.addEventListener('click', function(e) {
+                if (e.target === leaveModal) {
+                    closeLeaveModal();
+                }
+            });
+
+            function closeLeaveModal() {
+                leaveModal.classList.remove('active');
+            }
+
+            btnLeaveModalSave.addEventListener('click', async function() {
+                const week = parseInt(leaveWeek.value);
+                const type = leaveType.value;
+                const hours = parseFloat(leaveHours.value) || 0;
+                const reason = leaveReason.value.trim();
+
+                if (!week || !type || hours <= 0) {
+                    showNotification('Please fill all required fields', 'warning');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('{{ record_leave_url }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            billing_start: BILLING_START,
+                            billing_end: BILLING_END,
+                            week_number: week,
+                            leave_hours: hours,
+                            leave_type: type,
+                            reason: reason
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        showNotification('Leave recorded successfully!', 'success');
+                        closeLeaveModal();
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        showNotification('Error: ' + data.error, 'error');
+                    }
+                } catch (err) {
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
+                }
+            });
+
+            // === SAVE DRAFT ===
+            btnSaveDraft.addEventListener('click', async function() {
+                const efforts = collectEffortData();
+
+                if (efforts.length === 0) {
+                    showNotification('No editable efforts to save', 'warning');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('{{ save_effort_url }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({ efforts: efforts })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        showNotification('Draft saved successfully!', 'success');
+                    } else {
+                        showNotification('Error: ' + data.error, 'error');
+                    }
+                } catch (err) {
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
+                }
+            });
+
+            // === SUBMIT EFFORTS ===
+            btnSubmit.addEventListener('click', async function() {
+                const efforts = collectEffortData();
+
+                if (efforts.length === 0) {
+                    showNotification('No efforts to submit', 'warning');
+                    return;
+                }
+
+                if (!confirm('Are you sure you want to submit? Submitted efforts cannot be edited later.')) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch('{{ submit_effort_url }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({ efforts: efforts })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        showNotification('Efforts submitted successfully!', 'success');
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        showNotification('Error: ' + data.error, 'error');
+                    }
+                } catch (err) {
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
+                }
+            });
+
+            // === ADD ALLOCATION MODAL (existing code) ===
+            btnAddAllocation.addEventListener('click', async function() {
+                try {
+                    const response = await fetch('{{ get_projects_url }}');
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        projectsData = data.projects;
+
+                        modalProject.innerHTML = '<option value="">Select Project...</option>';
+                        data.projects.forEach(proj => {
+                            modalProject.innerHTML += `<option value="${proj.id}">${proj.name}</option>`;
+                        });
+
+                        modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
+                        modalSubproject.disabled = true;
+                        document.querySelectorAll('.modal-percent-input').forEach(input => {
+                            input.value = 0;
+                        });
+
+                        modal.classList.add('active');
+                    }
+                } catch (err) {
+                    showNotification('Failed to load projects', 'error');
+                    console.error(err);
+                }
+            });
+
+            modalProject.addEventListener('change', function() {
+                const projectId = parseInt(this.value);
+                const project = projectsData.find(p => p.id === projectId);
+
+                modalSubproject.disabled = !project;
+                modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
+
+                if (project && project.subprojects) {
+                    project.subprojects.forEach(sub => {
+                        modalSubproject.innerHTML += `<option value="${sub.id}">${sub.name}</option>`;
+                    });
+                }
+            });
+
+            btnModalClose.addEventListener('click', closeModal);
+            btnModalCancel.addEventListener('click', closeModal);
+
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    closeModal();
+                }
+            });
+
+            function closeModal() {
+                modal.classList.remove('active');
+            }
+
+            btnModalSave.addEventListener('click', async function() {
+                const projectId = parseInt(modalProject.value);
+                const subprojectId = parseInt(modalSubproject.value);
+
+                if (!projectId || !subprojectId) {
+                    showNotification('Please select both project and subproject', 'warning');
+                    return;
+                }
+
+                const allocations = [];
+                document.querySelectorAll('.modal-percent-input').forEach(input => {
+                    const pct = parseFloat(input.value) || 0;
+                    if (pct > 0) {
+                        allocations.push({
+                            week_number: parseInt(input.dataset.week),
+                            percent_effort: pct
+                        });
+                    }
+                });
+
+                if (allocations.length === 0) {
+                    showNotification('Please enter at least one week allocation', 'warning');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('{{ add_allocation_url }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            project_id: projectId,
+                            subproject_id: subprojectId,
+                            month_start: BILLING_START,
+                            allocations: allocations
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        showNotification('Allocation added successfully!', 'success');
+                        closeModal();
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        showNotification('Error: ' + data.error, 'error');
+                    }
+                } catch (err) {
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
+                }
+            });
+
+            // === HELPER FUNCTIONS ===
+            function collectEffortData() {
+                const efforts = [];
+                document.querySelectorAll('tbody tr[data-editable="true"]').forEach(row => {
+                    const input = row.querySelector('.effort-input');
+                    if (input) {
+                        const punchedHours = parseFloat(input.value) || 0;
+                        const maxHours = parseFloat(input.getAttribute('max')) || 0;
+
+                        // Validate against available hours (allocated - leave)
+                        if (punchedHours > maxHours) {
+                            showNotification(`Punched hours exceed available hours for Week ${row.dataset.week}`, 'warning');
+                            return;
+                        }
+
+                        efforts.push({
+                            team_distribution_id: parseInt(row.dataset.tdid),
+                            week_number: parseInt(row.dataset.week),
+                            punched_hours: punchedHours
+                        });
+                    }
+                });
+                return efforts;
+            }
+
+            function showNotification(message, type) {
+                const colors = {
+                    success: { bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e' },
+                    error: { bg: '#fadbd8', border: '#a93226', text: '#a93226' },
+                    warning: { bg: '#fef5e7', border: '#d68910', text: '#d68910' },
+                    info: { bg: '#d6eaf8', border: '#1a5490', text: '#1a5490' }
+                };
+
+                const color = colors[type] || colors.info;
+
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    min-width: 300px;
+                    max-width: 500px;
+                    background: ${color.bg};
+                    color: ${color.text};
+                    border-left: 4px solid ${color.border};
+                    padding: 16px 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                    z-index: 10000;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-weight: 600;
+                    animation: slideInRight 0.3s ease;
+                `;
+
+                const icons = {
+                    success: 'fas fa-check-circle',
+                    error: 'fas fa-exclamation-circle',
+                    warning: 'fas fa-exclamation-triangle',
+                    info: 'fas fa-info-circle'
+                };
+
+                notification.innerHTML = `
+                    <i class="${icons[type]}" style="font-size: 20px;"></i>
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.remove()"
+                            style="margin-left: auto; background: none; border: none;
+                                   color: ${color.text}; font-size: 20px; cursor: pointer;
+                                   opacity: 0.7; padding: 0; width: 24px; height: 24px;">
+                        ×
+                    </button>
+                `;
+
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.style.animation = 'slideOutRight 0.3s ease';
+                    setTimeout(() => notification.remove(), 300);
+                }, 5000);
+            }
+        });
+
+        // Add CSS animations
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInRight {
+                from {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            @keyframes slideOutRight {
+                from {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+        </script>
+        {% endblock %}

@@ -1,298 +1,569 @@
-/* base.css - merged final version
-   - sidebar: 300px
-   - submenu pulled left, bullets removed
-   - spacing and gentle blue glow preserved
-*/
+/* ============================================
+     FEAS Base Styles
+     Forvia Enterprise Allocation System
+     ============================================ */
 
-/* ---------- Root variables ---------- */
-:root{
-  --header-h:64px;
-  --sidebar-w:300px;           /* final width */
-  --sidebar-collapsed-w:80px;
-  --accent-1:#225fd2;
-  --accent-2:#113f9a;
-  --accent-3:#2e7be6;
-  --bg-1:#f6fbff;
-  --bg-2:#eef6ff;
-  --text-dark:#071228;
-  --muted:#6b7280;
-  --radius:12px;
-  --transition:200ms;
-  --font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;
+  /* CSS Variables */
+  :root {
+    --header-bg: #0b1320;
+    --sidebar-bg: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+    --sidebar-hover: rgba(255, 255, 255, 0.1);
+    --content-bg: #f5f7fa;
+    --panel-bg: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --border-color: #e2e8f0;
+    --focus-ring: rgba(59, 130, 246, 0.5);
+    --danger: #dc2626;
+
+    --header-height: 60px;
+    --sidebar-width: 260px;
+    --sidebar-collapsed-width: 70px;
+  }
+
+  /* Global Resets */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--content-bg);
+    color: var(--text-primary);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  button {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  /* ============================================
+     Header
+     ============================================ */
+  .app-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--header-height);
+    background: var(--header-bg);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .header-left,
+  .header-center,
+  .header-right {
+    display: flex;
+    align-items: center;
+  }
+
+  .header-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .brand-text {
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+
+  .brand-pill {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff;
+    padding: 6px 20px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 1px;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  }
+
+  /* User Dropdown */
+  .user-container {
+    position: relative;
+  }
+
+  .user-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: background 0.2s;
+    color: #fff;
+  }
+
+  .user-toggle:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+  }
+
+  .user-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .user-name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .user-role {
+    font-size: 12px;
+    opacity: 0.8;
+  }
+
+  .user-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    min-width: 180px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.2s;
+  }
+
+  .user-menu.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
+  .user-menu a {
+    display: block;
+    padding: 12px 16px;
+    color: var(--text-primary);
+    transition: background 0.2s;
+  }
+
+  .user-menu a:hover {
+    background: #f1f5f9;
+  }
+
+  .user-menu a.danger {
+    color: var(--danger);
+  }
+
+  /* ============================================
+     Layout
+     ============================================ */
+  .layout {
+    display: flex;
+    height: 100vh;
+    padding-top: var(--header-height);
+  }
+
+  /* ============================================
+     Sidebar
+     ============================================ */
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: var(--header-height);
+    width: var(--sidebar-width);
+    height: calc(100vh - var(--header-height));
+    background: var(--sidebar-bg);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 900;
+    transition: width 0.3s ease;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .sidebar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+  }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    min-height: 56px;
+  }
+
+  .nav-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #fff;
+  }
+
+  .nav-label {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .sidebar-toggle-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+  }
+
+  .sidebar-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Navigation */
+  .side-nav {
+    list-style: none;
+    padding: 8px 0;
+    flex: 1;
+  }
+
+  .side-item {
+    margin: 2px 8px;
+  }
+
+  /* Main Menu Links */
+  .side-link {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    color: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    transition: all 0.2s;
+    font-size: 14px;
+    font-weight: 500;
+    position: relative;
+  }
+
+  .side-link:hover {
+    background: var(--sidebar-hover);
+  }
+
+  .side-link.active {
+    background: rgba(255, 255, 255, 0.15);
+    font-weight: 600;
+  }
+
+  /* ============================================
+     Font Awesome Icon Styling - CRITICAL FIXES
+     ============================================ */
+
+  /* Force Font Awesome font rendering */
+  .side-link .icon i,
+  .sub-item i {
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+    -webkit-font-smoothing: antialiased;
+    display: inline-block;
+    font-style: normal;
+    font-variant: normal;
+    text-rendering: auto;
+    line-height: 1;
+  }
+
+  /* Ensure FontAwesome Solid icons work */
+  .fa-solid {
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+  }
+
+  /* Icon Container Styling */
+.side-link .icon {
+  width: 32px;              /* Increased from 28px for better spacing */
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  flex-shrink: 0;
+  font-size: 18px;          /* Explicit icon size */
 }
 
-/* ---------- Base Reset ---------- */
-*{box-sizing:border-box}
-html,body{height:100%;margin:0;font-family:var(--font-family);color:var(--text-dark);-webkit-font-smoothing:antialiased}
-body{
-  background:linear-gradient(180deg,var(--bg-1) 0%,var(--bg-2) 100%);
-  min-height:100vh;
-  line-height:1.4;
+/* Ensure icon glyphs render at correct size */
+.side-link .icon i {
+  font-size: 18px !important;
+  line-height: 1 !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+  width: 18px;              /* Fixed width for consistent spacing */
+  text-align: center;
 }
 
-/* ---------- Header ---------- */
-.app-header{
-  height:var(--header-h);
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:0 28px;
-  color:#fff;
-  position:fixed;
-  top:0;left:0;right:0;
-  z-index:1300;
-  backdrop-filter: blur(6px);
-  background: linear-gradient(90deg, rgba(34,95,210,0.98), rgba(17,63,154,0.96));
-  box-shadow:0 8px 28px rgba(12,36,120,0.12);
-}
-.header-left{display:flex;align-items:center;gap:12px}
-.brand-text{font-weight:700;font-size:15px;color:rgba(255,255,255,0.95)}
-.header-center{flex:1;display:flex;justify-content:center;pointer-events:none}
-.brand-pill{pointer-events:none;padding:8px 18px;border-radius:999px;background:#fff;color:var(--accent-2);font-weight:800;box-shadow:0 6px 18px rgba(20,74,216,0.12)}
-.header-right{display:flex;align-items:center;gap:12px;margin-left:auto}
-
-/* ---------- User Area ---------- */
-.user-container{position:relative;display:flex;align-items:center;z-index:1400}
-.user-toggle{
-  display:inline-flex;align-items:center;gap:10px;
-  background:linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02));
-  padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.06);
-  cursor:pointer;color:#fff;min-height:44px;box-shadow:0 6px 18px rgba(6,24,80,0.08);
-}
-.user-avatar{
-  width:40px;height:40px;min-width:40px;border-radius:50%;
-  display:inline-flex;align-items:center;justify-content:center;font-weight:700;
-  color:#154a84;
-  background:linear-gradient(180deg,rgba(255,255,255,0.94),rgba(255,255,255,0.86));
-  box-shadow:0 6px 14px rgba(6,24,80,0.10),inset 0 2px 6px rgba(255,255,255,0.6);
-  border:1px solid rgba(255,255,255,0.5);
-}
-.user-meta{display:flex;flex-direction:column;align-items:flex-start;line-height:1;margin-left:2px}
-.user-name{font-size:13px;font-weight:700;color:#fff;line-height:1.2;margin:0;padding:0}
-.user-role{font-size:11px;color:rgba(255,255,255,0.85);line-height:1.2;margin-top:3px;padding:0}
-.user-toggle .caret{margin-left:6px;transform:translateY(1px);opacity:0.95;flex-shrink:0}
-.user-menu{
-  display:none;position:absolute;right:8px;top:calc(100% + 10px);
-  background:#fff;color:var(--text-dark);min-width:210px;border-radius:10px;
-  box-shadow:0 18px 48px rgba(8,18,40,0.12);overflow:hidden;z-index:1600;
-}
-.user-menu.show{display:block}
-.user-menu a{display:block;padding:10px 12px;text-decoration:none;color:var(--text-dark);font-weight:700}
-.user-menu a:hover{background:var(--accent-1);color:#fff}
-.user-container.open .user-toggle{transform:translateY(-1px);box-shadow:0 10px 28px rgba(6,24,80,0.14)}
-@media(max-width:900px){.user-meta{display:none}.user-toggle{padding:6px}}
-
-/* ---------- Layout Wrapper ---------- */
-.layout{display:flex;margin-top:var(--header-h);min-height:calc(100vh - var(--header-h));position:relative}
-.sidebar-overlay{
-  position:fixed;top:var(--header-h);left:0;right:0;bottom:0;
-  background:rgba(0,0,0,0.35);opacity:0;pointer-events:none;transition:opacity 180ms;z-index:980;
-}
-.sidebar-overlay.show{opacity:1;pointer-events:auto}
-
-/* ---------- Sidebar ---------- */
-.sidebar{
-  position:fixed;left:0;top:var(--header-h);bottom:0;
-  width:var(--sidebar-w);min-width:var(--sidebar-w);
-  padding:20px 14px 28px;color:#fff;overflow-y:auto;z-index:1000;box-sizing:border-box;
-  border-right:1px solid rgba(0,0,0,0.06);
-  background:linear-gradient(180deg,#072b57 0%,#113f8b 30%,#1b63b8 65%,#2a82df 100%);
-  box-shadow:2px 12px 36px rgba(6,20,60,0.14);
-  transition:all var(--transition) ease;
-}
-.sidebar::before{
-  content:"";position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none;
-  background:linear-gradient(180deg,rgba(255,255,255,0.02) 0%,rgba(255,255,255,0.00) 22%);
-  z-index:0;
-}
-.sidebar > *{position:relative;z-index:1}
-.sidebar:hover{
-  background:linear-gradient(180deg,#072f60 0%,#13459a 30%,#226ad1 65%,#3a93f0 100%);
-  box-shadow:4px 14px 48px rgba(10,40,110,0.14);
-}
-.sidebar.collapsed{
-  width:var(--sidebar-collapsed-w);
-  min-width:var(--sidebar-collapsed-w);
-  padding-left:10px;padding-right:10px;
-}
-.sidebar::after{
-  content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
-  background:linear-gradient(180deg,rgba(0,0,0,0.12),rgba(255,255,255,0.00));opacity:0.22;
+/* Fallback text for missing icons */
+.side-link .icon .icon-fallback {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
 }
 
-/* ---------- Sidebar Header ---------- */
-.sidebar-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.nav-with-icon{display:flex;align-items:center;gap:10px}
-.nav-icon{opacity:0.95}
-.nav-label{font-weight:700;font-size:13px;color:rgba(255,255,255,0.95);text-shadow:0 1px 0 rgba(6,18,42,0.12)}
-.sidebar-toggle-btn{background:#fff;border:none;border-radius:8px;padding:6px;cursor:pointer;box-shadow:0 6px 18px rgba(12,36,120,0.12)}
-
-/* ---------- Menu & Tokens ---------- */
-.side-nav{list-style:none;margin:8px 0 0;padding:0}
-.side-item{margin-bottom:2px;position:relative}  /* Changed from 10px to 4px */
-
-/* main menu items */
-.side-link{
-  display:flex;align-items:center;gap:14px;padding:10px 12px;border-radius:10px;
-  text-decoration:none;color:rgba(255,255,255,0.98);
-  background:linear-gradient(90deg,rgba(255,255,255,0.01),rgba(255,255,255,0.00));
-  transition:background 200ms,transform 200ms,box-shadow 200ms;
+/* Submenu icon spacing */
+.submenu .sub-item i {
+  font-size: 15px !important;
+  width: 20px;
+  margin-right: 12px;       /* Increased from 10px */
+  text-align: center;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
-/* token */
-.side-link .icon{
-  width:44px;height:44px;flex:0 0 44px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;
-  font-weight:800;font-size:15px;color:#ffffff;
-  background:linear-gradient(180deg,#3b8cf5 0%,#1f63c7 100%);
-  box-shadow:0 8px 18px rgba(16,56,120,0.18),inset 0 2px 6px rgba(255,255,255,0.06);
-  border:1px solid rgba(255,255,255,0.10);
-  transition:transform 180ms ease,box-shadow 180ms ease;
-  position:relative;z-index:2;
+/* Force Font Awesome font family explicitly */
+.sidebar i[class^="fa-"],
+.sidebar i[class*=" fa-"] {
+  font-family: "Font Awesome 6 Free" !important;
+  font-weight: 900 !important;
+  font-style: normal !important;
+  display: inline-block !important;
 }
+  .side-link .side-label {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
-/* icon hover gentle glow */
+  /* Submenu Toggle Indicator */
+  .side-link.has-sub-toggle .mi-caret {
+    margin-left: auto;
+    font-size: 12px;
+    transition: transform 0.2s;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .side-link.has-sub-toggle[aria-expanded="true"] .mi-caret {
+    transform: rotate(180deg);
+  }
+
+  /* Submenu */
+  .submenu {
+    list-style: none;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    margin: 4px 0;
+  }
+
+  .submenu[aria-hidden="false"] {
+    /* Max height set dynamically by JS */
+  }
+
+  .submenu li {
+    margin: 0;
+  }
+
+  /* Submenu Items - Updated with Font Awesome icon support */
+  .submenu .sub-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px 10px 48px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    font-weight: 400;
+    border-radius: 6px;
+    transition: all 0.2s;
+    margin: 2px 8px;
+  }
+
+  .submenu .sub-item:hover {
+    background: var(--sidebar-hover);
+    color: #fff;
+  }
+
+  .submenu .sub-item i {
+    font-size: 14px !important;
+    width: 20px;
+    margin-right: 10px;
+    text-align: center;
+    flex-shrink: 0;
+    color: rgba(255, 255, 255, 0.9) !important;
+  }
+
+  .submenu .sub-item span {
+    flex: 1;
+  }
+
+  /* Sidebar Footer */
+  .sidebar-footer {
+    padding: 16px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* ============================================
+     Content Area
+     ============================================ */
+  .content {
+    margin-left: var(--sidebar-width);
+    flex: 1;
+    overflow-y: auto;
+    background: var(--content-bg);
+    transition: margin-left 0.3s ease;
+  }
+
+  .page-pad {
+    padding: 24px;
+  }
+
+  .panel {
+    background: var(--panel-bg);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  /* ============================================
+     Responsive
+     ============================================ */
+  @media (max-width: 768px) {
+    .sidebar {
+      transform: translateX(-100%);
+    }
+
+    .sidebar.show {
+      transform: translateX(0);
+    }
+
+    .content {
+      margin-left: 0;
+    }
+
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: var(--header-height);
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 850;
+    }
+
+    .sidebar-overlay.show {
+      display: block;
+    }
+  }
+
+  /* ============================================
+     Utility Classes
+     ============================================ */
+  .small-muted {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  h2 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+  }
+
+  /* ============================================
+     Debug Helper (Remove after confirming icons work)
+     ============================================ */
+  /* Uncomment to debug Font Awesome loading issues:
+  .side-link .icon i::before,
+  .sub-item i::before {
+    content: "?" !important;
+    color: red !important;
+  }
+  */
+
+/* ============================================
+   Font Awesome Icon Debugging & Fixes
+   ============================================ */
+
+/* Force Font Awesome to load and render */
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css');
+
+/* Critical: Override any conflicting styles */
 .side-link .icon i,
-.side-link .icon svg {
-  transition: transform 180ms ease, filter 200ms ease, color 160ms ease;
-}
-.side-link:hover .icon i,
-.side-link:hover .icon svg {
-  transform: translateX(6px) scale(1.03);
-  filter: drop-shadow(0 6px 18px rgba(40,120,255,0.14));
-  color:#fff;
-}
-
-.side-link:hover{
-  transform:translateX(6px);
-  background:linear-gradient(90deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02));
-  box-shadow:0 18px 40px rgba(20,70,180,0.12);
-}
-.side-link.active{
-  background:linear-gradient(90deg,rgba(255,255,255,0.20),rgba(255,255,255,0.08));
-  box-shadow:0 8px 28px rgba(20,74,216,0.10);
-}
-.side-link .side-label{color:#fff;text-shadow:0 1px 0 rgba(4,12,28,0.35);font-weight:700;font-size:14px;line-height:1.05}
-.mi-caret{margin-left:auto;opacity:0.9}
-
-/* ---------- Submenu (pulled left, bullets removed) ---------- */
-.submenu{
-  display:none;
-  margin:8px 0 6px 56px; /* pulled left closer to tokens */
-  padding:10px;
-  border-radius:12px;
-  color:#fff;
-  background:rgba(8,22,46,0.22);
-  border:1px solid rgba(255,255,255,0.04);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
-  box-shadow:0 14px 36px rgba(6,18,40,0.16);
-  position:relative;
-  z-index:15;
-
-  /* reduce min-width so sidebar can be narrower */
-  min-width:200px;
-  max-width:320px;
-
-  list-style:none; /* remove default bullets */
-  padding-left:8px;
-}
-/* remove marker from li */
-.submenu li { list-style: none; }
-.submenu li::marker { display: none; }
-
-.submenu.open{display:block}
-
-.submenu .sub-item{
-  display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;
-  text-decoration:none;color:#fff;font-weight:700;margin-bottom:8px;
-  transition:transform 160ms,box-shadow 160ms,background 160ms;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.submenu .sub-item:last-child{margin-bottom:0}
-
-.submenu .sub-item i{
-  width:20px;height:20px;min-width:20px;text-align:center;font-size:18px;
-  color:rgba(255,255,255,0.95);flex-shrink:0;
-  transition:color 160ms,filter 180ms,transform 160ms;
-}
-.submenu .sub-item:hover i{
-  transform:translateX(6px) scale(1.02);
-  color:#fff;
-  filter:drop-shadow(0 6px 20px rgba(32,120,255,0.18));
-}
-.submenu .sub-item:hover{
-  box-shadow:inset 6px 0 18px rgba(32,120,255,0.06);
-  background:linear-gradient(90deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01));
+.sub-item i,
+i[class^="fa-"],
+i[class*=" fa-"] {
+  font-family: "Font Awesome 6 Free" !important;
+  font-weight: 900 !important;
+  font-style: normal !important;
+  font-variant: normal !important;
+  text-rendering: auto !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  line-height: 1 !important;
+  display: inline-block !important;
 }
 
-/* safety: hide stray decorative pseudo elements */
-.submenu .sub-item::before,
-.side-nav .side-item::before { display: none !important; }
-
-/* ---------- Sidebar Footer ---------- */
-.sidebar-footer{
-  margin-top:18px;font-size:13px;color:rgba(255,255,255,0.85);
-  text-align:center;padding-top:12px;border-top:1px solid rgba(255,255,255,0.03);
+/* Ensure icon container doesn't hide icons */
+.side-link .icon {
+  overflow: visible !important;
+  line-height: 1 !important;
 }
 
-/* ---------- Content ---------- */
-.content{
-  margin-left:var(--sidebar-w);
-  padding:28px 32px;
-  transition:margin-left var(--transition);
-  min-height:calc(100vh - var(--header-h));
-  box-sizing:border-box;
-  background:transparent;
-}
-.sidebar.collapsed ~ .content{margin-left:var(--sidebar-collapsed-w)}
-.page-pad{max-width:1250px;margin:0 auto}
-.panel{background:#fff;border-radius:12px;padding:22px;box-shadow:0 22px 48px rgba(6,12,30,0.06);border:1px solid rgba(10,30,80,0.04)}
-.panel h2{margin:0 0 12px;font-size:1.6rem;color:var(--text-dark);font-weight:800}
-
-/* ---------- Tables, Inputs ---------- */
-.form-input{padding:10px 12px;border-radius:8px;border:1px solid rgba(10,30,80,0.08);width:100%}
-.table{width:100%;border-collapse:collapse}
-.table th,.table td{padding:12px 10px;text-align:left}
-.table thead th{background:linear-gradient(180deg,#eef7ff,#f6fbff);color:var(--accent-2);font-weight:700;border-bottom:1px solid rgba(10,30,80,0.06)}
-.table tbody tr td{border-bottom:1px solid rgba(10,30,80,0.04)}
-
-/* ---------- Scrollbar ---------- */
-.sidebar::-webkit-scrollbar{width:8px}
-.sidebar::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(0,0,0,0.25),rgba(0,0,0,0.12));border-radius:8px}
-.sidebar::-webkit-scrollbar-track{background:transparent}
-
-/* ---------- Responsive ---------- */
-@media(max-width:1100px){
-  :root{--sidebar-w:300px}
-}
-@media(max-width:980px){
-  .mobile-toggle-btn{display:inline-block}
-  .sidebar{transform:translateX(-110%);transition:transform 220ms ease}
-  .sidebar.open{transform:translateX(0)}
-  .content{margin-left:0;padding:18px}
-  .sidebar.collapsed{width:72px}
-  .sidebar.open ~ .sidebar-overlay{opacity:1;pointer-events:auto}
-}
-@media(max-width:700px){
-  :root{--sidebar-w:260px}
-  .brand-text{font-size:13px}
-  .page-pad{padding:0 12px}
-  .panel{padding:14px}
-  .header-left .brand-text{display:none}
+/* Debug: Temporarily show all FontAwesome icon codes */
+.side-link .icon i::before,
+.sub-item i::before {
+  font-family: "Font Awesome 6 Free" !important;
+  font-weight: 900 !important;
+  display: inline-block !important;
 }
 
-/* ---------- Utility Buttons ---------- */
-.btn{display:inline-block;padding:8px 12px;border-radius:8px;border:0;cursor:pointer;font-weight:700}
-.btn-primary{
-  background:linear-gradient(90deg,#61a2fa 0%,#1552db 100%);
-  color:#fff;padding:8px 14px;border-radius:8px;border:0;
-  box-shadow:0 8px 28px rgba(33,108,255,0.12)
-}
-.btn-primary:hover{
-  transform:translateY(-1px);
-  box-shadow:0 12px 36px rgba(33,108,255,0.18)
+/* Prevent other styles from overriding */
+.sidebar * {
+  font-family: inherit;
 }
 
-/* ---------- Accessibility ---------- */
-a{outline-offset:3px}
-a:focus{outline:2px solid rgba(33,110,255,0.18);outline-radius:6px}
+.sidebar i[class^="fa-"],
+.sidebar i[class*=" fa-"] {
+  font-family: "Font Awesome 6 Free" !important;
+}

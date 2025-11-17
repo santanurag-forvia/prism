@@ -2726,68 +2726,86 @@ def _get_billing_period_from_month(year, month):
 # -------------------------
 # my_allocations view
 # -------------------------
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+import json
+
 def my_allocations(request):
     """
-    Renders My Weekly Allocations with:
-    - weeks that end on Friday or billing_end (with weekend adjustment)
-    - working_days per week excluding weekends/holidays from holidays table
-    - max_percent per week = working_days_in_week / total_working_days_in_billing * 100
-    - leaves parsed from weekly_punch_confirmations (punch_type='LEAVE' or user_comment 'leave:NN')
-    - punched_hours is sum of ACCEPTED confirmations when present, else allocated-hours - leave
+    Renders My Weekly Allocations with week selector dropdown and draft/submit capability.
     """
     user_email = request.session.get("ldap_username") or getattr(request.user, 'email', None)
     if not user_email:
         return HttpResponseForbidden("Not authenticated")
 
     month_param = request.GET.get('month')
+    selected_week_param = request.GET.get('week', 'all')  # 'all' or week number
+
     today = date.today()
     if month_param:
         try:
             parts = month_param.split('-')
-            yy = int(parts[0]); mm = int(parts[1])
+            yy, mm = int(parts[0]), int(parts[1])
         except Exception:
             yy, mm = today.year, today.month
     else:
         yy, mm = today.year, today.month
 
-    # billing period from monthly_hours_limit if present
     billing_start, billing_end = _get_billing_period_from_month(yy, mm)
 
-    # fetch monthly_max_hours if available
+    # Fetch monthly max hours
     monthly_max_hours = Decimal('0.00')
     with connection.cursor() as cur:
         cur.execute("SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1", [yy, mm])
         r = cur.fetchone()
-        if r and r[0] is not None:
-            monthly_max_hours = Decimal(str(r[0] or '0.00'))
+        if r and r[0]:
+            monthly_max_hours = Decimal(str(r[0]))
 
-    # compute weeks using Friday rule
+    # Compute weeks
     weeks = _compute_weeks_for_billing(billing_start, billing_end)
 
-    # fetch holidays in billing window
+    # Determine current week based on today's date
+    current_week_num = None
+    for w in weeks:
+        if w['start'] <= today <= w['end']:
+            current_week_num = w['num']
+            break
+    if not current_week_num and weeks:
+        current_week_num = weeks[0]['num']
+
+    # Filter weeks if specific week selected
+    if selected_week_param != 'all':
+        try:
+            sel_week = int(selected_week_param)
+            weeks = [w for w in weeks if w['num'] == sel_week]
+        except ValueError:
+            pass
+
+    # Fetch holidays
     with connection.cursor() as cur:
-        cur.execute("SELECT holiday_date, name FROM holidays WHERE holiday_date BETWEEN %s AND %s", [billing_start, billing_end])
+        cur.execute("SELECT holiday_date, name FROM holidays WHERE holiday_date BETWEEN %s AND %s",
+                   [billing_start, billing_end])
         hr = dictfetchall(cur)
+
     holidays_set = set()
     holidays_map = {}
     for h in hr:
         d = _to_date(h.get('holiday_date'))
         if d:
             holidays_set.add(d.strftime("%Y-%m-%d"))
-            holidays_map[d.strftime("%Y-%m-%d")] = h.get('name') or ''
+            holidays_map[d.strftime("%Y-%m-%d")] = h.get('name', '')
 
-    # total working days in billing
-    total_working_days = 0
-    for w in weeks:
-        total_working_days += _count_working_days(w['start'], w['end'], holidays_set)
+    # Calculate total working days
+    total_working_days = sum(_count_working_days(w['start'], w['end'], holidays_set) for w in weeks)
     if total_working_days == 0:
-        total_working_days = 1  # avoid division by zero
+        total_working_days = 1
 
-    # fetch team_distributions for the user within billing period (prefer exact month_start)
+    # Fetch team distributions
     with connection.cursor() as cur:
         cur.execute("""
-            SELECT td.id AS team_distribution_id, td.hours AS total_hours, COALESCE(p.name,'') AS project_name,
-                   COALESCE(sp.name,'') AS subproject_name
+            SELECT td.id AS team_distribution_id, td.hours AS total_hours, 
+                   COALESCE(p.name,'') AS project_name, COALESCE(sp.name,'') AS subproject_name,
+                   td.project_id, td.subproject_id
             FROM team_distributions td
             LEFT JOIN projects p ON p.id = td.project_id
             LEFT JOIN subprojects sp ON sp.id = td.subproject_id
@@ -2797,11 +2815,11 @@ def my_allocations(request):
         td_rows = dictfetchall(cur)
 
     if not td_rows:
-        # fallback range search
         with connection.cursor() as cur:
             cur.execute("""
-                SELECT td.id AS team_distribution_id, td.hours AS total_hours, COALESCE(p.name,'') AS project_name,
-                       COALESCE(sp.name,'') AS subproject_name
+                SELECT td.id AS team_distribution_id, td.hours AS total_hours,
+                       COALESCE(p.name,'') AS project_name, COALESCE(sp.name,'') AS subproject_name,
+                       td.project_id, td.subproject_id
                 FROM team_distributions td
                 LEFT JOIN projects p ON p.id = td.project_id
                 LEFT JOIN subprojects sp ON sp.id = td.subproject_id
@@ -2810,16 +2828,30 @@ def my_allocations(request):
             """, [user_email, billing_start, billing_end])
             td_rows = dictfetchall(cur)
 
-    # prepare maps: weekly_allocations, accepted_punches sums, and leaves
+    # Include user self-allocations
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT usa.id AS self_alloc_id, usa.project_id, usa.subproject_id,
+                   usa.week_number, usa.hours, usa.percent_effort, usa.status,
+                   COALESCE(p.name,'') AS project_name, COALESCE(sp.name,'') AS subproject_name
+            FROM user_self_allocations usa
+            LEFT JOIN projects p ON p.id = usa.project_id
+            LEFT JOIN subprojects sp ON sp.id = usa.subproject_id
+            WHERE LOWER(usa.user_email) = LOWER(%s) AND usa.month_start = %s
+            ORDER BY usa.id
+        """, [user_email, billing_start])
+        self_alloc_rows = dictfetchall(cur)
+
+    # Prepare maps
     td_ids = [r['team_distribution_id'] for r in td_rows]
-    weekly_alloc_map = {}   # {(tdid, weeknum): {hours, percent, status, weekly_id}}
-    accepted_punch_map = {} # {(tdid, weeknum): sum_hours}
-    leave_map = {}          # {(tdid, weeknum): sum_leave_hours}
+    weekly_alloc_map = {}
+    punch_data_map = {}  # {(tdid, weeknum): {punched_hours, status}}
+    leave_map = {}
 
     if td_ids:
         placeholders = ','.join(['%s'] * len(td_ids))
         with connection.cursor() as cur:
-            # weekly_allocations
+            # Weekly allocations
             cur.execute(f"""
                 SELECT id as weekly_id, team_distribution_id, week_number, hours, percent, status
                 FROM weekly_allocations
@@ -2830,192 +2862,88 @@ def my_allocations(request):
                 weekly_alloc_map[key] = {
                     'weekly_id': r['weekly_id'],
                     'hours': Decimal(str(r['hours'] or '0.00')),
-                    'percent': (Decimal(str(r['percent'])) if r['percent'] is not None else None),
+                    'percent': Decimal(str(r['percent'])) if r['percent'] else None,
                     'status': r['status'] or 'PENDING'
                 }
 
-            # accepted punches sums
+            # Punch data (submitted efforts)
             cur.execute(f"""
-                SELECT allocation_id as team_distribution_id, week_number, SUM(allocated_hours) AS sum_hours
-                FROM weekly_punch_confirmations
-                WHERE allocation_id IN ({placeholders}) AND billing_start = %s AND status = 'ACCEPTED'
-                GROUP BY allocation_id, week_number
+                SELECT team_distribution_id, week_number, punched_hours, status, submitted_at
+                FROM punch_data
+                WHERE team_distribution_id IN ({placeholders}) AND month_start = %s
             """, td_ids + [billing_start])
             for r in dictfetchall(cur):
-                try:
-                    key = (int(r['team_distribution_id']), int(r['week_number']))
-                    accepted_punch_map[key] = Decimal(str(r['sum_hours'] or '0.00'))
-                except Exception:
-                    continue
+                key = (int(r['team_distribution_id']), int(r['week_number']))
+                punch_data_map[key] = {
+                    'punched_hours': Decimal(str(r['punched_hours'] or '0.00')),
+                    'status': r['status'],
+                    'submitted_at': r['submitted_at']
+                }
 
-            # leaves (punch_type='LEAVE' or user_comment containing leave:)
-            cur.execute(f"""
-                SELECT allocation_id as team_distribution_id, week_number, allocated_hours, user_comment
-                FROM weekly_punch_confirmations
-                WHERE allocation_id IN ({placeholders}) AND billing_start = %s
-            """, td_ids + [billing_start])
+            # Leave records
+            cur.execute("""
+                SELECT week_number, SUM(leave_hours) as total_leave
+                FROM leave_records
+                WHERE LOWER(user_email) = LOWER(%s) AND year = %s AND month = %s
+                GROUP BY week_number
+            """, [user_email, yy, mm])
             for r in dictfetchall(cur):
-                try:
-                    tdid = int(r.get('team_distribution_id') or 0)
-                    wk = int(r.get('week_number') or 0)
-                    key = (tdid, wk)
-                    cur_sum = leave_map.get(key, Decimal('0.00'))
-                    ptype = (r.get('punch_type') or '').upper()
-                    if ptype == 'LEAVE':
-                        cur_sum += Decimal(str(r.get('allocated_hours') or '0.00'))
-                    uc = (r.get('user_comment') or '') or ''
-                    if 'leave:' in uc:
-                        pieces = uc.split('|')
-                        for piece in pieces:
-                            seg = piece.strip()
-                            if seg.startswith('leave:'):
-                                try:
-                                    cur_sum += Decimal(str(seg.split(':',1)[1] or '0')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                                except Exception:
-                                    pass
-                    if cur_sum > Decimal('0.00'):
-                        leave_map[key] = cur_sum
-                except Exception:
-                    continue
+                wk = int(r['week_number'])
+                # Apply leave to all allocations in this week
+                for td in td_rows:
+                    key = (int(td['team_distribution_id']), wk)
+                    leave_map[key] = Decimal(str(r['total_leave'] or '0.00'))
 
-    # Build final groups structure for template
+    # Build groups structure
     groups = {}
     for td in td_rows:
         tdid = int(td['team_distribution_id'])
         total_hours = Decimal(str(td.get('total_hours') or '0.00'))
+
         subgroup = {
             'team_distribution_id': tdid,
+            'project_id': td.get('project_id'),
+            'subproject_id': td.get('subproject_id'),
             'project_name': td.get('project_name') or '',
             'subproject_name': td.get('subproject_name') or '',
             'total_hours': format(total_hours, '0.2f'),
             'weeks_list': []
         }
-        # iterate through computed weeks
+
         for w in weeks:
             wknum = w['num']
-            wk_start = w['start']
-            wk_end = w['end']
+            wk_start, wk_end = w['start'], w['end']
             key = (tdid, wknum)
 
-            # working days in this week
             wd = _count_working_days(wk_start, wk_end, holidays_set)
+            max_pct = (Decimal(wd) / Decimal(total_working_days) * Decimal('100.00')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # max percent possible for this week = working_days / total_working_days * 100
-            max_pct = (Decimal(wd) / Decimal(total_working_days) * Decimal('100.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            # Check if punch data exists (submitted)
+            punch_rec = punch_data_map.get(key)
+            is_submitted = punch_rec and punch_rec['status'] == 'SUBMITTED'
+            is_editable = not is_submitted
 
-            # allocated hours/percent from weekly_alloc_map if present otherwise distribute evenly
-            # --- Allocate / percent / status logic (patched) ---
-            # ----- START DROP-IN REPLACEMENT (compute alloc / leave / punched / status) -----
-            # key uniquely identifies this team_distribution-week combination (same as earlier)
-            # e.g. key = f"{tdid}:{wknum}" — use whatever key your code uses
-
-            # Attempt to read existing weekly allocation record (authoritative)
-            alloc_hours_dec = Decimal('0.00')
-            pct = None
-            status = 'PENDING'
-
-            if key in weekly_alloc_map:
-                wrec = weekly_alloc_map[key]
-                # stored hours (if available)
-                try:
-                    if isinstance(wrec.get('hours'), Decimal):
-                        stored_hours = wrec.get('hours')
-                    else:
-                        stored_hours = Decimal(str(wrec.get('hours') or '0.00'))
-                except Exception:
-                    stored_hours = Decimal('0.00')
-
-                # percent (may be None)
-                try:
-                    pct = Decimal(str(wrec.get('percent'))) if wrec.get('percent') not in (None, '') else None
-                except Exception:
-                    pct = None
-
-                status = (wrec.get('status') or 'PENDING')
-
-                # accepted punches for this key (if any)
-                accepted_val = Decimal(str(accepted_punch_map.get(key) or '0.00')) if accepted_punch_map.get(
-                    key) is not None else Decimal('0.00')
-
-                # Choose authoritative display value:
-                # 1) prefer stored weekly_allocations.hours if > 0
-                # 2) else prefer accepted punch sum if > 0
-                # 3) else leave stored_hours (likely zero) and fallback to percent-based compute below if needed
-                if stored_hours > Decimal('0.00'):
-                    alloc_hours_dec = stored_hours
-                elif accepted_val > Decimal('0.00'):
-                    alloc_hours_dec = accepted_val
-                    # if percent missing, compute percent from monthly_max_hours
-                    if pct is None and monthly_max_hours and monthly_max_hours > 0:
-                        try:
-                            pct = (alloc_hours_dec / Decimal(str(monthly_max_hours)) * Decimal('100.00')).quantize(
-                                Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        except Exception:
-                            pct = None
+            if punch_rec:
+                punched_hours = punch_rec['punched_hours']
+                status = punch_rec['status']
+            else:
+                # Draft mode - use weekly_allocations or equal split
+                if key in weekly_alloc_map:
+                    wrec = weekly_alloc_map[key]
+                    punched_hours = wrec['hours']
+                    status = 'DRAFT'
                 else:
-                    # no stored and no accepted — let alloc_hours_dec remain 0.00 and fallback later
-                    alloc_hours_dec = stored_hours
-
-            else:
-                # No existing weekly_alloc_map entry — fallback to dividing total_hours evenly (preserve prior behavior)
-                try:
                     wk_count = len(weeks) or 1
-                    alloc_hours_dec = (Decimal(str(total_hours or 0)) / Decimal(str(wk_count))).quantize(
+                    punched_hours = (total_hours / Decimal(wk_count)).quantize(
                         Decimal('0.01'), rounding=ROUND_HALF_UP)
-                except Exception:
-                    alloc_hours_dec = Decimal('0.00')
-                if monthly_max_hours and monthly_max_hours > 0:
-                    try:
-                        pct = (alloc_hours_dec / Decimal(str(monthly_max_hours)) * Decimal('100.00')).quantize(
-                            Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    except Exception:
-                        pct = None
-                status = 'PENDING'
+                    status = 'DRAFT'
 
-            # If after the above alloc_hours_dec is zero and we have a percent defined (maybe from row data),
-            # compute allocated hours using the percent × monthly_max_hours fallback.
-            if (alloc_hours_dec == Decimal(
-                    '0.00') or alloc_hours_dec is None) and pct is not None and monthly_max_hours and monthly_max_hours > 0:
-                try:
-                    alloc_hours_dec = (pct / Decimal('100.00') * Decimal(str(monthly_max_hours))).quantize(
-                        Decimal('0.01'), rounding=ROUND_HALF_UP)
-                except Exception:
-                    alloc_hours_dec = Decimal('0.00')
+            leave_hours = leave_map.get(key, Decimal('0.00'))
+            allocated_hours = punched_hours + leave_hours
 
-            # Now obtain leave hours for this key (leave_map should have Decimal or numeric)
-            try:
-                leave_dec = Decimal(str(leave_map.get(key) or '0.00'))
-            except Exception:
-                leave_dec = Decimal('0.00')
-
-            # Compute punched hours:
-            # - If there is an accepted punch sum, prefer that
-            # - Else compute allocated_hours - leave_hours, never negative
-            accepted_sum = Decimal(str(accepted_punch_map.get(key) or '0.00')) if accepted_punch_map.get(
-                key) is not None else Decimal('0.00')
-
-            if accepted_sum and accepted_sum > Decimal('0.00'):
-                punched_dec = accepted_sum
-            else:
-                try:
-                    punched_dec = (alloc_hours_dec - leave_dec).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                except Exception:
-                    # defensive fallback
-                    try:
-                        punched_dec = (Decimal(str(alloc_hours_dec or '0.00')) - leave_dec).quantize(Decimal('0.01'),
-                                                                                                     rounding=ROUND_HALF_UP)
-                    except Exception:
-                        punched_dec = Decimal('0.00')
-                if punched_dec < Decimal('0.00'):
-                    punched_dec = Decimal('0.00')
-
-            # Format values for the template (strings with two decimals)
-            allocated_hours_str = format(alloc_hours_dec, '0.2f')
-            leave_hours_str = format(leave_dec, '0.2f') if leave_dec and leave_dec > Decimal('0.00') else None
-            punched_hours_str = format(punched_dec, '0.2f')
-
-            # percent string if present (keep two decimals)
-            percent_str = (format(pct, '0.2f') if pct is not None else None)
+            pct = (allocated_hours / monthly_max_hours * Decimal('100.00')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP) if monthly_max_hours > 0 else None
 
             subgroup['weeks_list'].append({
                 'week_number': wknum,
@@ -3023,31 +2951,193 @@ def my_allocations(request):
                 'week_end': wk_end.strftime('%Y-%m-%d'),
                 'working_days': wd,
                 'max_percent': format(max_pct, '0.2f'),
-                'percent': percent_str,
-                'allocated_hours': allocated_hours_str,
-                'leave_hours': leave_hours_str,
-                'punched_hours': punched_hours_str,
-                'status': status
+                'percent': format(pct, '0.2f') if pct else None,
+                'allocated_hours': format(allocated_hours, '0.2f'),
+                'leave_hours': format(leave_hours, '0.2f') if leave_hours > 0 else None,
+                'punched_hours': format(punched_hours, '0.2f'),
+                'status': status,
+                'is_editable': is_editable
             })
-            # ----- END DROP-IN REPLACEMENT -----
 
-        groups.setdefault(td.get('subproject_name') or 'Unspecified', {'subproject_name': td.get('subproject_name') or 'Unspecified', 'project_name': td.get('project_name') or '', 'rows': []})
+        groups.setdefault(td.get('subproject_name') or 'Unspecified', {
+            'subproject_name': td.get('subproject_name') or 'Unspecified',
+            'project_name': td.get('project_name') or '',
+            'rows': []
+        })
         groups[td.get('subproject_name') or 'Unspecified']['rows'].append(subgroup)
+
+    # All weeks for dropdown
+    all_weeks_list = _compute_weeks_for_billing(billing_start, billing_end)
 
     context = {
         'weeks': weeks,
+        'all_weeks_list': all_weeks_list,
+        'selected_week': selected_week_param,
+        'current_week': current_week_num,
         'billing_start': billing_start.strftime('%Y-%m-%d'),
         'billing_end': billing_end.strftime('%Y-%m-%d'),
         'month_label': billing_start.strftime('%b %Y'),
         'groups': groups,
         'holidays_map': holidays_map,
         'monthly_max_hours': format(monthly_max_hours, '0.2f'),
-        'update_status_url': reverse('projects:my_allocations_update_status'),
-        'save_vacation_url': reverse('projects:my_allocations_vacation'),
-        'tl_reconsider_url': reverse('projects:tl_reconsiderations'),
+        'save_effort_url': reverse('projects:save_effort_draft'),
+        'submit_effort_url': reverse('projects:submit_effort'),
+        'add_allocation_url': reverse('projects:add_self_allocation'),
+        'get_projects_url': reverse('projects:get_projects_for_allocation'),
     }
     return render(request, 'projects/my_allocations.html', context)
 
+
+@require_http_methods(["POST"])
+def save_effort_draft(request):
+    """Save draft effort data without submitting."""
+    user_email = request.session.get("ldap_username")
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
+
+    try:
+        data = json.loads(request.body)
+        efforts = data.get('efforts', [])  # [{tdid, week_number, punched_hours}, ...]
+
+        with connection.cursor() as cur:
+            for effort in efforts:
+                tdid = int(effort['team_distribution_id'])
+                week_num = int(effort['week_number'])
+                punched = Decimal(str(effort['punched_hours']))
+
+                # Upsert into punch_data with DRAFT status
+                cur.execute("""
+                    INSERT INTO punch_data 
+                    (user_email, team_distribution_id, month_start, week_number, punched_hours, status)
+                    SELECT %s, %s, td.month_start, %s, %s, 'DRAFT'
+                    FROM team_distributions td WHERE td.id = %s
+                    ON DUPLICATE KEY UPDATE 
+                        punched_hours = VALUES(punched_hours),
+                        updated_at = CURRENT_TIMESTAMP
+                """, [user_email, tdid, week_num, punched, tdid])
+
+        return JsonResponse({'ok': True, 'message': 'Draft saved successfully'})
+
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def submit_effort(request):
+    """Submit efforts for approval (makes them non-editable)."""
+    user_email = request.session.get("ldap_username")
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
+
+    try:
+        data = json.loads(request.body)
+        efforts = data.get('efforts', [])
+
+        with connection.cursor() as cur:
+            for effort in efforts:
+                tdid = int(effort['team_distribution_id'])
+                week_num = int(effort['week_number'])
+                punched = Decimal(str(effort['punched_hours']))
+
+                cur.execute("""
+                    INSERT INTO punch_data 
+                    (user_email, team_distribution_id, month_start, week_number, 
+                     punched_hours, status, submitted_at)
+                    SELECT %s, %s, td.month_start, %s, %s, 'SUBMITTED', NOW()
+                    FROM team_distributions td WHERE td.id = %s
+                    ON DUPLICATE KEY UPDATE 
+                        punched_hours = VALUES(punched_hours),
+                        status = 'SUBMITTED',
+                        submitted_at = NOW(),
+                        updated_at = CURRENT_TIMESTAMP
+                """, [user_email, tdid, week_num, punched, tdid])
+
+        return JsonResponse({'ok': True, 'message': 'Efforts submitted successfully'})
+
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def add_self_allocation(request):
+    """Add user self-allocation from modal."""
+    user_email = request.session.get("ldap_username")
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
+
+    try:
+        data = json.loads(request.body)
+        project_id = int(data['project_id'])
+        subproject_id = int(data['subproject_id'])
+        month_start = data['month_start']
+        allocations = data.get('allocations', [])  # [{week_number, percent_effort}, ...]
+
+        with connection.cursor() as cur:
+            for alloc in allocations:
+                week_num = int(alloc['week_number'])
+                pct = Decimal(str(alloc['percent_effort']))
+
+                # Calculate hours from percent (assuming monthly_max_hours)
+                cur.execute("""
+                    SELECT max_hours FROM monthly_hours_limit 
+                    WHERE year = YEAR(%s) AND month = MONTH(%s) LIMIT 1
+                """, [month_start, month_start])
+                row = cur.fetchone()
+                monthly_max = Decimal(str(row[0])) if row and row[0] else Decimal('183.75')
+                hours = (pct / Decimal('100.00') * monthly_max).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                cur.execute("""
+                    INSERT INTO user_self_allocations 
+                    (user_email, project_id, subproject_id, month_start, week_number, 
+                     percent_effort, hours, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'PENDING')
+                    ON DUPLICATE KEY UPDATE 
+                        percent_effort = VALUES(percent_effort),
+                        hours = VALUES(hours),
+                        updated_at = CURRENT_TIMESTAMP
+                """, [user_email, project_id, subproject_id, month_start, week_num, pct, hours])
+
+        return JsonResponse({'ok': True, 'message': 'Allocation added successfully'})
+
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def get_projects_for_allocation(request):
+    """Get projects and subprojects for add allocation modal."""
+    try:
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT p.id as project_id, p.name as project_name,
+                       sp.id as subproject_id, sp.name as subproject_name
+                FROM projects p
+                LEFT JOIN subprojects sp ON sp.project_id = p.id
+                ORDER BY p.name, sp.name
+            """)
+            rows = dictfetchall(cur)
+
+        # Group by project
+        projects = {}
+        for row in rows:
+            pid = row['project_id']
+            if pid not in projects:
+                projects[pid] = {
+                    'id': pid,
+                    'name': row['project_name'],
+                    'subprojects': []
+                }
+            if row['subproject_id']:
+                projects[pid]['subprojects'].append({
+                    'id': row['subproject_id'],
+                    'name': row['subproject_name']
+                })
+
+        return JsonResponse({'ok': True, 'projects': list(projects.values())})
+
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 # -------------------------
 # my_allocations_vacation endpoint
 # -------------------------
@@ -6289,6 +6379,89 @@ def tl_action_view(request, conf_id):
     except Exception as e:
         logger.exception("tl_action_view error: %s", e)
         return JsonResponse({'ok': False, 'error': 'server error'}, status=500)
+
+@require_POST
+def record_leave(request):
+    """
+    Record leave for user. Creates/updates leave_records entry.
+    Payload: {
+        user_ldap: str,
+        billing_start: date,
+        billing_end: date,
+        week_number: int,
+        leave_hours: float,
+        leave_type: str,
+        reason: str (optional)
+    }
+    """
+    user_email = get_user_email_from_session(request)
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        billing_start = payload.get('billing_start')
+        billing_end = payload.get('billing_end')
+        week_number = int(payload.get('week_number'))
+        leave_hours = Decimal(str(payload.get('leave_hours', 0))).quantize(Decimal('0.01'))
+        leave_type = payload.get('leave_type', 'CASUAL')
+        reason = payload.get('reason', '')[:500]
+
+        if not billing_start or not billing_end:
+            return JsonResponse({'ok': False, 'error': 'billing_start and billing_end required'}, status=400)
+
+        with transaction.atomic(), connection.cursor() as cur:
+            # Upsert leave record
+            cur.execute("""
+                INSERT INTO leave_records 
+                    (user_ldap, billing_start, billing_end, week_number, leave_hours, leave_type, reason, status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'PENDING', NOW(), NOW())
+                ON DUPLICATE KEY UPDATE 
+                    leave_hours = VALUES(leave_hours),
+                    leave_type = VALUES(leave_type),
+                    reason = VALUES(reason),
+                    status = VALUES(status),
+                    updated_at = NOW()
+            """, [user_email, billing_start, billing_end, week_number, str(leave_hours), leave_type, reason])
+
+        return JsonResponse({'ok': True, 'message': 'Leave recorded successfully'})
+
+    except Exception as e:
+        logger.exception("record_leave error: %s", e)
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@require_GET
+def get_leaves_for_month(request):
+    """
+    Get all leave records for user in a specific billing cycle.
+    Query params: billing_start
+    """
+    user_email = get_user_email_from_session(request)
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=403)
+
+    billing_start = request.GET.get('billing_start')
+    if not billing_start:
+        return JsonResponse({'ok': False, 'error': 'billing_start required'}, status=400)
+
+    try:
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT id, week_number, leave_hours, leave_type, reason, status
+                FROM leave_records
+                WHERE LOWER(user_ldap) = LOWER(%s) 
+                  AND billing_start = %s
+                ORDER BY week_number
+            """, [user_email, billing_start])
+
+            leaves = dictfetchall(cur)
+
+        return JsonResponse({'ok': True, 'leaves': leaves})
+
+    except Exception as e:
+        logger.exception("get_leaves_for_month error: %s", e)
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
 
