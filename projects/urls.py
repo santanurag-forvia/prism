@@ -83,5 +83,7 @@ urlpatterns = [
     path('my-allocations/submit/', views.submit_effort, name='submit_effort'),
     path('my-allocations/add/', views.add_self_allocation, name='add_self_allocation'),
     path('my-allocations/projects/', views.get_projects_for_allocation, name='get_projects_for_allocation'),
+    path('my-allocations/record-leave/', views.record_leave, name='record_leave'),
+    path('my-allocations/get-leaves/', views.get_leaves_for_month, name='get_leaves_for_month'),
 ]
 

@@ -542,6 +542,17 @@
                 transform: translateY(-2px);
                 box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
             }
+            .btn-record-leave {
+                background: #e53e3e;
+                color: white;
+                box-shadow: 0 2px 8px rgba(229, 62, 62, 0.3);
+            }
+
+            .btn-record-leave:hover {
+                background: #c53030;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(229, 62, 62, 0.5);
+            }
 
             /* === ANIMATIONS === */
             @keyframes fadeIn {
@@ -589,7 +600,7 @@
         <div class="page-container">
             <!-- Page Header with Month/Year Picker -->
             <div class="page-header">
-                <h1 class="page-title">My Weekly Allocations</h1>
+                <h1 class="page-title">My Weekly Allocations - {{ display_month }}</h1>
 
                 <div class="month-year-picker">
                     <label for="monthSelect">Month:</label>
@@ -645,6 +656,10 @@
                             <i class="fas fa-plus-circle"></i>
                             Add Allocation
                         </button>
+                        <button class="btn btn-record-leave" id="btnRecordLeave">
+                            <i class="fas fa-calendar-times"></i>
+                            Record Leave
+                        </button>
                     </div>
                 </div>
             </div>
@@ -693,8 +708,8 @@
                                             <td><strong>{{ week.allocated_hours }}h</strong></td>
                                             <td>
                                                 {% if week.leave_hours %}
-                                                    <span class="badge badge-warning">
-                                                        {{ week.leave_hours }}h
+                                                    <span class="badge badge-warning" style="background: #fef5e7; color: #d68910; padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                                        {{ week.leave_hours }}h Leave
                                                     </span>
                                                 {% else %}
                                                     <span style="color: #cbd5e0;">—</span>
@@ -703,10 +718,16 @@
                                             <td>
                                                 <input type="number"
                                                        class="effort-input"
-                                                       value="{{ week.punched_hours }}"
+                                                       value="{{ week.available_hours }}"
                                                        step="0.01"
                                                        min="0"
+                                                       max="{{ week.available_hours }}"
                                                        {% if not week.is_editable %}disabled{% endif %}>
+                                                {% if week.leave_hours %}
+                                                    <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
+                                                        Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours }}h leave)
+                                                    </small>
+                                                {% endif %}
                                             </td>
                                             <td>
                                                 <span class="status-badge status-{{ week.status|lower }}">
@@ -824,6 +845,107 @@
                 </div>
             </div>
         </div>
+        <!-- Record Leave Modal -->
+        <div id="recordLeaveModal" class="modal-overlay">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h4 class="modal-title">
+                        <i class="fas fa-calendar-times"></i>
+                        Record Leave
+                    </h4>
+                    <button class="modal-close" id="btnLeaveModalClose">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-info-circle"></i>
+                            Leave Details
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leaveWeek">
+                                    Week <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <select id="leaveWeek" required>
+                                    <option value="">Select Week...</option>
+                                    {% for week in all_weeks_list %}
+                                    <option value="{{ week.num }}">
+                                        Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="leaveType">
+                                    Leave Type <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <select id="leaveType" required>
+                                    <option value="">Select Type...</option>
+                                    <option value="CASUAL">Casual Leave</option>
+                                    <option value="SICK">Sick Leave</option>
+                                    <option value="EARNED">Earned Leave</option>
+                                    <option value="UNPAID">Unpaid Leave</option>
+                                    <option value="MATERNITY">Maternity Leave</option>
+                                    <option value="PATERNITY">Paternity Leave</option>
+                                    <option value="COMPENSATORY">Compensatory Off</option>
+                                    <option value="OTHER">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leaveHours">
+                                    Leave Hours <span style="color: #e53e3e;">*</span>
+                                </label>
+                                <input type="number"
+                                       id="leaveHours"
+                                       step="0.01"
+                                       min="0"
+                                       max="40"
+                                       placeholder="0.00"
+                                       required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="leaveDays">
+                                    Leave Days (auto-calculated)
+                                </label>
+                                <input type="text"
+                                       id="leaveDays"
+                                       readonly
+                                       style="background: #f7fafc;">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="leaveReason">
+                                Reason (Optional)
+                            </label>
+                            <textarea id="leaveReason"
+                                      rows="3"
+                                      maxlength="500"
+                                      placeholder="Enter reason for leave..."
+                                      style="width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnLeaveModalCancel">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button class="btn btn-primary" id="btnLeaveModalSave">
+                        <i class="fas fa-check"></i> Save Leave
+                    </button>
+                </div>
+            </div>
+        </div>
         {% endblock %}
 
         {% block extra_js %}
@@ -834,22 +956,40 @@
             const btnSaveDraft = document.getElementById('btnSaveDraft');
             const btnSubmit = document.getElementById('btnSubmit');
             const btnAddAllocation = document.getElementById('btnAddAllocation');
+            const btnRecordLeave = document.getElementById('btnRecordLeave');
+            const monthSelect = document.getElementById('monthSelect');
+            const yearSelect = document.getElementById('yearSelect');
+
+            // Add Allocation Modal
             const modal = document.getElementById('addAllocationModal');
             const modalProject = document.getElementById('modalProject');
             const modalSubproject = document.getElementById('modalSubproject');
             const btnModalClose = document.getElementById('btnModalClose');
             const btnModalCancel = document.getElementById('btnModalCancel');
             const btnModalSave = document.getElementById('btnModalSave');
-            const monthSelect = document.getElementById('monthSelect');
-            const yearSelect = document.getElementById('yearSelect');
+
+            // Record Leave Modal
+            const leaveModal = document.getElementById('recordLeaveModal');
+            const leaveWeek = document.getElementById('leaveWeek');
+            const leaveType = document.getElementById('leaveType');
+            const leaveHours = document.getElementById('leaveHours');
+            const leaveDays = document.getElementById('leaveDays');
+            const leaveReason = document.getElementById('leaveReason');
+            const btnLeaveModalClose = document.getElementById('btnLeaveModalClose');
+            const btnLeaveModalCancel = document.getElementById('btnLeaveModalCancel');
+            const btnLeaveModalSave = document.getElementById('btnLeaveModalSave');
 
             let projectsData = [];
+            const BILLING_START = '{{ billing_start|date:"Y-m-d" }}';
+            const BILLING_END = '{{ billing_end|date:"Y-m-d" }}';
+            const HOURS_PER_DAY = 8;
 
             // === MONTH/YEAR CHANGE ===
             window.changeMonthYear = function() {
-                const url = new URL(window.location.href);
                 const month = monthSelect.value;
-                url.searchParams.set('month', month);
+                const year = yearSelect.value;
+                const url = new URL(window.location.href);
+                url.searchParams.set('month', `${year}-${month.padStart(2, '0')}`);
                 window.location.href = url.toString();
             };
 
@@ -858,6 +998,81 @@
                 const url = new URL(window.location.href);
                 url.searchParams.set('week', this.value);
                 window.location.href = url.toString();
+            });
+
+            // === RECORD LEAVE MODAL ===
+            btnRecordLeave.addEventListener('click', function() {
+                // Reset form
+                leaveWeek.value = '';
+                leaveType.value = '';
+                leaveHours.value = '';
+                leaveDays.value = '';
+                leaveReason.value = '';
+
+                leaveModal.classList.add('active');
+            });
+
+            // Auto-calculate leave days
+            leaveHours.addEventListener('input', function() {
+                const hours = parseFloat(this.value) || 0;
+                const days = (hours / HOURS_PER_DAY).toFixed(2);
+                leaveDays.value = `${days} days`;
+            });
+
+            btnLeaveModalClose.addEventListener('click', closeLeaveModal);
+            btnLeaveModalCancel.addEventListener('click', closeLeaveModal);
+
+            leaveModal.addEventListener('click', function(e) {
+                if (e.target === leaveModal) {
+                    closeLeaveModal();
+                }
+            });
+
+            function closeLeaveModal() {
+                leaveModal.classList.remove('active');
+            }
+
+            btnLeaveModalSave.addEventListener('click', async function() {
+                const week = parseInt(leaveWeek.value);
+                const type = leaveType.value;
+                const hours = parseFloat(leaveHours.value) || 0;
+                const reason = leaveReason.value.trim();
+
+                if (!week || !type || hours <= 0) {
+                    showNotification('Please fill all required fields', 'warning');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('{{ record_leave_url }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            billing_start: BILLING_START,
+                            billing_end: BILLING_END,
+                            week_number: week,
+                            leave_hours: hours,
+                            leave_type: type,
+                            reason: reason
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        showNotification('Leave recorded successfully!', 'success');
+                        closeLeaveModal();
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        showNotification('Error: ' + data.error, 'error');
+                    }
+                } catch (err) {
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
+                }
             });
 
             // === SAVE DRAFT ===
@@ -929,7 +1144,7 @@
                 }
             });
 
-            // === ADD ALLOCATION MODAL ===
+            // === ADD ALLOCATION MODAL (existing code) ===
             btnAddAllocation.addEventListener('click', async function() {
                 try {
                     const response = await fetch('{{ get_projects_url }}');
@@ -943,7 +1158,6 @@
                             modalProject.innerHTML += `<option value="${proj.id}">${proj.name}</option>`;
                         });
 
-                        // Reset form
                         modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
                         modalSubproject.disabled = true;
                         document.querySelectorAll('.modal-percent-input').forEach(input => {
@@ -958,7 +1172,6 @@
                 }
             });
 
-            // === PROJECT SELECTION ===
             modalProject.addEventListener('change', function() {
                 const projectId = parseInt(this.value);
                 const project = projectsData.find(p => p.id === projectId);
@@ -973,11 +1186,9 @@
                 }
             });
 
-            // === MODAL CLOSE ===
             btnModalClose.addEventListener('click', closeModal);
             btnModalCancel.addEventListener('click', closeModal);
 
-            // Close on overlay click
             modal.addEventListener('click', function(e) {
                 if (e.target === modal) {
                     closeModal();
@@ -988,7 +1199,6 @@
                 modal.classList.remove('active');
             }
 
-            // === MODAL SAVE ===
             btnModalSave.addEventListener('click', async function() {
                 const projectId = parseInt(modalProject.value);
                 const subprojectId = parseInt(modalSubproject.value);
@@ -1024,7 +1234,7 @@
                         body: JSON.stringify({
                             project_id: projectId,
                             subproject_id: subprojectId,
-                            month_start: '{{ billing_start }}',
+                            month_start: BILLING_START,
                             allocations: allocations
                         })
                     });
@@ -1050,10 +1260,19 @@
                 document.querySelectorAll('tbody tr[data-editable="true"]').forEach(row => {
                     const input = row.querySelector('.effort-input');
                     if (input) {
+                        const punchedHours = parseFloat(input.value) || 0;
+                        const maxHours = parseFloat(input.getAttribute('max')) || 0;
+
+                        // Validate against available hours (allocated - leave)
+                        if (punchedHours > maxHours) {
+                            showNotification(`Punched hours exceed available hours for Week ${row.dataset.week}`, 'warning');
+                            return;
+                        }
+
                         efforts.push({
                             team_distribution_id: parseInt(row.dataset.tdid),
                             week_number: parseInt(row.dataset.week),
-                            punched_hours: parseFloat(input.value) || 0
+                            punched_hours: punchedHours
                         });
                     }
                 });

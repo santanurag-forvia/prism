@@ -6380,6 +6380,89 @@ def tl_action_view(request, conf_id):
         logger.exception("tl_action_view error: %s", e)
         return JsonResponse({'ok': False, 'error': 'server error'}, status=500)
 
+@require_POST
+def record_leave(request):
+    """
+    Record leave for user. Creates/updates leave_records entry.
+    Payload: {
+        user_ldap: str,
+        billing_start: date,
+        billing_end: date,
+        week_number: int,
+        leave_hours: float,
+        leave_type: str,
+        reason: str (optional)
+    }
+    """
+    user_email = get_user_email_from_session(request)
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        billing_start = payload.get('billing_start')
+        billing_end = payload.get('billing_end')
+        week_number = int(payload.get('week_number'))
+        leave_hours = Decimal(str(payload.get('leave_hours', 0))).quantize(Decimal('0.01'))
+        leave_type = payload.get('leave_type', 'CASUAL')
+        reason = payload.get('reason', '')[:500]
+
+        if not billing_start or not billing_end:
+            return JsonResponse({'ok': False, 'error': 'billing_start and billing_end required'}, status=400)
+
+        with transaction.atomic(), connection.cursor() as cur:
+            # Upsert leave record
+            cur.execute("""
+                INSERT INTO leave_records 
+                    (user_ldap, billing_start, billing_end, week_number, leave_hours, leave_type, reason, status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'PENDING', NOW(), NOW())
+                ON DUPLICATE KEY UPDATE 
+                    leave_hours = VALUES(leave_hours),
+                    leave_type = VALUES(leave_type),
+                    reason = VALUES(reason),
+                    status = VALUES(status),
+                    updated_at = NOW()
+            """, [user_email, billing_start, billing_end, week_number, str(leave_hours), leave_type, reason])
+
+        return JsonResponse({'ok': True, 'message': 'Leave recorded successfully'})
+
+    except Exception as e:
+        logger.exception("record_leave error: %s", e)
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@require_GET
+def get_leaves_for_month(request):
+    """
+    Get all leave records for user in a specific billing cycle.
+    Query params: billing_start
+    """
+    user_email = get_user_email_from_session(request)
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=403)
+
+    billing_start = request.GET.get('billing_start')
+    if not billing_start:
+        return JsonResponse({'ok': False, 'error': 'billing_start required'}, status=400)
+
+    try:
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT id, week_number, leave_hours, leave_type, reason, status
+                FROM leave_records
+                WHERE LOWER(user_ldap) = LOWER(%s) 
+                  AND billing_start = %s
+                ORDER BY week_number
+            """, [user_email, billing_start])
+
+            leaves = dictfetchall(cur)
+
+        return JsonResponse({'ok': True, 'leaves': leaves})
+
+    except Exception as e:
+        logger.exception("get_leaves_for_month error: %s", e)
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
 
 
 
