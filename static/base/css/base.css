@@ -129,7 +129,7 @@ body{
 
 /* ---------- Menu & Tokens ---------- */
 .side-nav{list-style:none;margin:8px 0 0;padding:0}
-.side-item{margin-bottom:10px;position:relative}
+.side-item{margin-bottom:2px;position:relative}  /* Changed from 10px to 4px */
 
 /* main menu items */
 .side-link{
