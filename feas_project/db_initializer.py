@@ -548,6 +548,90 @@ class DatabaseInitializer:
                 UNIQUE KEY `uq_prism_master_meta` (`table_name`,`col_name`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
+        # Add after weekly_allocations table definition (around line 450)
+
+        # 1. Punch Data Table - stores submitted effort punches
+        print("Adding DDL for table: punch_data")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `punch_data` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `user_email` VARCHAR(255) NOT NULL,
+                `team_distribution_id` BIGINT NULL,
+                `project_id` BIGINT NULL,
+                `subproject_id` BIGINT NULL,
+                `month_start` DATE NOT NULL,
+                `week_number` TINYINT NOT NULL,
+                `allocated_hours` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                `punched_hours` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                `percent_effort` DECIMAL(5,2) NULL,
+                `status` ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED') NOT NULL DEFAULT 'DRAFT',
+                `submitted_at` DATETIME NULL,
+                `approved_at` DATETIME NULL,
+                `approved_by` VARCHAR(255) NULL,
+                `comments` TEXT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_punch_user_td_week` (`user_email`, `team_distribution_id`, `month_start`, `week_number`),
+                INDEX `idx_punch_user_month` (`user_email`, `month_start`),
+                INDEX `idx_punch_status` (`status`),
+                CONSTRAINT `fk_punch_team_dist` FOREIGN KEY (`team_distribution_id`) 
+                    REFERENCES `team_distributions`(`id`) ON DELETE CASCADE,
+                CONSTRAINT `fk_punch_project` FOREIGN KEY (`project_id`) 
+                    REFERENCES `projects`(`id`) ON DELETE CASCADE,
+                CONSTRAINT `fk_punch_subproject` FOREIGN KEY (`subproject_id`) 
+                    REFERENCES `subprojects`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
+
+        # 2. Leave Records Table - tracks leave/vacation entries
+        print("Adding DDL for table: leave_records")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `leave_records` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `user_email` VARCHAR(255) NOT NULL,
+                `year` SMALLINT NOT NULL,
+                `month` TINYINT NOT NULL,
+                `week_number` TINYINT NOT NULL,
+                `leave_date` DATE NOT NULL,
+                `leave_hours` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                `leave_type` ENUM('SICK','VACATION','PERSONAL','BEREAVEMENT','OTHER') NOT NULL DEFAULT 'VACATION',
+                `description` VARCHAR(512) NULL,
+                `status` ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+                `approved_by` VARCHAR(255) NULL,
+                `approved_at` DATETIME NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX `idx_leave_user_date` (`user_email`, `leave_date`),
+                INDEX `idx_leave_user_month` (`user_email`, `year`, `month`),
+                INDEX `idx_leave_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
+
+        # 3. User Self-Allocations Table - for add allocation modal
+        print("Adding DDL for table: user_self_allocations")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `user_self_allocations` (
+                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                `user_email` VARCHAR(255) NOT NULL,
+                `project_id` BIGINT NOT NULL,
+                `subproject_id` BIGINT NOT NULL,
+                `month_start` DATE NOT NULL,
+                `week_number` TINYINT NOT NULL,
+                `percent_effort` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                `hours` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                `status` ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+                `approved_by` VARCHAR(255) NULL,
+                `approved_at` DATETIME NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_user_self_alloc` (`user_email`, `subproject_id`, `month_start`, `week_number`),
+                INDEX `idx_user_self_month` (`user_email`, `month_start`),
+                CONSTRAINT `fk_user_self_project` FOREIGN KEY (`project_id`) 
+                    REFERENCES `projects`(`id`) ON DELETE CASCADE,
+                CONSTRAINT `fk_user_self_subproject` FOREIGN KEY (`subproject_id`) 
+                    REFERENCES `subprojects`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
 
         # Final summary print
         print(f"Total tables to create: {len(ddls)}")

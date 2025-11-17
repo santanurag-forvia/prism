@@ -78,4 +78,10 @@ urlpatterns = [
     # TL Reconsiderations list + TL action endpoint
     path('tl/reconsiderations/', views.tl_reconsiderations_view, name='tl_reconsiderations'),
     path('tl/reconsiderations/<int:conf_id>/action/', views.tl_action_view, name='tl_reconsider_action'),
+
+    path('my-allocations/save-draft/', views.save_effort_draft, name='save_effort_draft'),
+    path('my-allocations/submit/', views.submit_effort, name='submit_effort'),
+    path('my-allocations/add/', views.add_self_allocation, name='add_self_allocation'),
+    path('my-allocations/projects/', views.get_projects_for_allocation, name='get_projects_for_allocation'),
 ]
+
