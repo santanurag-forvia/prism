@@ -90,7 +90,7 @@
                   {% if item.icon %}
                     <i class="fa-solid fa-{{ item.icon }}" aria-hidden="true"></i>
                   {% else %}
-                    {{ item.title|slice:":1"|upper }}
+                    <span class="icon-fallback">{{ item.title|slice:":1"|upper }}</span>
                   {% endif %}
                 </span>
                 <span class="side-label" title="{{ item.title }}">{{ item.title }}</span>
@@ -101,7 +101,7 @@
               <ul class="submenu" aria-hidden="true">
                 {% for s in item.submenus %}
                   <li>
-                    <a class="sub-item" href="{{ s.url|default:projects_edit_default_url|default:'#' }}">
+                    <a href="{{ s.url|default:'#' }}" class="sub-item">
                       {% if s.icon %}
                         <i class="fa-solid fa-{{ s.icon }}" aria-hidden="true"></i>
                       {% endif %}

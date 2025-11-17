@@ -318,21 +318,51 @@
   }
 
   /* Icon Container Styling */
-  .side-link .icon {
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 12px;
-    flex-shrink: 0;
-  }
+.side-link .icon {
+  width: 32px;              /* Increased from 28px for better spacing */
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  flex-shrink: 0;
+  font-size: 18px;          /* Explicit icon size */
+}
 
-  .side-link .icon i {
-    font-size: 16px !important;
-    color: rgba(255, 255, 255, 0.95) !important;
-  }
+/* Ensure icon glyphs render at correct size */
+.side-link .icon i {
+  font-size: 18px !important;
+  line-height: 1 !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+  width: 18px;              /* Fixed width for consistent spacing */
+  text-align: center;
+}
 
+/* Fallback text for missing icons */
+.side-link .icon .icon-fallback {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* Submenu icon spacing */
+.submenu .sub-item i {
+  font-size: 15px !important;
+  width: 20px;
+  margin-right: 12px;       /* Increased from 10px */
+  text-align: center;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Force Font Awesome font family explicitly */
+.sidebar i[class^="fa-"],
+.sidebar i[class*=" fa-"] {
+  font-family: "Font Awesome 6 Free" !important;
+  font-weight: 900 !important;
+  font-style: normal !important;
+  display: inline-block !important;
+}
   .side-link .side-label {
     flex: 1;
     white-space: nowrap;
@@ -490,3 +520,50 @@
     color: red !important;
   }
   */
+
+/* ============================================
+   Font Awesome Icon Debugging & Fixes
+   ============================================ */
+
+/* Force Font Awesome to load and render */
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css');
+
+/* Critical: Override any conflicting styles */
+.side-link .icon i,
+.sub-item i,
+i[class^="fa-"],
+i[class*=" fa-"] {
+  font-family: "Font Awesome 6 Free" !important;
+  font-weight: 900 !important;
+  font-style: normal !important;
+  font-variant: normal !important;
+  text-rendering: auto !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  line-height: 1 !important;
+  display: inline-block !important;
+}
+
+/* Ensure icon container doesn't hide icons */
+.side-link .icon {
+  overflow: visible !important;
+  line-height: 1 !important;
+}
+
+/* Debug: Temporarily show all FontAwesome icon codes */
+.side-link .icon i::before,
+.sub-item i::before {
+  font-family: "Font Awesome 6 Free" !important;
+  font-weight: 900 !important;
+  display: inline-block !important;
+}
+
+/* Prevent other styles from overriding */
+.sidebar * {
+  font-family: inherit;
+}
+
+.sidebar i[class^="fa-"],
+.sidebar i[class*=" fa-"] {
+  font-family: "Font Awesome 6 Free" !important;
+}
