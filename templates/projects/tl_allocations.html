@@ -201,6 +201,78 @@ th.week-header {
   }
   #two-tabs .tab-btn.active { border-color: #0ea5e9; color: #0f172a; }
   #two-tabs .tab-panel[hidden] { display: none; }
+
+
+  .feas-tabs-header {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 12px;
+  background: #f7fbff;
+  border-radius: 8px 8px 0 0;
+      position: sticky;
+      top:0;
+      z-index: 20;
+}
+.feas-tab-btn {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 12px 18px;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  color: #475569;
+  font-weight: 600;
+  font-size: 15px;
+  transition: color 0.18s, border-color 0.18s;
+  border-radius: 8px 8px 0 0;
+}
+.feas-tab-btn.active {
+  border-color: #0ea5e9;
+  color: #0b2545;
+  background: lightskyblue;
+  box-shadow: 0 2px 8px rgba(11,92,255,0.04);
+}
+.feas-tab-panel[hidden] {
+  display: none;
+}
+
+#allocTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f7fbff;
+}
+
+/* Sticky Resource column */
+.alloc-table th:first-child,
+.alloc-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 15;
+  background: #fff;
+  box-shadow: 2px 0 8px rgba(11,92,255,0.04);
+}
+
+/* Scrollable table container */
+.alloc-table-scroll-x {
+  width: 100%;
+  max-height: 480px;
+  overflow-x: auto;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* Sticky button bar at bottom */
+.alloc-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  background: #fff;
+  padding: 14px 0 10px 0;
+  text-align: right;
+  box-shadow: 0 -2px 8px rgba(11,92,255,0.04);
+}
 </style>
 
 
@@ -223,17 +295,17 @@ th.week-header {
     <div class="card-header"><span><span class="pill"></span>Reportees Allocation Summary</span></div>
    <div class="card-body">
        <!--Start of tab-->
-       <div id="two-tabs" style="margin: 16px auto;">
+       <div class="feas-tabs" style="margin: 16px auto;">
   <!-- Tab buttons -->
-  <div class="tabs" role="tablist" aria-label="Two tabs">
-    <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one">Direct reportees summary</button>
-    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-two">Project View</button>
-      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-three">View Allottment</button>
+  <div class="feas-tabs-header" role="tablist" aria-label="Two tabs">
+    <button class="feas-tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one">Direct reportees summary</button>
+    <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-two">Project View</button>
+      <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-three">View Allottment</button>
   </div>
 
   <!-- Tab panels -->
-  <div class="tab-panels">
-    <section id="panel-one" class="tab-panel" role="tabpanel" tabindex="0">
+  <div class="feas-tab-panels">
+    <section id="panel-one" class="feas-tab-panel" role="tabpanel" tabindex="0">
       <!-- Content for Tab One -->
         <table class="summary-table" id="summaryTable">
         <thead>
@@ -270,15 +342,14 @@ th.week-header {
       </table>
     </section>
 
-    <section id="panel-two" class="tab-panel" role="tabpanel" tabindex="1" hidden>
+    <section id="panel-two" class="feas-tab-panel" role="tabpanel" tabindex="1" hidden>
       <!-- Content for Tab Two -->
         <table class="summary-table" id="summaryTable1">
         <thead>
           <tr>
             <th>Project</th>
             <th style="">Resource</th>
-            <th style="">Start Date</th>
-              <th style="">End Date</th>
+             <th style="">FTE</th>
               <th style="">%</th>
           </tr>
         </thead>
@@ -306,7 +377,7 @@ th.week-header {
 <!--        </tbody>-->
       </table>
     </section>
-      <section id="panel-three" class="tab-panel" role="tabpanel" tabindex="2" hidden>
+      <section id="panel-three" class="feas-tab-panel" role="tabpanel" tabindex="2" hidden>
       <!-- Content for Tab Two -->
         <table class="summary-table" id="summaryTable2">
         <thead>
@@ -341,38 +412,6 @@ th.week-header {
   </div>
 </div>
        <!--End of Start tab-->
-
-<!--      <table class="summary-table" id="summaryTable">-->
-<!--        <thead>-->
-<!--          <tr>-->
-<!--            <th>Reportee</th>-->
-<!--            <th style="width:180px;">Total Allocated Hours</th>-->
-<!--            <th style="width:120px;">FTE</th>-->
-<!--          </tr>-->
-<!--        </thead>-->
-<!--        <tbody id="summaryBody">-->
-<!--          {% if reportees %}-->
-<!--            {% for r in reportees %}-->
-<!--            <tr class="reportee-row" data-ldap="{{ r.ldap }}">-->
-<!--              <td>-->
-<!--                {# robust fallback: prefer cn -> name -> mail -> ldap #}-->
-<!--                {% if r.cn %}-->
-<!--                  {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
-<!--                {% elif r.name %}-->
-<!--                  {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
-<!--                {% else %}-->
-<!--                  &lt;{{ r.mail|default:r.ldap }}&gt;-->
-<!--                {% endif %}-->
-<!--              </td>-->
-<!--              <td class="r-hours">{{ r.total_hours|default:"0.00" }}</td>-->
-<!--              <td class="r-fte">{{ r.fte|default:"0.000" }}</td>-->
-<!--            </tr>-->
-<!--            {% endfor %}-->
-<!--          {% else %}-->
-<!--            <tr><td colspan="3" class="small-muted">No reportees found.</td></tr>-->
-<!--          {% endif %}-->
-<!--        </tbody>-->
-<!--      </table>-->
     </div>
   </div>
     <!--End of Direct reportees-->
@@ -381,17 +420,27 @@ th.week-header {
   <div class="card">
     <div class="card-header">
       <span><span class="pill"></span>Allocate Bandwidth</span>
-      <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
+<!--      <button id="btnAddRow" class="btn btn-primary">Add Resource</button>-->
     </div>
-
     <div class="card-body">
-      <table class="alloc-table" id="allocTable">
+        <div class="feas-tabs" style="">
+  <!-- Tab buttons -->
+  <div class="feas-tabs-header" role="tablist" aria-label="Two tabs">
+    <button class="feas-tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one-allocation">Allocation by team member</button>
+    <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-two-allocation">Allocation by Project</button>
+  </div>
+
+  <!-- Tab panels -->
+  <div class="alloc-table-scroll-x">
+    <section id="panel-one-allocation" class="feas-tab-panel" role="tabpanel" tabindex="0">
+      <!-- Content for Tab One -->
+        <table class="alloc-table" id="allocTable">
         <!-- week header row (dynamic) -->
             <thead>
               <tr>
                 <th>Resource</th>
-                <th class="compact-project">Project</th>
-                <th class="compact-subproject">Subproject</th>
+                <th class="compact-project">Program</th>
+                <th class="compact-subproject">Project</th>
                 <th>Hours</th>
                 <th>FTE</th>
 
@@ -468,16 +517,93 @@ th.week-header {
           {% endfor %}
         </tbody>
       </table>
-
-      <div style="text-align:right; margin-top:14px;">
+         <div style="text-align:right; margin-top:14px;">
+             <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
           <button id="btnExportExcel" class="btn btn-primary" style="background:#0284c7;">Export to Excel</button>
         <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
       </div>
-    </div>
+    </section>
+      <section id="panel-two-allocation" class="feas-tab-panel" role="tabpanel" tabindex="1" hidden>
+      <!-- Content for Tab Two -->
+        <table class="alloc-table" id="allocTablebyProject">
+        <thead>
+          <tr>
+            <th>Program</th>
+           <th class="compact-project">Project</th>
+                <th class="compact-subproject">Members</th>
+          </tr>
+        </thead>
+
+                <tbody id="allocBodyByProject">
+          {# If server provides allocations, render rows now so Django-side values used #}
+          {% for row in allocations %}
+            <tr class="alloc-row" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
+<!--              <td>-->
+<!--                <select class="input sel-resource">-->
+<!--                  <option value="">&#45;&#45; select &#45;&#45;</option>-->
+<!--                  {% for r in reportees %}-->
+<!--                    {% comment %} robust display: prefer cn -> name -> mail -> ldap {% endcomment %}-->
+<!--                    {% if r.cn %}-->
+<!--                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>-->
+<!--                    {% elif r.name %}-->
+<!--                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>-->
+<!--                    {% else %}-->
+<!--                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>&lt;{{ r.mail|default:r.ldap }}&gt;</option>-->
+<!--                    {% endif %}-->
+<!--                  {% endfor %}-->
+<!--                </select>-->
+<!--              </td>-->
+
+              <td class="compact-project">
+                <select class="input sel-project">
+                  <option value="">-- select --</option>
+                  {% for p in projects %}
+                    {# p.project_id, bg_code, project_id } from view #}
+                    <option value="{{ p.project_id }}" data-bgcode="{{ p.bg_code|default:'' }}" {% if p.project_id == row.project_id %}selected{% endif %}>
+                      {{ p.name }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </td>
+
+              <td class="compact-subproject">
+                <select class="input sel-subproject">
+                  <option value="">-- select --</option>
+                </select>
+              </td>
+
+<!--              <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>-->
+<!--              <td class="auto-fte">&#45;&#45;</td>-->
+<!--              {% for w in weeks_info %}-->
+<!--              <td>-->
+<!--                <input class="input wpct" type="number" min="0" max="100"-->
+<!--                       data-week="{{ w.num }}" data-max="{{ w.max_pct }}"-->
+<!--                       value="{{ row.week_perc|default_if_none:''|slice:forloop.counter0|default:'0' }}">-->
+<!--              </td>-->
+<!--            {% endfor %}-->
+
+<!--              <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>-->
+            </tr>
+          {% endfor %}
+        </tbody>
+
+
+      </table>
+             <div style="text-align:right; margin-top:14px;">
+                   <button id="btnAddRow-project" class="btn btn-primary">Add Resource</button>
+          <button id="btnExportExcel-project" class="btn btn-primary" style="background:#0284c7;">Export to Excel</button>
+        <button id="btnSaveAlloc-project" class="btn btn-primary">Save Allocations</button>
+      </div>
+    </section>
+
+  </div>
+
+
+
   </div>
     <!--ENd of Allocation section-->
 </div>
-
+  </div>
 <!-- template to clone for new rows -->
 <template id="tpl-alloc-row">
   <tr class="alloc-row" data-team-dist-id="" data-subproject-id="">
@@ -839,6 +965,15 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
     if(sel) sel.focus();
   });
 
+  //Add Resource button in allocation by project tab
+   document.getElementById('btnAddRow-project').addEventListener('click', function(e){
+    e.preventDefault();
+    const tr = createRow({});
+    // focus on the resource select for quick input
+    const sel = tr.querySelector('.sel-resource');
+    if(sel) sel.focus();
+  });
+
   // Delegated event handling for dynamic elements:
   // NOTE: for server-rendered rows (which were not created via createRow)
   // we need to call delete endpoint when a DB-backed row is removed.
@@ -1066,16 +1201,15 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 
 
-// new code for tabs
+//Tab handling JS for multiple tab sets
 (function(){
-    const root = document.getElementById('two-tabs');
-    const btns = Array.from(root.querySelectorAll('.tab-btn'));
-    const panels = {
-      'panel-one': root.querySelector('#panel-one'),
-      'panel-two': root.querySelector('#panel-two'),
-       'panel-three': root.querySelector('#panel-three')
-    };
-
+  document.querySelectorAll('.feas-tabs').forEach(root => {
+    const btns = Array.from(root.querySelectorAll('.feas-tab-btn'));
+    const panels = {};
+    btns.forEach(b => {
+      const pid = b.getAttribute('aria-controls');
+      panels[pid] = root.querySelector('#' + pid);
+    });
     function activate(button){
       btns.forEach(b => {
         b.classList.toggle('active', b === button);
@@ -1087,8 +1221,6 @@ document.addEventListener('DOMContentLoaded', function(){
       panels[targetId].focus({ preventScroll: true });
     }
     btns.forEach(b => b.addEventListener('click', () => activate(b)));
-
-    // Optional keyboard navigation
     btns.forEach((b, idx) => {
       b.addEventListener('keydown', (e) => {
         if (!['ArrowLeft','ArrowRight'].includes(e.key)) return;
@@ -1098,7 +1230,10 @@ document.addEventListener('DOMContentLoaded', function(){
         activate(btns[next]);
       });
     });
-  })();
+  });
+})();
+//End of tab handling JS
+
 </script>
 
 {% endblock %}
