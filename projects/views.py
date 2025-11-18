@@ -2733,6 +2733,7 @@ import json
 def my_allocations(request):
     """
     Renders My Weekly Allocations with week selector dropdown and draft/submit capability.
+    Fixed to properly display punched hours from punch_data table.
     """
     user_email = request.session.get("ldap_username") or getattr(request.user, 'email', None)
     if not user_email:
@@ -2845,13 +2846,13 @@ def my_allocations(request):
     # Prepare maps
     td_ids = [r['team_distribution_id'] for r in td_rows]
     weekly_alloc_map = {}
-    punch_data_map = {}  # {(tdid, weeknum): {punched_hours, status}}
+    punch_data_map = {}  # {(tdid, weeknum): {punched_hours, status, submitted_at}}
     leave_map = {}
 
     if td_ids:
         placeholders = ','.join(['%s'] * len(td_ids))
         with connection.cursor() as cur:
-            # Weekly allocations
+            # Weekly allocations (allocated hours)
             cur.execute(f"""
                 SELECT id as weekly_id, team_distribution_id, week_number, hours, percent, status
                 FROM weekly_allocations
@@ -2866,15 +2867,19 @@ def my_allocations(request):
                     'status': r['status'] or 'PENDING'
                 }
 
-            # Punch data (submitted efforts)
+            # **FIX: Fetch punch_data (actual punched hours submitted by user)**
             cur.execute(f"""
-                SELECT team_distribution_id, week_number, punched_hours, status, submitted_at
+                SELECT team_distribution_id, week_number, 
+                       allocated_hours, punched_hours, status, submitted_at
                 FROM punch_data
-                WHERE team_distribution_id IN ({placeholders}) AND month_start = %s
-            """, td_ids + [billing_start])
+                WHERE team_distribution_id IN ({placeholders}) 
+                  AND LOWER(user_email) = LOWER(%s)
+                  AND month_start = %s
+            """, td_ids + [user_email, billing_start])
             for r in dictfetchall(cur):
                 key = (int(r['team_distribution_id']), int(r['week_number']))
                 punch_data_map[key] = {
+                    'allocated_hours': Decimal(str(r['allocated_hours'] or '0.00')),
                     'punched_hours': Decimal(str(r['punched_hours'] or '0.00')),
                     'status': r['status'],
                     'submitted_at': r['submitted_at']
@@ -2894,6 +2899,7 @@ def my_allocations(request):
                     key = (int(td['team_distribution_id']), wk)
                     leave_map[key] = Decimal(str(r['total_leave'] or '0.00'))
 
+    # Build groups structure
     # Build groups structure
     groups = {}
     for td in td_rows:
@@ -2919,34 +2925,46 @@ def my_allocations(request):
             max_pct = (Decimal(wd) / Decimal(total_working_days) * Decimal('100.00')).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # Check if punch data exists (submitted)
+            # **FIX: Properly retrieve punched hours from punch_data_map**
             punch_rec = punch_data_map.get(key)
-            is_submitted = punch_rec and punch_rec['status'] == 'SUBMITTED'
-            is_editable = not is_submitted
+            print("Processing TDID:", tdid, "Week:", wknum, "Punch Rec:", punch_rec)
+            # Initialize defaults
+            allocated_hours_raw = Decimal('0.00')
+            punched_hours = Decimal('0.00')
+            status = 'DRAFT'
+            is_submitted = False
+            is_editable = True
 
+            # After this block in your my_allocations view:
             if punch_rec:
-                punched_hours = punch_rec['punched_hours']
-                status = punch_rec['status']
+                allocated_hours_raw = punch_rec['allocated_hours']
+                punched_hours = punch_rec.get('punched_hours', Decimal('0.00'))  # <-- correctly retrieved
+                status = punch_rec.get('status', 'DRAFT')
+                is_submitted = (status == 'SUBMITTED')
+                is_editable = not is_submitted
+            elif key in weekly_alloc_map:
+                allocated_hours_raw = weekly_alloc_map[key]
+                punched_hours = Decimal('0.00')
+                status = 'DRAFT'
+                is_submitted = False
+                is_editable = True
             else:
-                # Draft mode - use weekly_allocations or equal split
-                if key in weekly_alloc_map:
-                    wrec = weekly_alloc_map[key]
-                    punched_hours = wrec['hours']
-                    status = 'DRAFT'
-                else:
-                    wk_count = len(weeks) or 1
-                    punched_hours = (total_hours / Decimal(wk_count)).quantize(
-                        Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    status = 'DRAFT'
+                allocated_hours_raw = (total_hours / Decimal(len(weeks))).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP)
+                punched_hours = Decimal('0.00')
+                status = 'DRAFT'
+                is_submitted = False
+                is_editable = True
 
             leave_hours = leave_map.get(key, Decimal('0.00'))
-            allocated_hours = punched_hours + leave_hours
+            allocated_hours = allocated_hours_raw + leave_hours
 
             pct = (allocated_hours / monthly_max_hours * Decimal('100.00')).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP) if monthly_max_hours > 0 else None
+                Decimal('0.01'), rounding=ROUND_HALF_UP) if monthly_max_hours > 0 else Decimal('0.00')
 
+            # **FIX: Add punched_hours to the weeks_list dictionary**
             subgroup['weeks_list'].append({
-                'week_number': wknum,
+                'num': wknum,
                 'week_start': wk_start.strftime('%Y-%m-%d'),
                 'week_end': wk_end.strftime('%Y-%m-%d'),
                 'working_days': wd,
@@ -2954,7 +2972,7 @@ def my_allocations(request):
                 'percent': format(pct, '0.2f') if pct else None,
                 'allocated_hours': format(allocated_hours, '0.2f'),
                 'leave_hours': format(leave_hours, '0.2f') if leave_hours > 0 else None,
-                'punched_hours': format(punched_hours, '0.2f'),
+                'punched_hours': format(punched_hours, '0.2f'),  # <-- ADD THIS LINE
                 'status': status,
                 'is_editable': is_editable
             })
@@ -2990,41 +3008,7 @@ def my_allocations(request):
 
 @require_http_methods(["POST"])
 def save_effort_draft(request):
-    """Save draft effort data without submitting."""
-    user_email = request.session.get("ldap_username")
-    if not user_email:
-        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
-
-    try:
-        data = json.loads(request.body)
-        efforts = data.get('efforts', [])  # [{tdid, week_number, punched_hours}, ...]
-
-        with connection.cursor() as cur:
-            for effort in efforts:
-                tdid = int(effort['team_distribution_id'])
-                week_num = int(effort['week_number'])
-                punched = Decimal(str(effort['punched_hours']))
-
-                # Upsert into punch_data with DRAFT status
-                cur.execute("""
-                    INSERT INTO punch_data 
-                    (user_email, team_distribution_id, month_start, week_number, punched_hours, status)
-                    SELECT %s, %s, td.month_start, %s, %s, 'DRAFT'
-                    FROM team_distributions td WHERE td.id = %s
-                    ON DUPLICATE KEY UPDATE 
-                        punched_hours = VALUES(punched_hours),
-                        updated_at = CURRENT_TIMESTAMP
-                """, [user_email, tdid, week_num, punched, tdid])
-
-        return JsonResponse({'ok': True, 'message': 'Draft saved successfully'})
-
-    except Exception as e:
-        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
-
-
-@require_http_methods(["POST"])
-def submit_effort(request):
-    """Submit efforts for approval (makes them non-editable)."""
+    """Save draft effort data with validation against allocated hours."""
     user_email = request.session.get("ldap_username")
     if not user_email:
         return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
@@ -3033,30 +3017,198 @@ def submit_effort(request):
         data = json.loads(request.body)
         efforts = data.get('efforts', [])
 
+        if not efforts:
+            return JsonResponse({'ok': False, 'error': 'No efforts provided'}, status=400)
+
+        # **STEP 1: Validate punched hours against allocated hours FIRST**
+        errors = []
         with connection.cursor() as cur:
             for effort in efforts:
                 tdid = int(effort['team_distribution_id'])
                 week_num = int(effort['week_number'])
-                punched = Decimal(str(effort['punched_hours']))
+                punched = Decimal(str(effort.get('punched_hours', 0)))
 
+                # Get allocated hours for this week from team_distributions
                 cur.execute("""
-                    INSERT INTO punch_data 
-                    (user_email, team_distribution_id, month_start, week_number, 
-                     punched_hours, status, submitted_at)
-                    SELECT %s, %s, td.month_start, %s, %s, 'SUBMITTED', NOW()
-                    FROM team_distributions td WHERE td.id = %s
-                    ON DUPLICATE KEY UPDATE 
-                        punched_hours = VALUES(punched_hours),
-                        status = 'SUBMITTED',
-                        submitted_at = NOW(),
-                        updated_at = CURRENT_TIMESTAMP
-                """, [user_email, tdid, week_num, punched, tdid])
+                    SELECT td.hours, td.month_start
+                    FROM team_distributions td
+                    WHERE td.id = %s AND td.reportee_ldap = %s
+                """, [tdid, user_email])
 
-        return JsonResponse({'ok': True, 'message': 'Efforts submitted successfully'})
+                alloc_row = cur.fetchone()
+                if not alloc_row:
+                    errors.append(f"Invalid allocation reference for team_distribution_id {tdid}")
+                    continue
 
+                total_allocated = Decimal(str(alloc_row[0]))
+
+                # Get weekly allocation if exists, otherwise use equal split
+                cur.execute("""
+                    SELECT hours FROM weekly_allocations 
+                    WHERE team_distribution_id = %s AND week_number = %s
+                """, [tdid, week_num])
+
+                week_row = cur.fetchone()
+                if week_row:
+                    allocated_hours = Decimal(str(week_row[0]))
+                else:
+                    # Equal split fallback (divide by 4 weeks)
+                    allocated_hours = (total_allocated / Decimal('4')).quantize(Decimal('0.01'), ROUND_HALF_UP)
+
+                # **VALIDATION CHECK**
+                if punched > allocated_hours:
+                    errors.append(
+                        f"Week {week_num}: Punched {punched}h exceeds allocated {allocated_hours}h"
+                    )
+
+        # **If validation failed, return errors without saving**
+        if errors:
+            return JsonResponse({
+                'ok': False,
+                'error': 'Validation failed',
+                'details': errors
+            }, status=400)
+
+        # **STEP 2: Save to database only if validation passed**
+        with transaction.atomic():
+            with connection.cursor() as cur:
+                for effort in efforts:
+                    tdid = int(effort['team_distribution_id'])
+                    week_num = int(effort['week_number'])
+                    punched = Decimal(str(effort.get('punched_hours', 0)))
+
+                    cur.execute("""
+                        INSERT INTO punch_data
+                        (user_email, team_distribution_id, month_start, week_number, 
+                         allocated_hours, punched_hours, status)
+                        SELECT %s, %s, td.month_start, %s,
+                               COALESCE(
+                                   (SELECT hours FROM weekly_allocations 
+                                    WHERE team_distribution_id = td.id AND week_number = %s),
+                                   TRUNCATE(td.hours / 4, 2)
+                               ),
+                               %s, 'DRAFT'
+                        FROM team_distributions td 
+                        WHERE td.id = %s
+                        ON DUPLICATE KEY UPDATE
+                            punched_hours = VALUES(punched_hours),
+                            allocated_hours = VALUES(allocated_hours),
+                            status = 'DRAFT',
+                            updated_at = CURRENT_TIMESTAMP
+                    """, [user_email, tdid, week_num, week_num, punched, tdid])
+
+        return JsonResponse({'ok': True, 'message': 'Draft saved successfully'})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
+        logger.error(f"Error saving draft: {e}", exc_info=True)
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
+
+@require_http_methods(["POST"])
+def submit_effort(request):
+    """Submit punched hours for approval."""
+    user_email = request.session.get("ldap_username")
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        month_str = payload.get('month')  # "YYYY-MM"
+        weeks_data = payload.get('weeks', [])  # List of {team_distribution_id, week_number, punched_hours}
+
+        if not month_str or not weeks_data:
+            return JsonResponse({'ok': False, 'error': 'Missing month or weeks data'}, status=400)
+
+        # Parse month_start
+        year, month = map(int, month_str.split('-'))
+        billing = get_billing_period(year, month)
+        if not billing:
+            return JsonResponse({'ok': False, 'error': 'No billing period found'}, status=400)
+
+        month_start = billing['start']
+
+        # Validation: Check punched hours don't exceed allocated hours
+        errors = []
+        with connection.cursor() as cur:
+            for week_data in weeks_data:
+                td_id = week_data.get('team_distribution_id')
+                week_num = week_data.get('week_number')
+                punched = Decimal(str(week_data.get('punched_hours', 0)))
+
+                # Get allocated hours from team_distributions
+                cur.execute("""
+                            SELECT hours
+                            FROM team_distributions
+                            WHERE id = %s
+                            """, [td_id])
+                row = cur.fetchone()
+
+                if not row:
+                    errors.append(f"Week {week_num}: Allocation not found")
+                    continue
+
+                allocated = Decimal(str(row[0]))
+
+                if punched > allocated:
+                    errors.append(
+                        f"Week {week_num}: Punched {punched}h exceeds allocated {allocated}h"
+                    )
+
+        if errors:
+            return JsonResponse({
+                'ok': False,
+                'error': 'Validation failed',
+                'details': errors
+            }, status=400)
+
+        # Save punched hours and update status to SUBMITTED
+        with transaction.atomic(), connection.cursor() as cur:
+            for week_data in weeks_data:
+                td_id = week_data.get('team_distribution_id')
+                week_num = week_data.get('week_number')
+                punched = Decimal(str(week_data.get('punched_hours', 0))).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+
+                # Get allocated hours for this distribution
+                cur.execute("""
+                            SELECT hours
+                            FROM team_distributions
+                            WHERE id = %s
+                            """, [td_id])
+                row = cur.fetchone()
+                allocated = Decimal(str(row[0])) if row else Decimal('0.00')
+
+                # Upsert punch_data with punched hours
+                cur.execute("""
+                            INSERT INTO punch_data
+                            (user_email, team_distribution_id, month_start, week_number,
+                             allocated_hours, punched_hours, status, submitted_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, 'SUBMITTED', NOW(), NOW()) ON DUPLICATE KEY
+                            UPDATE
+                                punched_hours =
+                            VALUES (punched_hours), status = 'SUBMITTED', submitted_at = NOW(), updated_at = NOW()
+                            """, [
+                                user_email,
+                                td_id,
+                                month_start,
+                                week_num,
+                                str(allocated),
+                                str(punched)
+                            ])
+
+        return JsonResponse({
+            'ok': True,
+            'message': f'Submitted {len(weeks_data)} week(s) successfully'
+        })
+
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        logger.exception("submit_effort error: %s", e)
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 @require_http_methods(["POST"])
 def add_self_allocation(request):
@@ -6461,6 +6613,55 @@ def get_leaves_for_month(request):
 
     except Exception as e:
         logger.exception("get_leaves_for_month error: %s", e)
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+@require_POST
+def save_my_allocation(request):
+    """
+    Save/update weekly allocation hours for user (draft mode).
+    Payload: {
+        allocation_id: int,
+        week_number: int,
+        allocated_hours: float,
+        allocated_percent: float (optional)
+    }
+    """
+    user_email = get_user_email_from_session(request)
+    if not user_email:
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        allocation_id = int(payload.get('allocation_id'))
+        week_number = int(payload.get('week_number'))
+        hours = payload.get('allocated_hours')
+        percent = payload.get('allocated_percent')
+
+        if hours is None:
+            return JsonResponse({'ok': False, 'error': 'allocated_hours required'}, status=400)
+
+        with transaction.atomic(), connection.cursor() as cur:
+            # Upsert weekly_allocations as DRAFT
+            cur.execute("""
+                INSERT INTO weekly_allocations 
+                    (allocation_id, week_number, hours, percent, status, updated_at)
+                VALUES (%s, %s, %s, %s, 'DRAFT', NOW())
+                ON DUPLICATE KEY UPDATE 
+                    hours = VALUES(hours),
+                    percent = VALUES(percent),
+                    status = 'DRAFT',
+                    updated_at = NOW()
+            """, [
+                allocation_id,
+                week_number,
+                str(Decimal(str(hours)).quantize(Decimal('0.01'))),
+                str(Decimal(str(percent)).quantize(Decimal('0.01'))) if percent else None
+            ])
+
+        return JsonResponse({'ok': True, 'message': 'Draft saved successfully'})
+
+    except Exception as e:
+        logger.exception("save_my_allocation error: %s", e)
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 

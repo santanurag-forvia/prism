@@ -717,12 +717,9 @@
                                             </td>
                                             <td>
                                                 <input type="number"
-                                                       class="effort-input"
-                                                       value="{{ week.available_hours }}"
-                                                       step="0.01"
-                                                       min="0"
-                                                       max="{{ week.available_hours }}"
-                                                       {% if not week.is_editable %}disabled{% endif %}>
+                                                              class="form-control punch-input"
+                                                              value="{{ week.punched_hours }}"
+                                                              {% if week.status == 'SUBMITTED' %}disabled{% endif %}>
                                                 {% if week.leave_hours %}
                                                     <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
                                                         Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours }}h leave)
@@ -1098,8 +1095,16 @@
 
                     if (data.ok) {
                         showNotification('Draft saved successfully!', 'success');
+                        // Optional: Reload to show updated status
+                        setTimeout(() => window.location.reload(), 1500);
                     } else {
-                        showNotification('Error: ' + data.error, 'error');
+                        // Show specific validation errors if available
+                        if (data.details && Array.isArray(data.details)) {
+                            const errorMsg = data.details.join('\n');
+                            showNotification(errorMsg, 'error');
+                        } else {
+                            showNotification('Error: ' + data.error, 'error');
+                        }
                     }
                 } catch (err) {
                     showNotification('Network error occurred', 'error');
@@ -1108,39 +1113,55 @@
             });
 
             // === SUBMIT EFFORTS ===
+            // In btnSubmitEffort click handler
             btnSubmit.addEventListener('click', async function() {
-                const efforts = collectEffortData();
+                const year = document.getElementById('yearFilter').value;
+                const month = document.getElementById('monthFilter').value;
+                const monthStr = `${year}-${month.padStart(2, '0')}`;
 
-                if (efforts.length === 0) {
-                    showNotification('No efforts to submit', 'warning');
-                    return;
-                }
+                // Collect all weeks with punched hours
+                const weeks = [];
+                document.querySelectorAll('.allocation-card').forEach(card => {
+                    const tdId = card.dataset.teamDistributionId;
 
-                if (!confirm('Are you sure you want to submit? Submitted efforts cannot be edited later.')) {
-                    return;
-                }
+                    card.querySelectorAll('.week-row').forEach(row => {
+                        const weekNum = row.dataset.weekNumber;
+                        const punchedInput = row.querySelector('.punched-hours-input');
+                        const punchedHours = parseFloat(punchedInput?.value || 0);
+
+                        weeks.push({
+                            team_distribution_id: parseInt(tdId),
+                            week_number: parseInt(weekNum),
+                            punched_hours: punchedHours
+                        });
+                    });
+                });
 
                 try {
-                    const response = await fetch('{{ submit_effort_url }}', {
+                    const resp = await fetch('/projects/my-allocations/submit/', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-CSRFToken': '{{ csrf_token }}'
+                            'X-CSRFToken': getCsrfToken()
                         },
-                        body: JSON.stringify({ efforts: efforts })
+                        body: JSON.stringify({
+                            month: monthStr,
+                            weeks: weeks
+                        })
                     });
 
-                    const data = await response.json();
-
+                    const data = await resp.json();
                     if (data.ok) {
                         showNotification('Efforts submitted successfully!', 'success');
                         setTimeout(() => window.location.reload(), 1500);
                     } else {
-                        showNotification('Error: ' + data.error, 'error');
+                        const errorMsg = data.details
+                            ? data.details.join('\n')
+                            : data.error;
+                        showNotification(errorMsg, 'error');
                     }
                 } catch (err) {
-                    showNotification('Network error occurred', 'error');
-                    console.error(err);
+                    showNotification('Submission failed: ' + err.message, 'error');
                 }
             });
 
