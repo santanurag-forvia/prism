@@ -58,6 +58,117 @@
                 border-color: #667eea;
                 box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
             }
+            /* === PAGE HEADER STYLES === */
+
+
+            .filter-controls {
+                display: flex;
+                align-items: center;
+                gap: 20px;
+            }
+
+            .filter-group {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .filter-group label {
+                color: white;
+                font-weight: 600;
+                font-size: 14px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin: 0;
+            }
+
+            .filter-select {
+                min-width: 140px;
+                padding: 10px 16px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                border-radius: 8px;
+                background: rgba(255, 255, 255, 0.95);
+                font-size: 14px;
+                font-weight: 600;
+                color: #2d3748;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+
+            .filter-select:hover {
+                border-color: rgba(255, 255, 255, 0.6);
+                background: white;
+            }
+
+            .filter-select:focus {
+                outline: none;
+                border-color: white;
+                box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+            }
+
+            .btn-search {
+                padding: 10px 28px;
+                background: white;
+                color: #667eea;
+                border: 2px solid white;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            }
+
+            .btn-search:hover {
+                background: #f7fafc;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            }
+
+            .btn-search:active {
+                transform: translateY(0);
+            }
+
+            /* === RESPONSIVE === */
+            @media (max-width: 1200px) {
+                .page-header {
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: 20px;
+                }
+
+                .filter-controls {
+                    justify-content: center;
+                    flex-wrap: wrap;
+                }
+            }
+
+            @media (max-width: 768px) {
+                .filter-controls {
+                    flex-direction: column;
+                    width: 100%;
+                }
+
+                .filter-group {
+                    width: 100%;
+                    justify-content: space-between;
+                }
+
+                .filter-select {
+                    flex: 1;
+                    min-width: 0;
+                }
+
+                .btn-search {
+                    width: 100%;
+                    justify-content: center;
+                }
+            }
 
             /* === ACTION BAR === */
             .action-bar {
@@ -593,33 +704,61 @@
                     max-height: 95vh;
                 }
             }
+            .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding: 20px 30px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.page-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: white;
+    margin: 0;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
         </style>
         {% endblock %}
 
         {% block content %}
         <div class="page-container">
             <!-- Page Header with Month/Year Picker -->
+            <!-- Page Header with Month/Year Picker -->
             <div class="page-header">
-                <h1 class="page-title">My Weekly Allocations - {{ display_month }}</h1>
+                <h1 class="page-title">My Weekly Allocations</h1>
 
-                <div class="month-year-picker">
-                    <label for="monthSelect">Month:</label>
-                    <select id="monthSelect" onchange="changeMonthYear()">
-                        {% for m in available_months %}
-                        <option value="{{ m.value }}" {% if m.selected %}selected{% endif %}>
-                            {{ m.label }}
-                        </option>
-                        {% endfor %}
-                    </select>
+                <div class="filter-controls">
+                    <div class="filter-group">
+                        <label for="yearSelect">Year:</label>
+                        <select id="yearSelect" class="filter-select">
+                            {% for year in years %}
+                                <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>
+                                    {{ year }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-                    <label for="yearSelect">Year:</label>
-                    <select id="yearSelect" onchange="changeMonthYear()">
-                        {% for y in available_years %}
-                        <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>
-                            {{ y }}
-                        </option>
-                        {% endfor %}
-                    </select>
+                    <div class="filter-group">
+                        <label for="monthSelect">Month:</label>
+                        <select id="monthSelect" class="filter-select">
+                            {% for month in months %}
+                                <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>
+                                    {{ month.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <button id="searchBtn" class="btn-search" onclick="changeMonthYear()">
+                        <i class="fas fa-search"></i>
+                        Search
+                    </button>
                 </div>
             </div>
 
@@ -981,15 +1120,22 @@
             const BILLING_END = '{{ billing_end|date:"Y-m-d" }}';
             const HOURS_PER_DAY = 8;
 
-            // === MONTH/YEAR CHANGE ===
-            window.changeMonthYear = function() {
-                const month = monthSelect.value;
-                const year = yearSelect.value;
-                const url = new URL(window.location.href);
-                url.searchParams.set('month', `${year}-${month.padStart(2, '0')}`);
-                window.location.href = url.toString();
-            };
 
+            // Add keyboard support for Enter key
+            document.addEventListener('DOMContentLoaded', function() {
+                const yearSelect = document.getElementById('yearSelect');
+                const monthSelect = document.getElementById('monthSelect');
+
+                [yearSelect, monthSelect].forEach(select => {
+                    if (select) {
+                        select.addEventListener('keypress', function(e) {
+                            if (e.key === 'Enter') {
+                                changeMonthYear();
+                            }
+                        });
+                    }
+                });
+            });
             // === WEEK SELECTOR ===
             weekSelector.addEventListener('change', function() {
                 const url = new URL(window.location.href);
@@ -1300,6 +1446,7 @@
                 return efforts;
             }
 
+
             function showNotification(message, type) {
                 const colors = {
                     success: { bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e' },
@@ -1383,5 +1530,74 @@
             }
         `;
         document.head.appendChild(style);
+        function handleFilterChange() {
+                const year = document.getElementById('yearSelect').value;
+                const month = document.getElementById('monthSelect').value;
+                window.location.href = `?year=${year}&month=${month}`;
+            }
+            function changeMonthYear() {
+                console.log("=== changeMonthYear() called ===");
+
+                const yearSel = document.getElementById("yearSelect");
+                const monthSel = document.getElementById("monthSelect");
+
+                console.log("Year selector element:", yearSel);
+                console.log("Month selector element:", monthSel);
+
+                if (!yearSel || !monthSel) {
+                    console.error("Year or month selector not found");
+                    console.error("yearSel is null:", yearSel === null);
+                    console.error("monthSel is null:", monthSel === null);
+                    return;
+                }
+
+                const year = yearSel.value;
+                const month = monthSel.value;
+
+                console.log("Raw year value:", year);
+                console.log("Raw month value:", month);
+                console.log("Year type:", typeof year);
+                console.log("Month type:", typeof month);
+
+                const paddedMonth = month.padStart(2, '0');
+                console.log("Padded month:", paddedMonth);
+
+                if (!year || !month) {
+                    console.warn("Missing year or month");
+                    console.warn("Year empty?", !year);
+                    console.warn("Month empty?", !month);
+                    showNotification('Please select both year and month', 'warning');
+                    return;
+                }
+
+                // Construct YYYY-MM format
+                const billingMonth = `${year}-${paddedMonth}`;
+                console.log("Constructed billing month:", billingMonth);
+
+                // Show loading state
+                const searchBtn = document.getElementById('searchBtn');
+                console.log("Search button element:", searchBtn);
+
+                if (searchBtn) {
+                    console.log("Disabling search button");
+                    searchBtn.disabled = true;
+                    searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+                } else {
+                    console.warn("Search button not found!");
+                }
+
+                // Construct URL with separate year and month parameters
+                const targetUrl = `/projects/my-allocations/?year=${encodeURIComponent(year)}&month=${encodeURIComponent(paddedMonth)}`;
+                console.log("Target URL:", targetUrl);
+                console.log("Encoded year:", encodeURIComponent(year));
+                console.log("Encoded month:", encodeURIComponent(paddedMonth));
+
+                console.log("Redirecting to:", targetUrl);
+                console.log("Current location before redirect:", window.location.href);
+
+                window.location.href = targetUrl;
+
+                console.log("=== changeMonthYear() completed ===");
+            }
         </script>
         {% endblock %}

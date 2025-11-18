@@ -2732,32 +2732,50 @@ import json
 
 def my_allocations(request):
     """
-    Renders My Weekly Allocations with week selector dropdown and draft/submit capability.
-    Fixed to properly display punched hours from punch_data table.
+    Renders My Weekly Allocations with month/year filters and leave recording prevention for submitted weeks.
     """
     user_email = request.session.get("ldap_username") or getattr(request.user, 'email', None)
     if not user_email:
         return HttpResponseForbidden("Not authenticated")
 
-    month_param = request.GET.get('month')
-    selected_week_param = request.GET.get('week', 'all')  # 'all' or week number
+    # Get current year/month or from query params
+    selected_year = request.GET.get('year')
+    selected_month = request.GET.get('month')
 
-    today = date.today()
-    if month_param:
-        try:
-            parts = month_param.split('-')
-            yy, mm = int(parts[0]), int(parts[1])
-        except Exception:
-            yy, mm = today.year, today.month
-    else:
-        yy, mm = today.year, today.month
+    if not selected_year or not selected_month:
+        today = date.today()
+        selected_year = str(today.year)
+        selected_month = str(today.month)
 
-    billing_start, billing_end = _get_billing_period_from_month(yy, mm)
+    selected_year = int(selected_year)
+    selected_month = int(selected_month)
+
+    # Generate year range (current year ± 2 years)
+    current_year = date.today().year
+    years = list(range(current_year - 2, current_year + 3))
+
+    # Months list
+    months = [
+        {'num': 1, 'name': 'January'},
+        {'num': 2, 'name': 'February'},
+        {'num': 3, 'name': 'March'},
+        {'num': 4, 'name': 'April'},
+        {'num': 5, 'name': 'May'},
+        {'num': 6, 'name': 'June'},
+        {'num': 7, 'name': 'July'},
+        {'num': 8, 'name': 'August'},
+        {'num': 9, 'name': 'September'},
+        {'num': 10, 'name': 'October'},
+        {'num': 11, 'name': 'November'},
+        {'num': 12, 'name': 'December'},
+    ]
+
+    billing_start, billing_end = _get_billing_period_from_month(selected_year, selected_month)
 
     # Fetch monthly max hours
     monthly_max_hours = Decimal('0.00')
     with connection.cursor() as cur:
-        cur.execute("SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1", [yy, mm])
+        cur.execute("SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1", [selected_year, selected_month])
         r = cur.fetchone()
         if r and r[0]:
             monthly_max_hours = Decimal(str(r[0]))
@@ -2766,6 +2784,7 @@ def my_allocations(request):
     weeks = _compute_weeks_for_billing(billing_start, billing_end)
 
     # Determine current week based on today's date
+    today = date.today()
     current_week_num = None
     for w in weeks:
         if w['start'] <= today <= w['end']:
@@ -2773,7 +2792,7 @@ def my_allocations(request):
             break
     if not current_week_num and weeks:
         current_week_num = weeks[0]['num']
-
+    selected_week_param = request.GET.get('week', 'all')
     # Filter weeks if specific week selected
     if selected_week_param != 'all':
         try:
@@ -2846,7 +2865,7 @@ def my_allocations(request):
     # Prepare maps
     td_ids = [r['team_distribution_id'] for r in td_rows]
     weekly_alloc_map = {}
-    punch_data_map = {}  # {(tdid, weeknum): {punched_hours, status, submitted_at}}
+    punch_data_map = {}
     leave_map = {}
 
     if td_ids:
@@ -2867,7 +2886,7 @@ def my_allocations(request):
                     'status': r['status'] or 'PENDING'
                 }
 
-            # **FIX: Fetch punch_data (actual punched hours submitted by user)**
+            # Fetch punch_data (actual punched hours submitted by user)
             cur.execute(f"""
                 SELECT team_distribution_id, week_number, 
                        allocated_hours, punched_hours, status, submitted_at
@@ -2891,17 +2910,17 @@ def my_allocations(request):
                 FROM leave_records
                 WHERE LOWER(user_email) = LOWER(%s) AND year = %s AND month = %s
                 GROUP BY week_number
-            """, [user_email, yy, mm])
+            """, [user_email, selected_year, selected_month])
             for r in dictfetchall(cur):
                 wk = int(r['week_number'])
-                # Apply leave to all allocations in this week
                 for td in td_rows:
                     key = (int(td['team_distribution_id']), wk)
                     leave_map[key] = Decimal(str(r['total_leave'] or '0.00'))
 
     # Build groups structure
-    # Build groups structure
     groups = {}
+    week_submission_status = {}  # Track submission status per week
+
     for td in td_rows:
         tdid = int(td['team_distribution_id'])
         total_hours = Decimal(str(td.get('total_hours') or '0.00'))
@@ -2925,25 +2944,23 @@ def my_allocations(request):
             max_pct = (Decimal(wd) / Decimal(total_working_days) * Decimal('100.00')).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # **FIX: Properly retrieve punched hours from punch_data_map**
+            # Retrieve punched hours from punch_data_map
             punch_rec = punch_data_map.get(key)
-            print("Processing TDID:", tdid, "Week:", wknum, "Punch Rec:", punch_rec)
-            # Initialize defaults
+
             allocated_hours_raw = Decimal('0.00')
             punched_hours = Decimal('0.00')
             status = 'DRAFT'
             is_submitted = False
             is_editable = True
 
-            # After this block in your my_allocations view:
             if punch_rec:
                 allocated_hours_raw = punch_rec['allocated_hours']
-                punched_hours = punch_rec.get('punched_hours', Decimal('0.00'))  # <-- correctly retrieved
+                punched_hours = punch_rec.get('punched_hours', Decimal('0.00'))
                 status = punch_rec.get('status', 'DRAFT')
                 is_submitted = (status == 'SUBMITTED')
                 is_editable = not is_submitted
             elif key in weekly_alloc_map:
-                allocated_hours_raw = weekly_alloc_map[key]
+                allocated_hours_raw = weekly_alloc_map[key]['hours']
                 punched_hours = Decimal('0.00')
                 status = 'DRAFT'
                 is_submitted = False
@@ -2956,13 +2973,18 @@ def my_allocations(request):
                 is_submitted = False
                 is_editable = True
 
+            # Track week submission status (for leave recording validation)
+            if wknum not in week_submission_status:
+                week_submission_status[wknum] = is_submitted
+            else:
+                week_submission_status[wknum] = week_submission_status[wknum] or is_submitted
+
             leave_hours = leave_map.get(key, Decimal('0.00'))
             allocated_hours = allocated_hours_raw + leave_hours
 
             pct = (allocated_hours / monthly_max_hours * Decimal('100.00')).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP) if monthly_max_hours > 0 else Decimal('0.00')
 
-            # **FIX: Add punched_hours to the weeks_list dictionary**
             subgroup['weeks_list'].append({
                 'num': wknum,
                 'week_start': wk_start.strftime('%Y-%m-%d'),
@@ -2972,7 +2994,7 @@ def my_allocations(request):
                 'percent': format(pct, '0.2f') if pct else None,
                 'allocated_hours': format(allocated_hours, '0.2f'),
                 'leave_hours': format(leave_hours, '0.2f') if leave_hours > 0 else None,
-                'punched_hours': format(punched_hours, '0.2f'),  # <-- ADD THIS LINE
+                'punched_hours': format(punched_hours, '0.2f'),
                 'status': status,
                 'is_editable': is_editable
             })
@@ -2987,6 +3009,17 @@ def my_allocations(request):
     # All weeks for dropdown
     all_weeks_list = _compute_weeks_for_billing(billing_start, billing_end)
 
+    # Generate month and year options for filters
+    current_year = today.year
+    month_options = [
+        {'value': i, 'label': date(2000, i, 1).strftime('%B')}
+        for i in range(1, 13)
+    ]
+    year_options = [
+        {'value': y, 'label': str(y)}
+        for y in range(current_year - 1, current_year + 2)
+    ]
+
     context = {
         'weeks': weeks,
         'all_weeks_list': all_weeks_list,
@@ -2996,12 +3029,19 @@ def my_allocations(request):
         'billing_end': billing_end.strftime('%Y-%m-%d'),
         'month_label': billing_start.strftime('%b %Y'),
         'groups': groups,
+        "years": years,
+        "months": months,
+        "selected_year": selected_year,
+        "selected_month": selected_month,
         'holidays_map': holidays_map,
         'monthly_max_hours': format(monthly_max_hours, '0.2f'),
         'save_effort_url': reverse('projects:save_effort_draft'),
         'submit_effort_url': reverse('projects:submit_effort'),
         'add_allocation_url': reverse('projects:add_self_allocation'),
         'get_projects_url': reverse('projects:get_projects_for_allocation'),
+        'month_options': month_options,
+        'year_options': year_options,
+        'week_submission_status': week_submission_status,  # For leave validation
     }
     return render(request, 'projects/my_allocations.html', context)
 
@@ -6536,15 +6576,7 @@ def tl_action_view(request, conf_id):
 def record_leave(request):
     """
     Record leave for user. Creates/updates leave_records entry.
-    Payload: {
-        user_ldap: str,
-        billing_start: date,
-        billing_end: date,
-        week_number: int,
-        leave_hours: float,
-        leave_type: str,
-        reason: str (optional)
-    }
+    Prevents recording leave for weeks where punching is already submitted.
     """
     user_email = get_user_email_from_session(request)
     if not user_email:
@@ -6563,6 +6595,24 @@ def record_leave(request):
             return JsonResponse({'ok': False, 'error': 'billing_start and billing_end required'}, status=400)
 
         with transaction.atomic(), connection.cursor() as cur:
+            # Check if any allocation for this week has been submitted
+            cur.execute("""
+                SELECT COUNT(*) as cnt
+                FROM monthly_allocation_entries mae
+                JOIN weekly_allocations wa ON wa.allocation_id = mae.id
+                WHERE LOWER(mae.user_ldap) = LOWER(%s)
+                  AND mae.month_start BETWEEN %s AND %s
+                  AND wa.week_number = %s
+                  AND wa.status IN ('SUBMITTED', 'ACCEPTED')
+            """, [user_email, billing_start, billing_end, week_number])
+
+            result = cur.fetchone()
+            if result and result[0] > 0:
+                return JsonResponse({
+                    'ok': False,
+                    'error': f'Cannot record leave for Week {week_number}. Punching has already been submitted for this week.'
+                }, status=400)
+
             # Upsert leave record
             cur.execute("""
                 INSERT INTO leave_records 
