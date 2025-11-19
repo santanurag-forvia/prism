@@ -3252,46 +3252,65 @@ def submit_effort(request):
 
 @require_http_methods(["POST"])
 def add_self_allocation(request):
-    """Add user self-allocation from modal."""
-    user_email = request.session.get("ldap_username")
-    if not user_email:
-        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Invalid request method'}, status=400)
 
     try:
         data = json.loads(request.body)
-        project_id = int(data['project_id'])
-        subproject_id = int(data['subproject_id'])
-        month_start = data['month_start']
-        allocations = data.get('allocations', [])  # [{week_number, percent_effort}, ...]
+        user_email = request.session['ldap_username']
+        project_id = data.get('project_id')
+        subproject_id = data.get('subproject_id')
+        month_start = data.get('month_start')  # Expected format: 'YYYY-MM-DD'
+        allocations = data.get('allocations', [])
 
-        with connection.cursor() as cur:
+        # Validate required fields
+        if not all([project_id, subproject_id, month_start]):
+            return JsonResponse({
+                'ok': False,
+                'error': 'Missing required fields: project_id, subproject_id, or month_start'
+            }, status=400)
+
+        # Validate month_start format
+        try:
+            datetime.strptime(month_start, '%Y-%m-%d')
+        except ValueError:
+            return JsonResponse({
+                'ok': False,
+                'error': f'Invalid month_start format: {month_start}. Expected YYYY-MM-DD'
+            }, status=400)
+
+        if not allocations:
+            return JsonResponse({'ok': False, 'error': 'No allocations provided'}, status=400)
+
+        # Insert allocations
+        sql = """
+            INSERT INTO user_self_allocations 
+            (user_email, project_id, subproject_id, month_start, week_number, 
+             percent_effort, hours, status, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, 
+                    (%s * (SELECT total_hours FROM monthly_allocation_entries 
+                           WHERE user_email=%s AND month_start=%s LIMIT 1) / 400.0), 
+                    'PENDING', NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                percent_effort = VALUES(percent_effort),
+                hours = VALUES(hours),
+                updated_at = NOW()
+        """
+
+        with connection.cursor() as cursor:
             for alloc in allocations:
-                week_num = int(alloc['week_number'])
-                pct = Decimal(str(alloc['percent_effort']))
+                week_num = alloc['week_number']
+                pct = alloc['percent_effort']
 
-                # Calculate hours from percent (assuming monthly_max_hours)
-                cur.execute("""
-                    SELECT max_hours FROM monthly_hours_limit 
-                    WHERE year = YEAR(%s) AND month = MONTH(%s) LIMIT 1
-                """, [month_start, month_start])
-                row = cur.fetchone()
-                monthly_max = Decimal(str(row[0])) if row and row[0] else Decimal('183.75')
-                hours = (pct / Decimal('100.00') * monthly_max).quantize(
-                    Decimal('0.01'), rounding=ROUND_HALF_UP)
+                cursor.execute(sql, [
+                    user_email, project_id, subproject_id, month_start,
+                    week_num, pct, pct, user_email, month_start
+                ])
 
-                cur.execute("""
-                    INSERT INTO user_self_allocations 
-                    (user_email, project_id, subproject_id, month_start, week_number, 
-                     percent_effort, hours, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'PENDING')
-                    ON DUPLICATE KEY UPDATE 
-                        percent_effort = VALUES(percent_effort),
-                        hours = VALUES(hours),
-                        updated_at = CURRENT_TIMESTAMP
-                """, [user_email, project_id, subproject_id, month_start, week_num, pct, hours])
+        return JsonResponse({'ok': True})
 
-        return JsonResponse({'ok': True, 'message': 'Allocation added successfully'})
-
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
