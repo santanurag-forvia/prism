@@ -2979,11 +2979,20 @@ def my_allocations(request):
             else:
                 week_submission_status[wknum] = week_submission_status[wknum] or is_submitted
 
-            leave_hours = leave_map.get(key, Decimal('0.00'))
-            allocated_hours = allocated_hours_raw + leave_hours
+            # Inside the for w in weeks loop:
 
-            pct = (allocated_hours / monthly_max_hours * Decimal('100.00')).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP) if monthly_max_hours > 0 else Decimal('0.00')
+            # Fetch leave hours for this week
+            leave_hours = leave_map.get(key, Decimal('0.00'))
+
+            # Calculate available hours for punching (base allocation - leave)
+            available_hours = allocated_hours_raw - leave_hours
+            if available_hours < Decimal('0.00'):
+                available_hours = Decimal('0.00')
+
+            # Percentage still based on base allocation (not available hours)
+            pct = (allocated_hours_raw / monthly_max_hours * Decimal('100.00')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            ) if monthly_max_hours > 0 else Decimal('0.00')
 
             subgroup['weeks_list'].append({
                 'num': wknum,
@@ -2992,8 +3001,9 @@ def my_allocations(request):
                 'working_days': wd,
                 'max_percent': format(max_pct, '0.2f'),
                 'percent': format(pct, '0.2f') if pct else None,
-                'allocated_hours': format(allocated_hours, '0.2f'),
+                'allocated_hours': format(allocated_hours_raw, '0.2f'),  # ✅ Original allocation from table
                 'leave_hours': format(leave_hours, '0.2f') if leave_hours > 0 else None,
+                'available_hours': format(available_hours, '0.2f'),  # ✅ Max punchable hours
                 'punched_hours': format(punched_hours, '0.2f'),
                 'status': status,
                 'is_editable': is_editable

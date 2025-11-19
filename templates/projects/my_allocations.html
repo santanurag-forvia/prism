@@ -856,9 +856,11 @@
                                             </td>
                                             <td>
                                                 <input type="number"
-                                                              class="form-control punch-input"
-                                                              value="{{ week.punched_hours }}"
-                                                              {% if week.status == 'SUBMITTED' %}disabled{% endif %}>
+                                                       class="form-control punch-input"
+                                                       value="{{ week.punched_hours }}"
+                                                       max="{{ week.available_hours }}"
+                                                       step="0.01"
+                                                       {% if week.status == 'SUBMITTED' %}disabled{% endif %}>
                                                 {% if week.leave_hours %}
                                                     <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
                                                         Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours }}h leave)
