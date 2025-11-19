@@ -1073,6 +1073,8 @@
                 </div>
 
                 <div class="modal-footer">
+                    <input type="hidden" id="hiddenBillingStart" value="{{ billing_start|date:'Y-m-d' }}">
+                    <input type="hidden" id="hiddenBillingEnd" value="{{ billing_end|date:'Y-m-d' }}">
                     <button class="btn btn-secondary" id="btnLeaveModalCancel">
                         <i class="fas fa-times"></i> Cancel
                     </button>
@@ -1116,8 +1118,8 @@
             const btnLeaveModalSave = document.getElementById('btnLeaveModalSave');
 
             let projectsData = [];
-            const BILLING_START = '{{ billing_start|date:"Y-m-d" }}';
-            const BILLING_END = '{{ billing_end|date:"Y-m-d" }}';
+            const BILLING_START = '{{ month_start|date:"Y-m-d" }}';
+            const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
             const HOURS_PER_DAY = 8;
 
 
@@ -1175,48 +1177,7 @@
                 leaveModal.classList.remove('active');
             }
 
-            btnLeaveModalSave.addEventListener('click', async function() {
-                const week = parseInt(leaveWeek.value);
-                const type = leaveType.value;
-                const hours = parseFloat(leaveHours.value) || 0;
-                const reason = leaveReason.value.trim();
 
-                if (!week || !type || hours <= 0) {
-                    showNotification('Please fill all required fields', 'warning');
-                    return;
-                }
-
-                try {
-                    const response = await fetch('{{ record_leave_url }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': '{{ csrf_token }}'
-                        },
-                        body: JSON.stringify({
-                            billing_start: BILLING_START,
-                            billing_end: BILLING_END,
-                            week_number: week,
-                            leave_hours: hours,
-                            leave_type: type,
-                            reason: reason
-                        })
-                    });
-
-                    const data = await response.json();
-
-                    if (data.ok) {
-                        showNotification('Leave recorded successfully!', 'success');
-                        closeLeaveModal();
-                        setTimeout(() => window.location.reload(), 1500);
-                    } else {
-                        showNotification('Error: ' + data.error, 'error');
-                    }
-                } catch (err) {
-                    showNotification('Network error occurred', 'error');
-                    console.error(err);
-                }
-            });
 
             // === SAVE DRAFT ===
             btnSaveDraft.addEventListener('click', async function() {
@@ -1366,6 +1327,7 @@
                 modal.classList.remove('active');
             }
 
+            // Fix 1: Add Allocation - Proper data collection
             btnModalSave.addEventListener('click', async function() {
                 const projectId = parseInt(modalProject.value);
                 const subprojectId = parseInt(modalSubproject.value);
@@ -1375,6 +1337,7 @@
                     return;
                 }
 
+                // Collect week allocations
                 const allocations = [];
                 document.querySelectorAll('.modal-percent-input').forEach(input => {
                     const pct = parseFloat(input.value) || 0;
@@ -1392,7 +1355,7 @@
                 }
 
                 try {
-                    const response = await fetch('{{ add_allocation_url }}', {
+                    const response = await fetch("{% url 'projects:add_self_allocation' %}", {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1401,7 +1364,7 @@
                         body: JSON.stringify({
                             project_id: projectId,
                             subproject_id: subprojectId,
-                            month_start: BILLING_START,
+                            month_start: BILLING_START, // Already in YYYY-MM-DD format
                             allocations: allocations
                         })
                     });
@@ -1420,6 +1383,99 @@
                     console.error(err);
                 }
             });
+
+            // Fix 2: Record Leave - Proper submission
+            // Fix 2: Record Leave - Proper submission
+            btnLeaveModalSave.addEventListener('click', async function() {
+                const week = parseInt(leaveWeek.value);
+                const type = leaveType.value;
+                const hours = parseFloat(leaveHours.value) || 0;
+                const reason = leaveReason.value.trim();
+
+                const billingStart = document.getElementById('hiddenBillingStart').value;
+                const billingEnd = document.getElementById('hiddenBillingEnd').value;
+
+                if (!week || !type || hours <= 0) {
+                    showNotification('Please fill all required fields', 'warning');
+                    return;
+                }
+
+                if (!billingStart || !billingEnd) {
+                    showNotification('Billing period not available', 'error');
+                    return;
+                }
+
+                try {
+                    const response = await fetch("{% url 'projects:record_leave' %}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            billing_start: billingStart,
+                            billing_end: billingEnd,
+                            week_number: week,
+                            leave_hours: hours,
+                            leave_type: type,
+                            reason: reason
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        showNotification('Leave recorded successfully!', 'success');
+                        closeLeaveModal();
+
+                        // Instead of full reload, update the UI dynamically
+                        updateLeaveHoursInUI(week, hours);
+
+                        // Optional: Reload after delay to get fresh data from server
+                        setTimeout(() => window.location.reload(), 2000);
+                    } else {
+                        showNotification('Error: ' + data.error, 'error');
+                    }
+                } catch (err) {
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
+                }
+            });
+
+            // Add this helper function to update UI without full reload
+            function updateLeaveHoursInUI(weekNumber, leaveHours) {
+                // Find all allocation cards and update the specific week row
+                document.querySelectorAll('.allocation-card').forEach(card => {
+                    const weekRow = card.querySelector(`tr[data-week="${weekNumber}"]`);
+                    if (weekRow) {
+                        // Update leave hours cell
+                        const leaveCell = weekRow.cells[4]; // Leave Hours column (index 4)
+                        if (leaveCell) {
+                            leaveCell.innerHTML = `
+                                <span class="badge badge-warning" style="background: #fef5e7; color: #d68910; padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                    ${leaveHours}h Leave
+                                </span>
+                            `;
+                        }
+
+                        // Update punched hours max attribute
+                        const punchedInput = weekRow.querySelector('.punch-input');
+                        if (punchedInput) {
+                            const allocatedHours = parseFloat(weekRow.cells[3].textContent) || 0;
+                            const maxPunchable = allocatedHours - leaveHours;
+                            punchedInput.setAttribute('max', maxPunchable);
+
+                            // Add helper text
+                            const helpText = punchedInput.parentElement.querySelector('small') || document.createElement('small');
+                            helpText.style.cssText = 'display: block; margin-top: 4px; color: #718096; font-size: 11px;';
+                            helpText.textContent = `Max: ${maxPunchable.toFixed(2)}h (${allocatedHours}h - ${leaveHours}h leave)`;
+                            if (!punchedInput.parentElement.querySelector('small')) {
+                                punchedInput.parentElement.appendChild(helpText);
+                            }
+                        }
+                    }
+                });
+            }
 
             // === HELPER FUNCTIONS ===
             function collectEffortData() {
