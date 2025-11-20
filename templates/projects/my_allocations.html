@@ -837,40 +837,42 @@
                                     </thead>
                                     <tbody>
                                         {% for week in row.weeks_list %}
-                                        <tr data-tdid="{{ row.team_distribution_id }}"
-                                            data-week="{{ week.week_number }}"
-                                            data-editable="{{ week.is_editable|yesno:'true,false' }}">
-                                            <td><strong>Week {{ week.week_number }}</strong></td>
+                                        <tr data-week="{{ week.num }}"
+                                            data-tdid="{{ row.team_distribution_id }}"
+                                            data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
 
+                                            <td><strong>Week {{ week.num }}</strong></td>
                                             <td>{{ week.working_days }} days</td>
                                             <td>{{ week.max_percent }}%</td>
-                                            <td><strong>{{ week.allocated_hours }}h</strong></td>
+                                            <td>{{ week.allocated_hours }}h</td>
+
+                                            <!-- Leave Hours -->
                                             <td>
                                                 {% if week.leave_hours %}
                                                     <span class="badge badge-warning" style="background: #fef5e7; color: #d68910; padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">
                                                         {{ week.leave_hours }}h Leave
                                                     </span>
                                                 {% else %}
-                                                    <span style="color: #cbd5e0;">—</span>
+                                                    —
                                                 {% endif %}
                                             </td>
+
+                                            <!-- Punched Hours Input -->
                                             <td>
-                                                <!-- Around line 450-460 in the Punched Hours column -->
-                                               <input type="number"
-                                                             step="0.01"
-                                                             min="0"
-                                                             max="{{ week.available_hours }}"
-                                                             class="punch-input"
-                                                             data-tdid="{{ row.team_distribution_id }}"
-                                                             data-week="{{ week.num }}"
-                                                             value="{{ week.initial_punch_value }}"
-                                                             {% if not week.is_editable %}disabled{% endif %}>
-                                                {% if week.leave_hours %}
-                                                    <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
-                                                        Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours }}h leave)
-                                                    </small>
-                                                {% endif %}
+                                                <input type="number"
+                                                       class="punch-input"
+                                                       step="0.01"
+                                                       min="0"
+                                                       max="{{ week.available_hours }}"
+                                                       value="{{ week.initial_punch_value|default:week.punched_hours }}"
+                                                       {% if not week.is_editable %}disabled{% endif %}
+                                                       style="width: 90px;">
+                                                <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
+                                                    Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours|default:"0.00" }}h leave)
+                                                </small>
                                             </td>
+
+                                            <!-- Status Badge -->
                                             <td>
                                                 <span class="status-badge status-{{ week.status|lower }}">
                                                     {{ week.status }}
@@ -1227,54 +1229,41 @@
 
             // === SUBMIT EFFORTS ===
             // In btnSubmitEffort click handler
+            // === SUBMIT EFFORTS ===
             btnSubmit.addEventListener('click', async function() {
-                const year = document.getElementById('yearFilter').value;
-                const month = document.getElementById('monthFilter').value;
-                const monthStr = `${year}-${month.padStart(2, '0')}`;
+                const efforts = collectEffortData();
 
-                // Collect all weeks with punched hours
-                const weeks = [];
-                document.querySelectorAll('.allocation-card').forEach(card => {
-                    const tdId = card.dataset.teamDistributionId;
-
-                    card.querySelectorAll('.week-row').forEach(row => {
-                        const weekNum = row.dataset.weekNumber;
-                        const punchedInput = row.querySelector('.punched-hours-input');
-                        const punchedHours = parseFloat(punchedInput?.value || 0);
-
-                        weeks.push({
-                            team_distribution_id: parseInt(tdId),
-                            week_number: parseInt(weekNum),
-                            punched_hours: punchedHours
-                        });
-                    });
-                });
+                if (efforts.length === 0) {
+                    showNotification('No efforts to submit', 'warning');
+                    return;
+                }
 
                 try {
-                    const resp = await fetch('/projects/my-allocations/submit/', {
+                    const response = await fetch('{{ submit_effort_url }}', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-CSRFToken': getCsrfToken()
+                            'X-CSRFToken': '{{ csrf_token }}'
                         },
-                        body: JSON.stringify({
-                            month: monthStr,
-                            weeks: weeks
-                        })
+                        body: JSON.stringify({ efforts: efforts })
                     });
 
-                    const data = await resp.json();
+                    const data = await response.json();
+
                     if (data.ok) {
                         showNotification('Efforts submitted successfully!', 'success');
                         setTimeout(() => window.location.reload(), 1500);
                     } else {
-                        const errorMsg = data.details
-                            ? data.details.join('\n')
-                            : data.error;
-                        showNotification(errorMsg, 'error');
+                        if (data.details && Array.isArray(data.details)) {
+                            const errorMsg = data.details.join('\n');
+                            showNotification(errorMsg, 'error');
+                        } else {
+                            showNotification('Error: ' + data.error, 'error');
+                        }
                     }
                 } catch (err) {
-                    showNotification('Submission failed: ' + err.message, 'error');
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
                 }
             });
 
@@ -1483,24 +1472,36 @@
                 });
             }
 
-            // === HELPER FUNCTIONS ===
             function collectEffortData() {
                 const efforts = [];
                 document.querySelectorAll('tbody tr[data-editable="true"]').forEach(row => {
-                    const input = row.querySelector('.effort-input');
+                    const input = row.querySelector('.punch-input');
                     if (input) {
                         const punchedHours = parseFloat(input.value) || 0;
                         const maxHours = parseFloat(input.getAttribute('max')) || 0;
 
-                        // Validate against available hours (allocated - leave)
+                        // ✅ FIXED: Don't skip 0 hours - save what user entered
+                        // Only validate if user entered something > max
                         if (punchedHours > maxHours) {
-                            showNotification(`Punched hours exceed available hours for Week ${row.dataset.week}`, 'warning');
+                            showNotification(`Punched hours exceed available hours for Week ${row.getAttribute('data-week')}`, 'warning');
                             return;
                         }
 
+                        // Get week number and tdid from row attributes
+                        const weekNum = parseInt(row.getAttribute('data-week'));
+                        const tdid = parseInt(row.getAttribute('data-tdid'));
+
+                        // Validate that we have valid numbers
+                        if (isNaN(weekNum) || isNaN(tdid)) {
+                            console.error('Invalid week or tdid:', {weekNum, tdid, row});
+                            showNotification('Invalid data: missing week or allocation ID', 'error');
+                            return;
+                        }
+
+                        // ✅ INCLUDE all entries (even 0 hours) to save the draft state
                         efforts.push({
-                            team_distribution_id: parseInt(row.dataset.tdid),
-                            week_number: parseInt(row.dataset.week),
+                            team_distribution_id: tdid,
+                            week_number: weekNum,
                             punched_hours: punchedHours
                         });
                     }
