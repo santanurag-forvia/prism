@@ -763,6 +763,9 @@
             </div>
 
             <!-- Action Bar with Week Selector and Buttons -->
+            <!-- Replace the existing hiddenWeeksData line with this: -->
+            <input type="hidden" id="hiddenMonthStart" value="{{ billing_start|date:'Y-m-d' }}">
+            <input type="hidden" id="hiddenWeeksData" value="{{ all_weeks_list_json }}">
             <div class="action-bar">
                 <div class="action-row">
                     <div class="week-selector-group">
@@ -838,6 +841,7 @@
                                     <tbody>
                                         {% for week in row.weeks_list %}
                                         <tr data-week="{{ week.num }}"
+                                            data-week-num="{{ week.num }}"
                                             data-tdid="{{ row.team_distribution_id }}"
                                             data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
 
@@ -845,7 +849,6 @@
                                             <td>{{ week.working_days }} days</td>
                                             <td>{{ week.max_percent }}%</td>
                                             <td>{{ week.allocated_hours }}h</td>
-
                                             <!-- Leave Hours -->
                                             <td>
                                                 {% if week.leave_hours %}
@@ -1098,6 +1101,9 @@
         <script>
         document.addEventListener('DOMContentLoaded', function() {
             // === DOM ELEMENTS ===
+            // Add this after the DOMContentLoaded
+            console.log("Hidden input value:", document.getElementById('hiddenWeeksData').value);
+            console.log("Hidden input element:", document.getElementById('hiddenWeeksData'));
             const weekSelector = document.getElementById('weekSelector');
             const btnSaveDraft = document.getElementById('btnSaveDraft');
             const btnSubmit = document.getElementById('btnSubmit');
@@ -1227,46 +1233,96 @@
                 }
             });
 
-            // === SUBMIT EFFORTS ===
-            // In btnSubmitEffort click handler
-            // === SUBMIT EFFORTS ===
-            btnSubmit.addEventListener('click', async function() {
-                const efforts = collectEffortData();
 
-                if (efforts.length === 0) {
-                    showNotification('No efforts to submit', 'warning');
+            btnSubmit.addEventListener('click', async function() {
+                console.log("=== SUBMIT EFFORT STARTED ===");
+
+                const weeksData = [];
+
+                document.querySelectorAll('.allocation-card').forEach(card => {
+                    const tdId = parseInt(card.dataset.tdid);
+                    console.log(`Processing allocation card with td_id: ${tdId}`);
+
+                    const rows = card.querySelectorAll('tbody tr[data-editable="true"]');
+
+                    rows.forEach(row => {
+                        // ✅ FIX: Extract week_num with proper validation
+                        const weekNumRaw = row.dataset.weekNum || row.dataset.week;
+                        const weekNum = parseInt(weekNumRaw);
+
+                        // Validate week_num is a valid integer
+                        if (!weekNum || isNaN(weekNum)) {
+                            console.warn(`Skipping row with invalid week_num: ${weekNumRaw}`);
+                            return;  // Skip this row
+                        }
+
+                        const punchedInput = row.querySelector('input[type="number"]');
+                        const punchedHours = parseFloat(punchedInput?.value || 0);
+
+                        console.log(`  Week ${weekNum}: ${punchedHours}h punched`);
+
+                        if (tdId && weekNum && punchedHours > 0) {
+                            weeksData.push({
+                                team_distribution_id: tdId,
+                                week_number: weekNum,  // ✅ Now guaranteed to be an integer
+                                punched_hours: punchedHours
+                            });
+                        }
+                    });
+                });
+
+                console.log("Collected weeks data:", weeksData);
+
+                if (weeksData.length === 0) {
+                    showNotification('No punched hours to submit', 'warning');
                     return;
                 }
+
+                const billingStart = document.getElementById('hiddenMonthStart').value;
+                console.log("Billing start:", billingStart);
+
+                if (!billingStart) {
+                    showNotification('Missing billing period information', 'error');
+                    return;
+                }
+
+                const payload = {
+                    billing_start: billingStart,
+                    weeks: weeksData
+                };
+
+                console.log("Sending payload:", JSON.stringify(payload, null, 2));
 
                 try {
                     const response = await fetch('{{ submit_effort_url }}', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-CSRFToken': '{{ csrf_token }}'
+                            'X-CSRFToken': '{{ csrf_token }}'  // Template variable works directly here
                         },
-                        body: JSON.stringify({ efforts: efforts })
+                        body: JSON.stringify(payload)
                     });
 
+                    console.log("Response status:", response.status);
                     const data = await response.json();
+                    console.log("Response data:", data);
 
                     if (data.ok) {
-                        showNotification('Efforts submitted successfully!', 'success');
-                        setTimeout(() => window.location.reload(), 1500);
+                        showNotification('Submitted successfully!', 'success');
+                        setTimeout(() => location.reload(), 1500);
                     } else {
-                        if (data.details && Array.isArray(data.details)) {
-                            const errorMsg = data.details.join('\n');
-                            showNotification(errorMsg, 'error');
-                        } else {
-                            showNotification('Error: ' + data.error, 'error');
-                        }
+                        const errorMsg = Array.isArray(data.errors)
+                            ? data.errors.join(', ')
+                            : (data.error || 'Submission failed');
+                        showNotification(errorMsg, 'error');
                     }
                 } catch (err) {
+                    console.error("Network error:", err);
                     showNotification('Network error occurred', 'error');
-                    console.error(err);
                 }
-            });
 
+                console.log("=== SUBMIT EFFORT COMPLETED ===");
+            });
             // === ADD ALLOCATION MODAL (existing code) ===
             btnAddAllocation.addEventListener('click', async function() {
                 try {

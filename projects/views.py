@@ -3034,10 +3034,16 @@ def my_allocations(request):
         {'value': y, 'label': str(y)}
         for y in range(current_year - 1, current_year + 2)
     ]
+    from datetime import datetime
+    all_weeks_list_json = json.dumps(
+        all_weeks_list,
+        default=lambda obj: obj.isoformat() if isinstance(obj, datetime) else str(obj)
+    )
 
     context = {
         'weeks': weeks,
         'all_weeks_list': all_weeks_list,
+        'all_weeks_list_json': all_weeks_list_json,  # For JavaScript
         'selected_week': selected_week_param,
         'current_week': current_week_num,
         'billing_start': billing_start,
@@ -3164,104 +3170,186 @@ def save_effort_draft(request):
 @require_http_methods(["POST"])
 def submit_effort(request):
     """Submit punched hours for approval."""
+    print("\n" + "="*80)
+    print("=== submit_effort START ===")
+    print("="*80)
+
     user_email = request.session.get("ldap_username")
+    print(f"[AUTH] user_email: {user_email}")
+
     if not user_email:
+        print("[ERROR] User not authenticated")
         return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
 
     try:
+        # Parse request body
+        print("\n[STEP 1] Parsing request body...")
         payload = json.loads(request.body.decode('utf-8'))
-        month_str = payload.get('month')  # "YYYY-MM"
-        weeks_data = payload.get('weeks', [])  # List of {team_distribution_id, week_number, punched_hours}
+        print(f"[PAYLOAD] Raw payload: {payload}")
+
+        month_str = payload.get('billing_start')
+        weeks_data = payload.get('weeks', [])
+
+        print(f"[PAYLOAD] month_str: {month_str}")
+        print(f"[PAYLOAD] weeks_data count: {len(weeks_data)}")
+        print(f"[PAYLOAD] weeks_data: {weeks_data}")
 
         if not month_str or not weeks_data:
+            print("[ERROR] Missing month or weeks data")
             return JsonResponse({'ok': False, 'error': 'Missing month or weeks data'}, status=400)
 
         # Parse month_start
-        year, month = map(int, month_str.split('-'))
-        billing = get_billing_period(year, month)
-        if not billing:
+        print("\n[STEP 2] Parsing billing month...")
+        try:
+            parts = month_str.split('-')
+            print(f"[PARSE] Date parts: {parts}")
+
+            if len(parts) == 2:
+                year, month = map(int, parts)
+                print(f"[PARSE] Detected YYYY-MM format: year={year}, month={month}")
+            elif len(parts) == 3:
+                year, month = int(parts[0]), int(parts[1])
+                print(f"[PARSE] Detected YYYY-MM-DD format: year={year}, month={month}")
+            else:
+                raise ValueError(f"Invalid date format: {month_str}")
+
+            print(f"[BILLING] Calling get_billing_period({year}, {month})...")
+            billing_start, billing_end = get_billing_period(year, month)
+            print(f"[BILLING] billing_start: {billing_start}")
+            print(f"[BILLING] billing_end: {billing_end}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to parse billing month: {e}")
+            logger.error(f"Failed to parse billing month: {month_str} - {e}")
+            return JsonResponse({'ok': False, 'error': 'Invalid month format'}, status=400)
+
+        if not billing_start:
+            print("[ERROR] No billing period found")
             return JsonResponse({'ok': False, 'error': 'No billing period found'}, status=400)
 
-        month_start = billing['start']
+        month_start = billing_start
+        print(f"[BILLING] Final month_start: {month_start}")
 
-        # Validation: Check punched hours don't exceed allocated hours
+        # Validation
+        print("\n[STEP 3] Validating punched hours against allocations...")
         errors = []
         with connection.cursor() as cur:
-            for week_data in weeks_data:
-                td_id = week_data.get('team_distribution_id')
-                week_num = week_data.get('week_number')
-                punched = Decimal(str(week_data.get('punched_hours', 0)))
+            for idx, week_data in enumerate(weeks_data):
+                print(f"\n  [VALIDATION {idx+1}] Processing week_data: {week_data}")
 
-                # Get allocated hours from team_distributions
+                td_id = week_data.get('team_distribution_id') or week_data.get('td_id')
+                week_num = week_data.get('week_num') or week_data.get('week_number')
+
+                print(f"    td_id: {td_id}")
+                print(f"    week_num: {week_num}")
+
+                if not td_id:
+                    print(f"    [ERROR] Missing team_distribution_id")
+                    errors.append(f"Week {week_num or 'Unknown'}: Missing allocation ID")
+                    continue
+
+                if week_num is None:
+                    print(f"    [ERROR] Missing week_num for td_id={td_id}")
+                    errors.append(f"Allocation {td_id}: Missing week number")
+                    continue
+
+                # Query punch_data for allocated vs punched hours
                 cur.execute("""
-                            SELECT hours
-                            FROM team_distributions
-                            WHERE id = %s
-                            """, [td_id])
+                    SELECT allocated_hours, punched_hours
+                    FROM punch_data
+                    WHERE team_distribution_id = %s 
+                      AND week_number = %s
+                      AND user_email = %s
+                      AND month_start = %s
+                """, [td_id, week_num, user_email, month_start])
+
                 row = cur.fetchone()
+                print(f"    [DB QUERY] td_id={td_id}, week={week_num} -> row={row}")
 
                 if not row:
+                    print(f"    [ERROR] No punch_data found for td_id={td_id}, week={week_num}")
                     errors.append(f"Week {week_num}: Allocation not found")
                     continue
 
-                allocated = Decimal(str(row[0]))
+                allocated_hours = Decimal(str(row[0] or '0.00'))
+                punched_hours = Decimal(str(row[1] or '0.00'))
 
-                if punched > allocated:
+                print(f"    allocated_hours: {allocated_hours}")
+                print(f"    punched_hours: {punched_hours}")
+
+                if punched_hours > allocated_hours:
+                    print(f"    [ERROR] Overpunch: {punched_hours} > {allocated_hours}")
                     errors.append(
-                        f"Week {week_num}: Punched {punched}h exceeds allocated {allocated}h"
+                        f"Week {week_num}: Punched {punched_hours}h exceeds allocated {allocated_hours}h"
                     )
 
         if errors:
-            return JsonResponse({
-                'ok': False,
-                'error': 'Validation failed',
-                'details': errors
-            }, status=400)
+            print(f"\n[VALIDATION FAILED] Errors: {errors}")
+            return JsonResponse({'ok': False, 'errors': errors}, status=400)
 
-        # Save punched hours and update status to SUBMITTED
+        print("\n[VALIDATION] All validations passed")
+
+        # Save data
+        print("\n[STEP 4] Saving punch data to database...")
         with transaction.atomic(), connection.cursor() as cur:
-            for week_data in weeks_data:
+            for idx, week_data in enumerate(weeks_data):
+                print(f"\n[SAVE] Week {idx+1}/{len(weeks_data)}")
                 td_id = week_data.get('team_distribution_id')
                 week_num = week_data.get('week_number')
                 punched = Decimal(str(week_data.get('punched_hours', 0))).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
 
-                # Get allocated hours for this distribution
-                cur.execute("""
-                            SELECT hours
-                            FROM team_distributions
-                            WHERE id = %s
-                            """, [td_id])
+                print(f"  td_id: {td_id}")
+                print(f"  week_num: {week_num}")
+                print(f"  punched (quantized): {punched}")
+
+                # Fetch allocated hours
+                print(f"  [SQL] Fetching allocation...")
+                cur.execute("SELECT hours FROM team_distributions WHERE id = %s", [td_id])
                 row = cur.fetchone()
                 allocated = Decimal(str(row[0])) if row else Decimal('0.00')
+                print(f"  allocated: {allocated}")
 
-                # Upsert punch_data with punched hours
-                cur.execute("""
-                            INSERT INTO punch_data
-                            (user_email, team_distribution_id, month_start, week_number,
-                             allocated_hours, punched_hours, status, submitted_at, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s, 'SUBMITTED', NOW(), NOW()) ON DUPLICATE KEY
-                            UPDATE
-                                punched_hours =
-                            VALUES (punched_hours), status = 'SUBMITTED', submitted_at = NOW(), updated_at = NOW()
-                            """, [
-                                user_email,
-                                td_id,
-                                month_start,
-                                week_num,
-                                str(allocated),
-                                str(punched)
-                            ])
+                # Insert/update punch_data
+                sql = """
+                    INSERT INTO punch_data
+                    (user_email, team_distribution_id, month_start, week_number,
+                     allocated_hours, punched_hours, status, submitted_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'SUBMITTED', NOW(), NOW())
+                    ON DUPLICATE KEY UPDATE
+                        punched_hours = VALUES(punched_hours),
+                        status = 'SUBMITTED',
+                        submitted_at = NOW(),
+                        updated_at = NOW()
+                """
+                params = [user_email, td_id, month_start, week_num, str(allocated), str(punched)]
+                print(f"  [SQL] Executing INSERT/UPDATE with params: {params}")
+
+                try:
+                    cur.execute(sql, params)
+                    print(f"  [SQL] Success - rows affected: {cur.rowcount}")
+                except Exception as e:
+                    print(f"  [SQL ERROR] {e}")
+                    raise
+
+        print("\n[SUCCESS] All punch data saved successfully")
+        print(f"[RESPONSE] Returning success for {len(weeks_data)} weeks")
+
+        print("="*80)
+        print("=== submit_effort END ===")
+        print("="*80 + "\n")
 
         return JsonResponse({
             'ok': True,
             'message': f'Submitted {len(weeks_data)} week(s) successfully'
         })
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print(f"\n[EXCEPTION] JSONDecodeError: {e}")
         return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
+        print(f"\n[EXCEPTION] Unexpected error: {e}")
         logger.exception("submit_effort error: %s", e)
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
