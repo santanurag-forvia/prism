@@ -2979,8 +2979,6 @@ def my_allocations(request):
             else:
                 week_submission_status[wknum] = week_submission_status[wknum] or is_submitted
 
-            # Inside the for w in weeks loop:
-
             # Fetch leave hours for this week
             leave_hours = leave_map.get(key, Decimal('0.00'))
 
@@ -2988,6 +2986,12 @@ def my_allocations(request):
             available_hours = allocated_hours_raw - leave_hours
             if available_hours < Decimal('0.00'):
                 available_hours = Decimal('0.00')
+
+            # ✅ FIX: Initialize punched_hours with available_hours if not yet punched
+            # This ensures the value is ready for template display
+            initial_punch_value = punched_hours
+            if punched_hours == Decimal('0.00') and status in ['DRAFT', 'PENDING']:
+                initial_punch_value = available_hours
 
             # Percentage still based on base allocation (not available hours)
             pct = (allocated_hours_raw / monthly_max_hours * Decimal('100.00')).quantize(
@@ -3001,10 +3005,11 @@ def my_allocations(request):
                 'working_days': wd,
                 'max_percent': format(max_pct, '0.2f'),
                 'percent': format(pct, '0.2f') if pct else None,
-                'allocated_hours': format(allocated_hours_raw, '0.2f'),  # ✅ Original allocation from table
+                'allocated_hours': format(allocated_hours_raw, '0.2f'),
                 'leave_hours': format(leave_hours, '0.2f') if leave_hours > 0 else None,
-                'available_hours': format(available_hours, '0.2f'),  # ✅ Max punchable hours
-                'punched_hours': format(punched_hours, '0.2f'),
+                'available_hours': format(available_hours, '0.2f'),
+                'punched_hours': format(punched_hours, '0.2f'),  # Actual saved value
+                'initial_punch_value': format(initial_punch_value, '0.2f'),  # ✅ NEW: For template pre-fill
                 'status': status,
                 'is_editable': is_editable
             })
