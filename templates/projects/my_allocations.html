@@ -763,6 +763,9 @@
             </div>
 
             <!-- Action Bar with Week Selector and Buttons -->
+            <!-- Replace the existing hiddenWeeksData line with this: -->
+            <input type="hidden" id="hiddenMonthStart" value="{{ billing_start|date:'Y-m-d' }}">
+            <input type="hidden" id="hiddenWeeksData" value="{{ all_weeks_list_json }}">
             <div class="action-bar">
                 <div class="action-row">
                     <div class="week-selector-group">
@@ -837,34 +840,42 @@
                                     </thead>
                                     <tbody>
                                         {% for week in row.weeks_list %}
-                                        <tr data-tdid="{{ row.team_distribution_id }}"
-                                            data-week="{{ week.week_number }}"
-                                            data-editable="{{ week.is_editable|yesno:'true,false' }}">
-                                            <td><strong>Week {{ week.week_number }}</strong></td>
+                                        <tr data-week="{{ week.num }}"
+                                            data-week-num="{{ week.num }}"
+                                            data-tdid="{{ row.team_distribution_id }}"
+                                            data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
 
+                                            <td><strong>Week {{ week.num }}</strong></td>
                                             <td>{{ week.working_days }} days</td>
                                             <td>{{ week.max_percent }}%</td>
-                                            <td><strong>{{ week.allocated_hours }}h</strong></td>
+                                            <td>{{ week.allocated_hours }}h</td>
+                                            <!-- Leave Hours -->
                                             <td>
                                                 {% if week.leave_hours %}
                                                     <span class="badge badge-warning" style="background: #fef5e7; color: #d68910; padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">
                                                         {{ week.leave_hours }}h Leave
                                                     </span>
                                                 {% else %}
-                                                    <span style="color: #cbd5e0;">—</span>
+                                                    —
                                                 {% endif %}
                                             </td>
+
+                                            <!-- Punched Hours Input -->
                                             <td>
                                                 <input type="number"
-                                                              class="form-control punch-input"
-                                                              value="{{ week.punched_hours }}"
-                                                              {% if week.status == 'SUBMITTED' %}disabled{% endif %}>
-                                                {% if week.leave_hours %}
-                                                    <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
-                                                        Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours }}h leave)
-                                                    </small>
-                                                {% endif %}
+                                                       class="punch-input"
+                                                       step="0.01"
+                                                       min="0"
+                                                       max="{{ week.available_hours }}"
+                                                       value="{{ week.initial_punch_value|default:week.punched_hours }}"
+                                                       {% if not week.is_editable %}disabled{% endif %}
+                                                       style="width: 90px;">
+                                                <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
+                                                    Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours|default:"0.00" }}h leave)
+                                                </small>
                                             </td>
+
+                                            <!-- Status Badge -->
                                             <td>
                                                 <span class="status-badge status-{{ week.status|lower }}">
                                                     {{ week.status }}
@@ -1073,6 +1084,8 @@
                 </div>
 
                 <div class="modal-footer">
+                    <input type="hidden" id="hiddenBillingStart" value="{{ billing_start|date:'Y-m-d' }}">
+                    <input type="hidden" id="hiddenBillingEnd" value="{{ billing_end|date:'Y-m-d' }}">
                     <button class="btn btn-secondary" id="btnLeaveModalCancel">
                         <i class="fas fa-times"></i> Cancel
                     </button>
@@ -1088,6 +1101,9 @@
         <script>
         document.addEventListener('DOMContentLoaded', function() {
             // === DOM ELEMENTS ===
+            // Add this after the DOMContentLoaded
+            console.log("Hidden input value:", document.getElementById('hiddenWeeksData').value);
+            console.log("Hidden input element:", document.getElementById('hiddenWeeksData'));
             const weekSelector = document.getElementById('weekSelector');
             const btnSaveDraft = document.getElementById('btnSaveDraft');
             const btnSubmit = document.getElementById('btnSubmit');
@@ -1116,8 +1132,8 @@
             const btnLeaveModalSave = document.getElementById('btnLeaveModalSave');
 
             let projectsData = [];
-            const BILLING_START = '{{ billing_start|date:"Y-m-d" }}';
-            const BILLING_END = '{{ billing_end|date:"Y-m-d" }}';
+            const BILLING_START = '{{ month_start|date:"Y-m-d" }}';
+            const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
             const HOURS_PER_DAY = 8;
 
 
@@ -1175,48 +1191,7 @@
                 leaveModal.classList.remove('active');
             }
 
-            btnLeaveModalSave.addEventListener('click', async function() {
-                const week = parseInt(leaveWeek.value);
-                const type = leaveType.value;
-                const hours = parseFloat(leaveHours.value) || 0;
-                const reason = leaveReason.value.trim();
 
-                if (!week || !type || hours <= 0) {
-                    showNotification('Please fill all required fields', 'warning');
-                    return;
-                }
-
-                try {
-                    const response = await fetch('{{ record_leave_url }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': '{{ csrf_token }}'
-                        },
-                        body: JSON.stringify({
-                            billing_start: BILLING_START,
-                            billing_end: BILLING_END,
-                            week_number: week,
-                            leave_hours: hours,
-                            leave_type: type,
-                            reason: reason
-                        })
-                    });
-
-                    const data = await response.json();
-
-                    if (data.ok) {
-                        showNotification('Leave recorded successfully!', 'success');
-                        closeLeaveModal();
-                        setTimeout(() => window.location.reload(), 1500);
-                    } else {
-                        showNotification('Error: ' + data.error, 'error');
-                    }
-                } catch (err) {
-                    showNotification('Network error occurred', 'error');
-                    console.error(err);
-                }
-            });
 
             // === SAVE DRAFT ===
             btnSaveDraft.addEventListener('click', async function() {
@@ -1258,59 +1233,96 @@
                 }
             });
 
-            // === SUBMIT EFFORTS ===
-            // In btnSubmitEffort click handler
+
             btnSubmit.addEventListener('click', async function() {
-                const year = document.getElementById('yearFilter').value;
-                const month = document.getElementById('monthFilter').value;
-                const monthStr = `${year}-${month.padStart(2, '0')}`;
+                console.log("=== SUBMIT EFFORT STARTED ===");
 
-                // Collect all weeks with punched hours
-                const weeks = [];
+                const weeksData = [];
+
                 document.querySelectorAll('.allocation-card').forEach(card => {
-                    const tdId = card.dataset.teamDistributionId;
+                    const tdId = parseInt(card.dataset.tdid);
+                    console.log(`Processing allocation card with td_id: ${tdId}`);
 
-                    card.querySelectorAll('.week-row').forEach(row => {
-                        const weekNum = row.dataset.weekNumber;
-                        const punchedInput = row.querySelector('.punched-hours-input');
+                    const rows = card.querySelectorAll('tbody tr[data-editable="true"]');
+
+                    rows.forEach(row => {
+                        // ✅ FIX: Extract week_num with proper validation
+                        const weekNumRaw = row.dataset.weekNum || row.dataset.week;
+                        const weekNum = parseInt(weekNumRaw);
+
+                        // Validate week_num is a valid integer
+                        if (!weekNum || isNaN(weekNum)) {
+                            console.warn(`Skipping row with invalid week_num: ${weekNumRaw}`);
+                            return;  // Skip this row
+                        }
+
+                        const punchedInput = row.querySelector('input[type="number"]');
                         const punchedHours = parseFloat(punchedInput?.value || 0);
 
-                        weeks.push({
-                            team_distribution_id: parseInt(tdId),
-                            week_number: parseInt(weekNum),
-                            punched_hours: punchedHours
-                        });
+                        console.log(`  Week ${weekNum}: ${punchedHours}h punched`);
+
+                        if (tdId && weekNum && punchedHours > 0) {
+                            weeksData.push({
+                                team_distribution_id: tdId,
+                                week_number: weekNum,  // ✅ Now guaranteed to be an integer
+                                punched_hours: punchedHours
+                            });
+                        }
                     });
                 });
 
+                console.log("Collected weeks data:", weeksData);
+
+                if (weeksData.length === 0) {
+                    showNotification('No punched hours to submit', 'warning');
+                    return;
+                }
+
+                const billingStart = document.getElementById('hiddenMonthStart').value;
+                console.log("Billing start:", billingStart);
+
+                if (!billingStart) {
+                    showNotification('Missing billing period information', 'error');
+                    return;
+                }
+
+                const payload = {
+                    billing_start: billingStart,
+                    weeks: weeksData
+                };
+
+                console.log("Sending payload:", JSON.stringify(payload, null, 2));
+
                 try {
-                    const resp = await fetch('/projects/my-allocations/submit/', {
+                    const response = await fetch('{{ submit_effort_url }}', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-CSRFToken': getCsrfToken()
+                            'X-CSRFToken': '{{ csrf_token }}'  // Template variable works directly here
                         },
-                        body: JSON.stringify({
-                            month: monthStr,
-                            weeks: weeks
-                        })
+                        body: JSON.stringify(payload)
                     });
 
-                    const data = await resp.json();
+                    console.log("Response status:", response.status);
+                    const data = await response.json();
+                    console.log("Response data:", data);
+
                     if (data.ok) {
-                        showNotification('Efforts submitted successfully!', 'success');
-                        setTimeout(() => window.location.reload(), 1500);
+                        showNotification('Submitted successfully!', 'success');
+                        setTimeout(() => location.reload(), 1500);
                     } else {
-                        const errorMsg = data.details
-                            ? data.details.join('\n')
-                            : data.error;
+                        const errorMsg = Array.isArray(data.errors)
+                            ? data.errors.join(', ')
+                            : (data.error || 'Submission failed');
                         showNotification(errorMsg, 'error');
                     }
                 } catch (err) {
-                    showNotification('Submission failed: ' + err.message, 'error');
+                    console.error("Network error:", err);
+                    showNotification('Network error occurred', 'error');
                 }
-            });
 
+                console.log("=== SUBMIT EFFORT COMPLETED ===");
+            });
             // === ADD ALLOCATION MODAL (existing code) ===
             btnAddAllocation.addEventListener('click', async function() {
                 try {
@@ -1366,6 +1378,7 @@
                 modal.classList.remove('active');
             }
 
+            // Fix 1: Add Allocation - Proper data collection
             btnModalSave.addEventListener('click', async function() {
                 const projectId = parseInt(modalProject.value);
                 const subprojectId = parseInt(modalSubproject.value);
@@ -1375,6 +1388,7 @@
                     return;
                 }
 
+                // Collect week allocations
                 const allocations = [];
                 document.querySelectorAll('.modal-percent-input').forEach(input => {
                     const pct = parseFloat(input.value) || 0;
@@ -1392,7 +1406,7 @@
                 }
 
                 try {
-                    const response = await fetch('{{ add_allocation_url }}', {
+                    const response = await fetch("{% url 'projects:add_self_allocation' %}", {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1401,7 +1415,7 @@
                         body: JSON.stringify({
                             project_id: projectId,
                             subproject_id: subprojectId,
-                            month_start: BILLING_START,
+                            month_start: BILLING_START, // Already in YYYY-MM-DD format
                             allocations: allocations
                         })
                     });
@@ -1421,24 +1435,129 @@
                 }
             });
 
-            // === HELPER FUNCTIONS ===
+            // Fix 2: Record Leave - Proper submission
+            // Fix 2: Record Leave - Proper submission
+            btnLeaveModalSave.addEventListener('click', async function() {
+                const week = parseInt(leaveWeek.value);
+                const type = leaveType.value;
+                const hours = parseFloat(leaveHours.value) || 0;
+                const reason = leaveReason.value.trim();
+
+                const billingStart = document.getElementById('hiddenBillingStart').value;
+                const billingEnd = document.getElementById('hiddenBillingEnd').value;
+
+                if (!week || !type || hours <= 0) {
+                    showNotification('Please fill all required fields', 'warning');
+                    return;
+                }
+
+                if (!billingStart || !billingEnd) {
+                    showNotification('Billing period not available', 'error');
+                    return;
+                }
+
+                try {
+                    const response = await fetch("{% url 'projects:record_leave' %}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            billing_start: billingStart,
+                            billing_end: billingEnd,
+                            week_number: week,
+                            leave_hours: hours,
+                            leave_type: type,
+                            reason: reason
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        showNotification('Leave recorded successfully!', 'success');
+                        closeLeaveModal();
+
+                        // Instead of full reload, update the UI dynamically
+                        updateLeaveHoursInUI(week, hours);
+
+                        // Optional: Reload after delay to get fresh data from server
+                        setTimeout(() => window.location.reload(), 2000);
+                    } else {
+                        showNotification('Error: ' + data.error, 'error');
+                    }
+                } catch (err) {
+                    showNotification('Network error occurred', 'error');
+                    console.error(err);
+                }
+            });
+
+            // Add this helper function to update UI without full reload
+            function updateLeaveHoursInUI(weekNumber, leaveHours) {
+                // Find all allocation cards and update the specific week row
+                document.querySelectorAll('.allocation-card').forEach(card => {
+                    const weekRow = card.querySelector(`tr[data-week="${weekNumber}"]`);
+                    if (weekRow) {
+                        // Update leave hours cell
+                        const leaveCell = weekRow.cells[4]; // Leave Hours column (index 4)
+                        if (leaveCell) {
+                            leaveCell.innerHTML = `
+                                <span class="badge badge-warning" style="background: #fef5e7; color: #d68910; padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                    ${leaveHours}h Leave
+                                </span>
+                            `;
+                        }
+
+                        // Update punched hours max attribute
+                        const punchedInput = weekRow.querySelector('.punch-input');
+                        if (punchedInput) {
+                            const allocatedHours = parseFloat(weekRow.cells[3].textContent) || 0;
+                            const maxPunchable = allocatedHours - leaveHours;
+                            punchedInput.setAttribute('max', maxPunchable);
+
+                            // Add helper text
+                            const helpText = punchedInput.parentElement.querySelector('small') || document.createElement('small');
+                            helpText.style.cssText = 'display: block; margin-top: 4px; color: #718096; font-size: 11px;';
+                            helpText.textContent = `Max: ${maxPunchable.toFixed(2)}h (${allocatedHours}h - ${leaveHours}h leave)`;
+                            if (!punchedInput.parentElement.querySelector('small')) {
+                                punchedInput.parentElement.appendChild(helpText);
+                            }
+                        }
+                    }
+                });
+            }
+
             function collectEffortData() {
                 const efforts = [];
                 document.querySelectorAll('tbody tr[data-editable="true"]').forEach(row => {
-                    const input = row.querySelector('.effort-input');
+                    const input = row.querySelector('.punch-input');
                     if (input) {
                         const punchedHours = parseFloat(input.value) || 0;
                         const maxHours = parseFloat(input.getAttribute('max')) || 0;
 
-                        // Validate against available hours (allocated - leave)
+                        // ✅ FIXED: Don't skip 0 hours - save what user entered
+                        // Only validate if user entered something > max
                         if (punchedHours > maxHours) {
-                            showNotification(`Punched hours exceed available hours for Week ${row.dataset.week}`, 'warning');
+                            showNotification(`Punched hours exceed available hours for Week ${row.getAttribute('data-week')}`, 'warning');
                             return;
                         }
 
+                        // Get week number and tdid from row attributes
+                        const weekNum = parseInt(row.getAttribute('data-week'));
+                        const tdid = parseInt(row.getAttribute('data-tdid'));
+
+                        // Validate that we have valid numbers
+                        if (isNaN(weekNum) || isNaN(tdid)) {
+                            console.error('Invalid week or tdid:', {weekNum, tdid, row});
+                            showNotification('Invalid data: missing week or allocation ID', 'error');
+                            return;
+                        }
+
+                        // ✅ INCLUDE all entries (even 0 hours) to save the draft state
                         efforts.push({
-                            team_distribution_id: parseInt(row.dataset.tdid),
-                            week_number: parseInt(row.dataset.week),
+                            team_distribution_id: tdid,
+                            week_number: weekNum,
                             punched_hours: punchedHours
                         });
                     }
