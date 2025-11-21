@@ -1,3 +1,6 @@
+//BACKUP for thg
+
+
 {% extends "base.html" %}
 {% load static %}
 {% block content %}
@@ -273,8 +276,21 @@ th.week-header {
   text-align: right;
   box-shadow: 0 -2px 8px rgba(11,92,255,0.04);
 }
-</style>
 
+.alloc-action-bar-right {
+  position: sticky;
+  right: 0;
+  z-index: 40;
+  background: #fff;
+  padding: 14px 0 10px 0;
+  text-align: right;
+  box-shadow: -2px 0 8px rgba(11,92,255,0.04);
+  min-width: 320px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+</style>
 
 <div class="page-card">
   <div class="page-header">
@@ -347,16 +363,114 @@ th.week-header {
         <table class="summary-table" id="summaryTable1">
         <thead>
           <tr>
-            <th>Project</th>
+            <th style="">Project</th>
             <th style="">Resource</th>
-             <th style="">FTE</th>
+             <th style="">Hour</th>
+              <th style="">FTE</th>
               <th style="">%</th>
           </tr>
         </thead>
-<!--        <tbody id="summaryBodyprojectview">-->
-<!--          {% if reportees %}-->
+        <tbody id="summaryBodyprojectview">
+<!--        {% if project_allocations %}-->
+<!--    {% for alloc in project_allocations %}-->
+<!--      <tr class="reportee-row" data-ldap="{{ alloc.ldap }}" data-project-name="{{ alloc.project_name }}">-->
+<!--        <td class="r-project">{{ alloc.project_name }}</td>-->
+<!--        <td class="r-resource">-->
+<!--          {% if alloc.cn %}-->
+<!--            {{ alloc.cn }} &lt;{{ alloc.mail|default:alloc.ldap }}&gt;-->
+<!--          {% elif alloc.name %}-->
+<!--            {{ alloc.name }} &lt;{{ alloc.mail|default:alloc.ldap }}&gt;-->
+<!--          {% else %}-->
+<!--            &lt;{{ alloc.mail|default:alloc.ldap }}&gt;-->
+<!--          {% endif %}-->
+<!--        </td>-->
+<!--        <td class="r-hours">{{ alloc.total_hours|default:"0.00" }}</td>-->
+<!--        <td class="r-fte">{{ alloc.fte|default:"0.000" }}</td>-->
+<!--        <td class="r-ptge">{{ alloc.percent|default:"0.000" }}</td>-->
+<!--      </tr>-->
+<!--    {% endfor %}-->
+<!--  {% else %}-->
+<!--    <tr><td colspan="5" class="small-muted">No allocations found.</td></tr>-->
+<!--  {% endif %}-->
+
+<!--TRY-->
+<!-- {% if reportees %}-->
+
+<!--            {% for p in allocations %}-->
 <!--            {% for r in reportees %}-->
-<!--            <tr class="reportee-row" data-ldap="{{ r.ldap }}">-->
+
+<!--            <tr class="reportee-row" data-ldap="{{ r.ldap }}" data-project-name="{{ r.project_name }}">-->
+<!--&lt;!&ndash;                <td class="r-project">{{ p.project_id|default:"Unassigned"}}</td>&ndash;&gt;-->
+<!--              <td>-->
+<!--                  {{ p }}-->
+<!--              </td>-->
+<!--                <td>-->
+<!--                {# robust fallback: prefer cn -> name -> mail -> ldap #}-->
+<!--                {% if r.cn %}-->
+<!--                  {{  r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% elif r.name %}-->
+<!--                  {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% else %}-->
+<!--                  &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--                {% endif %}-->
+<!--              </td>-->
+<!--              <td class="r-hours">{{ r.total_hours|default:"0.00" }}</td>-->
+<!--              <td class="r-fte">{{ r.fte|default:"0.000" }}</td>-->
+<!--            </tr>-->
+<!--            {% endfor %}-->
+<!--            {% endfor %}-->
+
+<!--          {% else %}-->
+<!--            <tr><td colspan="3" class="small-muted">No reportees found.</td></tr>-->
+<!--          {% endif %}-->
+{% for row in allocations %}
+    <tr class="alloc-row" data-ldap="{{ r.ldap }}" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
+      <td class="compact-project">
+          <span class="project-name">
+            {% for p in projects %}
+              {% if p.project_id == row.project_id %}
+                {{ p.name }}
+              {% endif %}
+            {% endfor %}
+          </span>
+        </td>
+
+        <td>
+        {% for r in reportees %}
+                {# robust fallback: prefer cn -> name -> mail -> ldap #}
+                {% if r.cn %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                        {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                    {% endif %}
+                {% elif r.name %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                        {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                    {% endif %}
+                {% else %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                        &lt;{{ r.mail|default:r.ldap }}&gt;
+                    {% endif %}
+                {% endif %}
+            {% endfor %}
+        </td>
+      <td class="r-hours">
+          {{ row.hours|floatformat:2 }}
+      </td>
+        <td class="r-fte">{{ r.fte|default:"0.000" }}</td>
+        </td><td class="r-ptge">{{ r.ptge|default:"0.000" }}</td>
+      {% endfor %}
+     </tr>
+
+<!--END TRY-->
+
+<!--WORKING START-->
+<!--            {% if reportees %}-->
+<!--            {% for r in reportees %}-->
+<!--            {% for p in projects %}-->
+
+
+<!--            <tr class="reportee-row" data-ldap="{{ r.ldap }}" data-project-name="{{ r.project_name }}">-->
+<!--                <td class="r-project">{{ p.name }}</td>-->
 <!--              <td>-->
 <!--                {# robust fallback: prefer cn -> name -> mail -> ldap #}-->
 <!--                {% if r.cn %}-->
@@ -371,10 +485,28 @@ th.week-header {
 <!--              <td class="r-fte">{{ r.fte|default:"0.000" }}</td>-->
 <!--            </tr>-->
 <!--            {% endfor %}-->
+<!--            {% endfor %}-->
+
 <!--          {% else %}-->
 <!--            <tr><td colspan="3" class="small-muted">No reportees found.</td></tr>-->
 <!--          {% endif %}-->
-<!--        </tbody>-->
+<!--WORKING END-->
+
+<!--       {% if project_allocations %}-->
+<!--    {% for alloc in project_allocations %}-->
+<!--      <tr>-->
+<!--        <td class="r-project">{{ alloc.project_name }}</td>-->
+<!--        <td class="r-resource">{{ alloc.resource_name|default:alloc.user_ldap }}</td>-->
+<!--        <td class="r-fte">{{ alloc.fte|default:"0.000" }}</td>-->
+<!--        <td class="r-ptge">{{ alloc.percent|default:"0.00" }}</td>-->
+<!--      </tr>-->
+<!--    {% endfor %}-->
+<!--  {% else %}-->
+<!--    <tr><td colspan="4" class="small-muted">No allocations found.</td></tr>-->
+<!--  {% endif %}-->
+
+
+        </tbody>
       </table>
     </section>
       <section id="panel-three" class="feas-tab-panel" role="tabpanel" tabindex="2" hidden>
@@ -432,13 +564,14 @@ th.week-header {
 
   <!-- Tab panels -->
   <div class="alloc-table-scroll-x">
+      <!-- Start of allocation by team member-->
     <section id="panel-one-allocation" class="feas-tab-panel" role="tabpanel" tabindex="0">
       <!-- Content for Tab One -->
         <table class="alloc-table" id="allocTable">
         <!-- week header row (dynamic) -->
             <thead>
               <tr>
-                <th>Resource</th>
+                <th style="position: sticky; left: 0; z-index: 14;">Resource</th>
                 <th class="compact-project">Program</th>
                 <th class="compact-subproject">Project</th>
                 <th>Hours</th>
@@ -523,79 +656,90 @@ th.week-header {
         <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
       </div>
     </section>
+      <!-- End of allocation by team member-->
+      <!--start of allocation by project-->
       <section id="panel-two-allocation" class="feas-tab-panel" role="tabpanel" tabindex="1" hidden>
       <!-- Content for Tab Two -->
-        <table class="alloc-table" id="allocTablebyProject">
+        <table class="alloc-table" id="allocTableByProject">
         <thead>
-          <tr>
-            <th>Program</th>
-           <th class="compact-project">Project</th>
-                <th class="compact-subproject">Members</th>
-          </tr>
-        </thead>
+    <tr>
 
-                <tbody id="allocBodyByProject">
-          {# If server provides allocations, render rows now so Django-side values used #}
-          {% for row in allocations %}
-            <tr class="alloc-row" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
-<!--              <td>-->
-<!--                <select class="input sel-resource">-->
-<!--                  <option value="">&#45;&#45; select &#45;&#45;</option>-->
-<!--                  {% for r in reportees %}-->
-<!--                    {% comment %} robust display: prefer cn -> name -> mail -> ldap {% endcomment %}-->
-<!--                    {% if r.cn %}-->
-<!--                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>-->
-<!--                    {% elif r.name %}-->
-<!--                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>-->
-<!--                    {% else %}-->
-<!--                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>&lt;{{ r.mail|default:r.ldap }}&gt;</option>-->
-<!--                    {% endif %}-->
-<!--                  {% endfor %}-->
-<!--                </select>-->
-<!--              </td>-->
-
-              <td class="compact-project">
-                <select class="input sel-project">
-                  <option value="">-- select --</option>
-                  {% for p in projects %}
-                    {# p.project_id, bg_code, project_id } from view #}
-                    <option value="{{ p.project_id }}" data-bgcode="{{ p.bg_code|default:'' }}" {% if p.project_id == row.project_id %}selected{% endif %}>
-                      {{ p.name }}
-                    </option>
-                  {% endfor %}
-                </select>
-              </td>
-
-              <td class="compact-subproject">
-                <select class="input sel-subproject">
-                  <option value="">-- select --</option>
-                </select>
-              </td>
-
-<!--              <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>-->
-<!--              <td class="auto-fte">&#45;&#45;</td>-->
-<!--              {% for w in weeks_info %}-->
-<!--              <td>-->
-<!--                <input class="input wpct" type="number" min="0" max="100"-->
-<!--                       data-week="{{ w.num }}" data-max="{{ w.max_pct }}"-->
-<!--                       value="{{ row.week_perc|default_if_none:''|slice:forloop.counter0|default:'0' }}">-->
-<!--              </td>-->
-<!--            {% endfor %}-->
-
-<!--              <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>-->
-            </tr>
+      <th class="compact-project" style="position: sticky; left: 0; z-index: 14;">Program</th>
+      <th class="compact-subproject">Project</th>
+        <th >Resource</th>
+      <th>Hours</th>
+      <th>FTE</th>
+      {% for w in weeks_info %}
+        <th class="week-header">
+          <div class="week-top">
+            <span class="week-label">W{{ w.num }}</span>
+            <span class="max-pill">Max {{ w.max_pct }}%</span>
+          </div>
+          <div class="week-meta">
+            <span class="week-dates">
+              {{ w.start|slice:"0:10" }} → {{ w.end|slice:"0:10" }}
+            </span>
+            <span class="dot">•</span>
+            <span class="week-wd">{{ w.working_days }} WD</span>
+          </div>
+        </th>
+      {% endfor %}
+      <th class="action-cell">Action</th>
+    </tr>
+  </thead>
+<tbody id="allocBodyByProject">
+  {% for row in allocations %}
+    <tr class="alloc-row" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
+      <td class="compact-project">
+        <select class="input sel-project">
+          <option value="">-- select --</option>
+          {% for p in projects %}
+            <option value="{{ p.project_id }}" data-bgcode="{{ p.bg_code|default:'' }}" {% if p.project_id == row.project_id %}selected{% endif %}>
+              {{ p.name }}
+            </option>
           {% endfor %}
-        </tbody>
-
-
-      </table>
-             <div style="text-align:right; margin-top:14px;">
+        </select>
+      </td>
+      <td class="compact-subproject">
+        <select class="input sel-subproject">
+          <option value="">-- select --</option>
+        </select>
+      </td>
+      <td>
+        <select class="input sel-resource1">
+          <option value="">-- select --</option>
+          {% for r in reportees %}
+            {% if r.cn %}
+              <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+            {% elif r.name %}
+              <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+            {% else %}
+              <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>&lt;{{ r.mail|default:r.ldap }}&gt;</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </td>
+      <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>
+      <td class="auto-fte">--</td>
+      {% for w in weeks_info %}
+        <td>
+          <input class="input wpct" type="number" min="0" max="100"
+                 data-week="{{ w.num }}" data-max="{{ w.max_pct }}"
+                 value="{{ row.week_perc|default_if_none:''|slice:forloop.counter0|default:'0' }}">
+        </td>
+      {% endfor %}
+      <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
+    </tr>
+  {% endfor %}
+</tbody>
+</table>
+             <div class="alloc-action-bar" style="text-align:right; margin-top:14px;">
                    <button id="btnAddRow-project" class="btn btn-primary">Add Resource</button>
           <button id="btnExportExcel-project" class="btn btn-primary" style="background:#0284c7;">Export to Excel</button>
         <button id="btnSaveAlloc-project" class="btn btn-primary">Save Allocations</button>
       </div>
     </section>
-
+<!-- End of allocation by project-->
   </div>
 
 
@@ -655,6 +799,52 @@ th.week-header {
          leave empty; JS will populate week inputs for the row when it is inserted. #}
     {% endif %}
 
+    <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
+  </tr>
+</template>
+
+   <!--template to clone for new rows for allocation by Project tab-->
+    <template id="tpl-alloc-row-by-project">
+  <tr class="alloc-row" data-team-dist-id="" data-subproject-id="">
+    <td class="compact-project">
+      <select class="input sel-project">
+        <option value="">-- select --</option>
+        {% for p in projects %}
+          <option value="{{ p.project_id }}" data-bgcode="{{ p.bg_code|default:'' }}">{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </td>
+    <td class="compact-subproject">
+      <select class="input sel-subproject"><option value="">-- select --</option></select>
+    </td>
+    <td>
+      <select class="input sel-resource1">
+        <option value="">-- select --</option>
+        {% for r in reportees %}
+          {% if r.cn %}
+            <option value="{{ r.ldap }}">{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+          {% elif r.name %}
+            <option value="{{ r.ldap }}">{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+          {% else %}
+            <option value="{{ r.ldap }}">&lt;{{ r.mail|default:r.ldap }}&gt;</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </td>
+    <td><input type="number" min="0" step="0.25" class="input inp-hours" value="0"></td>
+    <td class="auto-fte">--</td>
+    {% for w in weeks_info %}
+      <td class="td-week text-center">
+        <input class="input wpct"
+               type="number"
+               step="0.01"
+               min="0"
+               max="100"
+               data-week="{{ w.num }}"
+               data-max="{{ w.max_pct }}"
+               value="">
+      </td>
+    {% endfor %}
     <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
   </tr>
 </template>
@@ -804,7 +994,88 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
     return tr;
   }
 
+// end of a new row creation
+
+ // Create a new row in allocation by project tab(prefill optional)
+  function createRowByProject(prefill){
+    const tpl = document.getElementById('tpl-alloc-row-by-project');
+    const node = tpl.content.cloneNode(true);
+    const tr = node.querySelector('tr');
+
+    // wire project change -> populate subprojects
+    const selProj = tr.querySelector('.sel-project');
+    const selSub  = tr.querySelector('.sel-subproject');
+    const inpH   = tr.querySelector('.inp-hours');
+    // after inserting row into DOM:
+if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function'){
+  tl_alloc_helpers.populateWeekInputsForRow(tr, {}); // {} -> no existing week values
+}
+
+    selProj.addEventListener('change', function(){
+      fillSubprojectOptions(selSub, this.value, null);
+    });
+
+    inpH.addEventListener('input', function(){ updateFTE(tr); recomputeSummaryTotals(); });
+
+    tr.querySelector('.btn-remove').addEventListener('click', function(ev){
+      ev.preventDefault();
+      const tid = tr.getAttribute('data-team-dist-id');
+      if(tid){
+        // call delete endpoint to remove server row + weekly allocations via cascade
+        fetch("{% url 'projects:delete_team_distribution' %}", {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+          body: JSON.stringify({id: parseInt(tid, 10)})
+        }).then(r => r.json()).then(j => {
+          if(j && j.ok){ tr.remove(); recomputeSummaryTotals(); }
+          else { alert('Delete failed: ' + (j && j.error ? j.error : 'unknown')); }
+        }).catch(err => { console.error(err); alert('Delete request failed'); });
+      } else {
+        tr.remove(); recomputeSummaryTotals();
+      }
+    });
+
+    // apply prefill values if provided
+    if(prefill){
+      if(prefill.reportee_ldap){
+        const selR = tr.querySelector('.sel-resource');
+        for(let i=0;i<selR.options.length;i++){
+          if(String(selR.options[i].value).toLowerCase() === String(prefill.reportee_ldap).toLowerCase()){
+            selR.selectedIndex = i; break;
+          }
+        }
+      }
+      if(prefill.project_id){
+        selProj.value = prefill.project_id;
+        fillSubprojectOptions(selSub, prefill.project_id, prefill.subproject_id || null);
+      } else if(prefill.subproject_id){
+        // if only subproject known, try to set it (fillSubprojectOptions has fallback)
+        fillSubprojectOptions(selSub, '', prefill.subproject_id);
+      }
+      if(prefill.hours) tr.querySelector('.inp-hours').value = prefill.hours;
+      if(Array.isArray(prefill.week_perc)){
+        tr.querySelector('.wpct-1').value = prefill.week_perc[0]||0;
+        tr.querySelector('.wpct-2').value = prefill.week_perc[1]||0;
+        tr.querySelector('.wpct-3').value = prefill.week_perc[2]||0;
+        tr.querySelector('.wpct-4').value = prefill.week_perc[3]||0;
+      }
+      if(prefill.id) tr.setAttribute('data-team-dist-id', prefill.id);
+      updateFTE(tr);
+    }
+
+    document.getElementById('allocBodyByProject').appendChild(tr);
+    return tr;
+  }
+
+// end of a new row creation for allocation by project tab
+
+
+
+
+
   // recompute summary table totals from allocation rows
+
+
   function recomputeSummaryTotals(){
     const totals = {};
     document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
@@ -813,6 +1084,9 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
       if(!ldap) return;
       totals[ldap] = (totals[ldap] || 0) + hrs;
     });
+
+
+
     document.querySelectorAll('#summaryBody .reportee-row').forEach(rr => {
       const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
       const hrs = totals[ldap] || 0;
@@ -826,12 +1100,23 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
     });
 
     //JS:
-    document.querySelectorAll('#summaryBodyallottmentview .reportee-row').forEach(rr => {
+    document.querySelectorAll('#summaryBodyprojectview .alloc-row').forEach(rr => {
         //Project
-        // Resource
-        //Start Date
-        //END date
+        //Resource
+        //FTE
         //Percentage
+          const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
+      const hrs = totals[ldap] || 0;
+      const hrsEl = rr.querySelector('.r-hours');
+      const fteEl = rr.querySelector('.r-fte');
+      const ptgeEl = rr.querySelector('.r-ptge');
+      if(hrsEl){
+            fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(3) : '0.000');
+            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
+      }
+      //if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
+        console.log("/////JAYASHREE", fteEl, hrs, hrsEl);
+
     });
     //JS:
 
@@ -888,24 +1173,51 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
     recomputeSummaryTotals();
   }
 
-  function gatherAllocations(){
+//   function gatherAllocations(){
+//   const rows = [];
+//   document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+//     const tid = tr.getAttribute('data-team-dist-id') || null;
+//     const reportee = tr.querySelector('.sel-resource')?.value || '';
+//     const project_id = tr.querySelector('.sel-project')?.value || null;
+//     const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
+//     const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+//
+//     // collect all week inputs for this row, read their data-week attribute
+//     const weekInputs = Array.from(tr.querySelectorAll('input.wpct'));
+//     // produce an array of { week_number, percent } objects sorted by week_number
+//     const weeks_payload = weekInputs.map(i => {
+//       const wn = parseInt(i.getAttribute('data-week') || '0', 10) || 0;
+//       const pv = parseFloat(i.value || 0) || 0;
+//       return { week_number: wn, percent: parseFloat(pv.toFixed(2)) };
+//     }).sort((a,b) => (a.week_number - b.week_number));
+//
+//     rows.push({
+//       id: tid,
+//       reportee: reportee,
+//       project_id: project_id,
+//       subproject_id: subproject_id,
+//       hours: hours,
+//       weeks: weeks_payload
+//     });
+//   });
+//   return rows;
+// }
+//end of the gather allocations function
+
+    function gatherAllocations(tableSelector){
   const rows = [];
-  document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+  document.querySelectorAll(tableSelector + ' .alloc-row').forEach(tr => {
     const tid = tr.getAttribute('data-team-dist-id') || null;
-    const reportee = tr.querySelector('.sel-resource')?.value || '';
+    const reportee = tr.querySelector('.sel-resource, .sel-resource1')?.value || '';
     const project_id = tr.querySelector('.sel-project')?.value || null;
     const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
     const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
-
-    // collect all week inputs for this row, read their data-week attribute
     const weekInputs = Array.from(tr.querySelectorAll('input.wpct'));
-    // produce an array of { week_number, percent } objects sorted by week_number
     const weeks_payload = weekInputs.map(i => {
       const wn = parseInt(i.getAttribute('data-week') || '0', 10) || 0;
       const pv = parseFloat(i.value || 0) || 0;
       return { week_number: wn, percent: parseFloat(pv.toFixed(2)) };
     }).sort((a,b) => (a.week_number - b.week_number));
-
     rows.push({
       id: tid,
       reportee: reportee,
@@ -966,13 +1278,13 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
   });
 
   //Add Resource button in allocation by project tab
-   document.getElementById('btnAddRow-project').addEventListener('click', function(e){
+   /*document.getElementById('btnAddRow-project').addEventListener('click', function(e){
     e.preventDefault();
     const tr = createRow({});
     // focus on the resource select for quick input
-    const sel = tr.querySelector('.sel-resource');
+    const sel = tr.querySelector('.sel-resource1');
     if(sel) sel.focus();
-  });
+  });*/
 
   // Delegated event handling for dynamic elements:
   // NOTE: for server-rendered rows (which were not created via createRow)
@@ -1042,7 +1354,7 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
 
     const payload = {
       month: document.getElementById('month')?.value || '{{ billing_month }}',
-      allocations: gatherAllocations()
+      allocations: gatherAllocations('#allocBody')
     };
 
     try {
@@ -1063,6 +1375,39 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
       alert('Save failed (network or server error). See console for details.');
     }
   });
+  //end of save handler
+
+// Save handler for allocation by project tab: validate monthly limit first, then proceed to post
+  document.getElementById('btnSaveAlloc-project').addEventListener('click', async function(e){
+    e.preventDefault();
+
+    recomputeSummaryTotals(); // ensure summary up-to-date
+    if(!validateMonthlyLimit()) return; // stop if invalid
+
+    const payload = {
+      month: document.getElementById('month')?.value || '{{ billing_month }}',
+      allocations: gatherAllocations('#allocBodyByProject')
+    };
+
+    try {
+      const resp = await fetch(window.location.pathname.replace(/\/$/, '') + '/save/', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if(data && data.ok){
+        // reload to reflect server truth (idempotent upserts on server)
+        location.reload();
+      } else {
+        alert('Save failed: ' + (data && data.error ? data.error : 'Unknown error'));
+      }
+    } catch(err){
+      console.error('Save error', err);
+      alert('Save failed (network or server error). See console for details.');
+    }
+  });
+  //end of save handler for allocation by project tab
 
   // Initialise: populate rows (but guarded to avoid duplicates)
   document.addEventListener('DOMContentLoaded', function(){
@@ -1080,6 +1425,25 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
     });
     recomputeSummaryTotals();
   });
+
+
+   document.addEventListener('DOMContentLoaded', function(){
+    populateInitialRows();
+    // Ensure subproject selects for any server-rendered rows are filled
+    document.querySelectorAll('#allocBodyByProject .alloc-row').forEach(tr => {
+      const projectId = tr.querySelector('.sel-project')?.value;
+      const subprojectSelected = tr.getAttribute('data-subproject-id') || tr.querySelector('.sel-subproject')?.value;
+      if(projectId){
+        fillSubprojectOptions(tr.querySelector('.sel-subproject'), projectId, subprojectSelected);
+      } else if(subprojectSelected){
+        fillSubprojectOptions(tr.querySelector('.sel-subproject'), '', subprojectSelected);
+      }
+      updateFTE(tr);
+    });
+    recomputeSummaryTotals();
+  });
+
+
 document.getElementById("btnExportExcel").addEventListener("click", function(e){
   e.preventDefault();
   const month = document.getElementById("month")?.value || "{{ billing_month }}";
@@ -1199,7 +1563,41 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 
 })();
+//end of server-rendered week inputs population
 
+//start for fill server-rendered week inputs population for allocation by project tab
+ document.addEventListener('DOMContentLoaded', function(){
+  try {
+   document.querySelectorAll('#allocBodyByProject .alloc-row').forEach(tr => {
+       const tdid = tr.getAttribute('data-team-dist-id') || tr.dataset.teamDistId || null;
+      if (!tdid) {
+        tr.querySelectorAll('input.wpct').forEach(i => updateWpctStyling(i));
+         return;
+       }
+       const alloc = ALLOC_BY_ID[String(tdid)];
+       if (!alloc) {
+        tr.querySelectorAll('input.wpct').forEach(i => updateWpctStyling(i));
+        return;
+      }
+      if (Array.isArray(alloc.week_perc)) {
+        alloc.week_perc.forEach((val, idx) => {
+          const weekNum = (WEEKS[idx] && WEEKS[idx].num) ? WEEKS[idx].num : (idx + 1);
+          const input = tr.querySelector('input.wpct[data-week="' + weekNum + '"]');
+          if (input) {
+             input.value = (typeof val === 'number') ? val.toFixed(2) : String(val || 0);
+             updateWpctStyling(input);
+         }
+        });
+      } else {
+       tr.querySelectorAll('input.wpct').forEach(i => updateWpctStyling(i));
+      }
+     });
+   } catch (err) {
+     console.error('Error populating week pct inputs for project tab', err);
+   }
+try { recomputeSummaryTotals(); } catch(e) { /* ignore if not present */ }
+});
+//end for fill server-rendered week inputs population for allocation by project tab
 
 //Tab handling JS for multiple tab sets
 (function(){
@@ -1234,6 +1632,78 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 //End of tab handling JS
 
+
+// Add Resource button in allocation by project tab
+document.getElementById('btnAddRow-project').addEventListener('click', function(e){
+  e.preventDefault();
+  const tpl = document.getElementById('tpl-alloc-row-by-project');
+  const node = tpl.content.cloneNode(true);
+  const tr = node.querySelector('tr');
+
+  // Wire up subproject select population
+  const selProj = tr.querySelector('.sel-project');
+  const selSub  = tr.querySelector('.sel-subproject');
+  selProj.addEventListener('change', function(){
+    fillSubprojectOptions(selSub, this.value, null);
+  });
+
+  // Wire up FTE calculation
+  tr.querySelector('.inp-hours').addEventListener('input', function(){ updateFTE(tr); });
+
+  // Wire up remove button
+  tr.querySelector('.btn-remove').addEventListener('click', function(ev){
+    ev.preventDefault();
+    tr.remove();
+  });
+
+  // Populate week inputs
+  if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function'){
+    tl_alloc_helpers.populateWeekInputsForRow(tr, {});
+  }
+
+  // Append to project allocation table
+  document.getElementById('allocBodyByProject').appendChild(tr);
+
+  // Focus resource select for quick input
+  const sel = tr.querySelector('.sel-resource1');
+  if(sel) sel.focus();
+});
+function recomputeSummaryTotals(){
+    const totals = {};
+    document.querySelectorAll('#allocBodyByProject .alloc-row').forEach(tr => {
+      const ldap = (tr.querySelector('.sel-resource')?.value || '').toLowerCase();
+      const hrs = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+      if(!ldap) return;
+      totals[ldap] = (totals[ldap] || 0) + hrs;
+    });
+
+
+
+    document.querySelectorAll('#summaryBody .reportee-row').forEach(rr => {
+      const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
+      const hrs = totals[ldap] || 0;
+      const hrsEl = rr.querySelector('.r-hours');
+      const fteEl = rr.querySelector('.r-fte');
+      const ptgeEl = rr.querySelector('.r-ptge');
+      if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
+      if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(3) : '0.000');
+      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
+      // if(ptgeEl) hrsEl.textContent = hrs.toFixed(2);
+    });
+
+    //JS:
+    document.querySelectorAll('#summaryBodyallottmentview .reportee-row').forEach(rr => {
+
+
+        //Project
+        // Resource
+        //Start Date
+        //END date
+        //Percentage
+    });
+    //JS:
+
+  }
 </script>
 
 {% endblock %}
