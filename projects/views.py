@@ -6972,6 +6972,8 @@ from django.db import connection, transaction
 from datetime import date
 import json
 
+# projects/views.py
+
 @require_GET
 def tl_punch_review(request):
     # Auth check
@@ -7012,6 +7014,18 @@ def tl_punch_review(request):
                 "ldap": identifier.lower(),
                 "mail": mail or identifier,
                 "cn": cn or identifier,
+            })
+
+    # --- Add logged-in user if PDL and not already in reportees ---
+    role = (request.session.get("role") or "").upper()
+    print("User role:", role)
+    if "PDL" in role:
+        logged_ldap = (session_ldap or "").lower()
+        if not any(r["ldap"] == logged_ldap for r in reportees):
+            reportees.insert(0, {
+                "ldap": logged_ldap,
+                "mail": session_ldap,
+                "cn": request.session.get("cn") or session_ldap,
             })
 
     # Fetch punch data for all reportees for the month, grouped by user and week
