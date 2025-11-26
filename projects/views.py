@@ -6964,3 +6964,125 @@ def view_allotment(request):
         data = [dict(zip(columns, row)) for row in cursor.fetchall()]
     return JsonResponse({"data": data})
 
+# projects/views.py
+from django.views.decorators.http import require_GET, require_POST
+from django.shortcuts import render, redirect
+from django.http import JsonResponse
+from django.db import connection, transaction
+from datetime import date
+import json
+
+@require_GET
+def tl_punch_review(request):
+    # Auth check
+    if not request.session.get("is_authenticated"):
+        return redirect("accounts:login")
+    session_ldap = request.session.get("ldap_username")
+    if not session_ldap:
+        return redirect("accounts:login")
+
+    # Month selection
+    month_str = request.GET.get("month") or date.today().strftime("%Y-%m")
+    try:
+        y, m = map(int, month_str.split("-"))
+        month_start = date(y, m, 1)
+    except Exception:
+        month_start = date.today().replace(day=1)
+        month_str = month_start.strftime("%Y-%m")
+
+    # Get reportees (reuse LDAP utility)
+    from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
+    creds = (session_ldap, request.session.get("ldap_password"))
+    try:
+        user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
+        entry_dn = getattr(user_entry, "entry_dn", None)
+        reportees_entries = get_reportees_for_user_dn(entry_dn, username_password_for_conn=creds) or []
+    except Exception:
+        reportees_entries = []
+
+    # Normalize reportees
+    reportees = []
+    for ent in reportees_entries:
+        mail = ent.get("mail") if isinstance(ent, dict) else getattr(ent, "mail", None)
+        sam = ent.get("sAMAccountName") if isinstance(ent, dict) else getattr(ent, "sAMAccountName", None)
+        cn = ent.get("cn") if isinstance(ent, dict) else getattr(ent, "cn", None)
+        identifier = (mail or sam or "").strip()
+        if identifier:
+            reportees.append({
+                "ldap": identifier.lower(),
+                "mail": mail or identifier,
+                "cn": cn or identifier,
+            })
+
+    # Fetch punch data for all reportees for the month, grouped by user and week
+    reportee_ldaps = [r["ldap"] for r in reportees]
+    punch_data = {}
+    leave_data = {}
+    if reportee_ldaps:
+        placeholders = ",".join(["%s"] * len(reportee_ldaps))
+        with connection.cursor() as cur:
+            # Punch data
+            cur.execute(f"""
+                SELECT user_email, project_id, subproject_id, week_number, allocated_hours, punched_hours, status, id, comments
+                FROM punch_data
+                WHERE month_start = %s AND LOWER(user_email) IN ({placeholders})
+                ORDER BY user_email, project_id, subproject_id, week_number
+            """, [month_start] + reportee_ldaps)
+            for row in dictfetchall(cur):
+                user = row["user_email"].lower()
+                punch_data.setdefault(user, []).append(row)
+            # Leave data
+            cur.execute(f"""
+                SELECT user_email, week_number, leave_hours, leave_type, description
+                FROM leave_records
+                WHERE year = %s AND month = %s AND LOWER(user_email) IN ({placeholders})
+            """, [month_start.year, month_start.month] + reportee_ldaps)
+            for row in dictfetchall(cur):
+                user = row["user_email"].lower()
+                leave_data.setdefault(user, {})[row["week_number"]] = row
+
+    # Fetch project/subproject names for display
+    with connection.cursor() as cur:
+        cur.execute("SELECT id, name FROM projects")
+        projects = {r["id"]: r["name"] for r in dictfetchall(cur)}
+        cur.execute("SELECT id, name FROM subprojects")
+        subprojects = {r["id"]: r["name"] for r in dictfetchall(cur)}
+
+    # Weeks in month (assume 4 or 5 weeks)
+    from calendar import monthrange
+    num_weeks = 5  # For UI, always show 5 weeks
+    weeks = list(range(1, num_weeks + 1))
+
+    return render(request, "projects/tl_punch_review.html", {
+        "month_str": month_str,
+        "reportees": reportees,
+        "punch_data": punch_data,
+        "leave_data": leave_data,
+        "projects": projects,
+        "subprojects": subprojects,
+        "weeks": weeks,
+    })
+
+@require_POST
+def tl_punch_approve(request):
+    # Approve/modify punch data for a reportee for a week
+    if not request.session.get("is_authenticated"):
+        return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
+    session_ldap = request.session.get("ldap_username")
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        punch_id = int(data["punch_id"])
+        punched_hours = float(data["punched_hours"])
+        comments = data.get("comments", "")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid input"}, status=400)
+    try:
+        with transaction.atomic(), connection.cursor() as cur:
+            cur.execute("""
+                UPDATE punch_data
+                SET punched_hours = %s, status = 'APPROVED', approved_by = %s, approved_at = NOW(), comments = %s, updated_at = NOW()
+                WHERE id = %s
+            """, [punched_hours, session_ldap, comments, punch_id])
+        return JsonResponse({"ok": True})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)

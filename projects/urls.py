@@ -88,5 +88,7 @@ urlpatterns = [
     path('my-allocations/get-leaves/', views.get_leaves_for_month, name='get_leaves_for_month'),
     #path('view-allotment/', views.view_allotment, name='view_allotment'),
     path('tl-allocations/view-allotment/', views.view_allotment, name="view_allotment"),
+    path("tl-punch-review/", views.tl_punch_review, name="tl_punch_review"),
+    path("tl-punch-review/approve/", views.tl_punch_approve, name="tl_punch_approve"),
 ]
 

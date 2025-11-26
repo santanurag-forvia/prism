@@ -1,0 +1,135 @@
+{% load dict_extras %}
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Team Lead Punch Review</h2>
+    <form method="get" class="form-inline mb-3">
+        <label for="month" class="mr-2">Month:</label>
+        <input type="month" id="month" name="month" value="{{ month_str }}" class="form-control mr-2" onchange="this.form.submit()">
+    </form>
+    <div class="accordion" id="reporteeAccordion">
+        {% for rep in reportees %}
+        <div class="card mb-2">
+            <div class="card-header d-flex justify-content-between align-items-center" id="heading-{{ rep.ldap }}">
+                <span>
+                    <strong>{{ rep.cn }}</strong> <small class="text-muted">&lt;{{ rep.mail }}&gt;</small>
+                </span>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary mr-2" type="button" data-toggle="collapse" data-target="#collapse-{{ rep.ldap }}" aria-expanded="false" aria-controls="collapse-{{ rep.ldap }}">
+                        <span class="fa fa-chevron-down"></span> Expand
+                    </button>
+                </div>
+            </div>
+            <div id="collapse-{{ rep.ldap }}" class="collapse" data-parent="#reporteeAccordion">
+                <div class="card-body">
+                    {% if punch_data|get_item:rep.ldap %}
+                    <table class="table table-bordered table-sm punch-table">
+                        <thead>
+                            <tr>
+                                <th>Project</th>
+                                <th>Subproject</th>
+                                {% for w in weeks %}
+                                <th>W{{ w }}<br><small>Punched</small></th>
+                                <th>Leave</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% regroup punch_data|get_item:rep.ldap by project_id as project_groups %}
+                        {% for proj in project_groups %}
+                            {% regroup proj.list by subproject_id as subproject_groups %}
+                            {% for subp in subproject_groups %}
+                            <tr>
+                                <td>{{ projects|get_item:proj.grouper }}</td>
+                                <td>{{ subprojects|get_item:subp.grouper }}</td>
+                                {% for w in weeks %}
+                                {% with row=subp.list|selectattr:"week_number"|"equalto":w|first %}
+                                <td>
+                                    <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input"
+                                        value="{{ row.punched_hours if row else '' }}"
+                                        data-punch-id="{{ row.id if row else '' }}"
+                                        data-week="{{ w }}"
+                                        style="width:80px;"
+                                        {% if row.status == "APPROVED" %}readonly{% endif %}
+                                    >
+                                </td>
+                                <td>
+                                    {% with leave=leave_data|get_item:rep.ldap|get_item:w %}
+                                    {{ leave.leave_hours if leave else "" }}
+                                    {% endwith %}
+                                </td>
+                                <td>
+                                    {{ row.status if row else "" }}
+                                </td>
+                                <td>
+                                    {% if row and row.status != "APPROVED" %}
+                                    <button class="btn btn-success btn-sm approve-btn" data-punch-id="{{ row.id }}">Approve</button>
+                                    {% endif %}
+                                </td>
+                                {% endwith %}
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        {% endfor %}
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="text-muted">No punch data for this reportee.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    // Approve button handler
+    document.querySelectorAll(".approve-btn").forEach(function(btn) {
+        btn.addEventListener("click", function(e) {
+            var punchId = btn.getAttribute("data-punch-id");
+            var input = document.querySelector('.punch-input[data-punch-id="' + punchId + '"]');
+            var punchedHours = input.value;
+            var comments = prompt("Optional: Add comments for approval", "");
+            btn.disabled = true;
+            fetch("{% url 'projects:tl_punch_approve' %}", {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": "{{ csrf_token }}",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    punch_id: punchId,
+                    punched_hours: punchedHours,
+                    comments: comments
+                })
+            }).then(resp => resp.json()).then(data => {
+                if (data.ok) {
+                    input.setAttribute("readonly", "readonly");
+                    btn.closest("td").previousElementSibling.previousElementSibling.textContent = "APPROVED";
+                    btn.remove();
+                } else {
+                    alert("Error: " + data.error);
+                    btn.disabled = false;
+                }
+            });
+        });
+    });
+});
+</script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.punch-table th, .punch-table td { text-align: center; vertical-align: middle; }
+.punch-input[readonly] { background: #e9ecef; }
+.card-header { background: #f8f9fa; }
+.btn-outline-primary { font-size: 0.95em; }
+</style>
+{% endblock %}
