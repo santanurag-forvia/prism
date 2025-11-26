@@ -86,5 +86,7 @@ urlpatterns = [
     path('my-allocations/projects/', views.get_projects_for_allocation, name='get_projects_for_allocation'),
     path('my-allocations/record-leave/', views.record_leave, name='record_leave'),
     path('my-allocations/get-leaves/', views.get_leaves_for_month, name='get_leaves_for_month'),
+    #path('view-allotment/', views.view_allotment, name='view_allotment'),
+    path('tl-allocations/view-allotment/', views.view_allotment, name="view_allotment"),
 ]
 

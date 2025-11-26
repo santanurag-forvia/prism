@@ -202,6 +202,8 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 from datetime import date, timedelta, datetime
 from decimal import Decimal, ROUND_HALF_UP
+from django.urls import path
+from . import views
 import json, logging
 
 
@@ -2823,7 +2825,7 @@ def my_allocations(request):
     # Fetch team distributions
     with connection.cursor() as cur:
         cur.execute("""
-            SELECT td.id AS team_distribution_id, td.hours AS total_hours, 
+            SELECT td.id AS team_distribution_id, td.hours AS total_hours,
                    COALESCE(p.name,'') AS project_name, COALESCE(sp.name,'') AS subproject_name,
                    td.project_id, td.subproject_id
             FROM team_distributions td
@@ -2888,10 +2890,10 @@ def my_allocations(request):
 
             # Fetch punch_data (actual punched hours submitted by user)
             cur.execute(f"""
-                SELECT team_distribution_id, week_number, 
+                SELECT team_distribution_id, week_number,
                        allocated_hours, punched_hours, status, submitted_at
                 FROM punch_data
-                WHERE team_distribution_id IN ({placeholders}) 
+                WHERE team_distribution_id IN ({placeholders})
                   AND LOWER(user_email) = LOWER(%s)
                   AND month_start = %s
             """, td_ids + [user_email, billing_start])
@@ -3105,7 +3107,7 @@ def save_effort_draft(request):
 
                 # Get weekly allocation if exists, otherwise use equal split
                 cur.execute("""
-                    SELECT hours FROM weekly_allocations 
+                    SELECT hours FROM weekly_allocations
                     WHERE team_distribution_id = %s AND week_number = %s
                 """, [tdid, week_num])
 
@@ -3140,16 +3142,16 @@ def save_effort_draft(request):
 
                     cur.execute("""
                         INSERT INTO punch_data
-                        (user_email, team_distribution_id, month_start, week_number, 
+                        (user_email, team_distribution_id, month_start, week_number,
                          allocated_hours, punched_hours, status)
                         SELECT %s, %s, td.month_start, %s,
                                COALESCE(
-                                   (SELECT hours FROM weekly_allocations 
+                                   (SELECT hours FROM weekly_allocations
                                     WHERE team_distribution_id = td.id AND week_number = %s),
                                    TRUNCATE(td.hours / 4, 2)
                                ),
                                %s, 'DRAFT'
-                        FROM team_distributions td 
+                        FROM team_distributions td
                         WHERE td.id = %s
                         ON DUPLICATE KEY UPDATE
                             punched_hours = VALUES(punched_hours),
@@ -3257,7 +3259,7 @@ def submit_effort(request):
                 cur.execute("""
                     SELECT allocated_hours, punched_hours
                     FROM punch_data
-                    WHERE team_distribution_id = %s 
+                    WHERE team_distribution_id = %s
                       AND week_number = %s
                       AND user_email = %s
                       AND month_start = %s
@@ -3387,12 +3389,12 @@ def add_self_allocation(request):
 
         # Insert allocations
         sql = """
-            INSERT INTO user_self_allocations 
-            (user_email, project_id, subproject_id, month_start, week_number, 
+            INSERT INTO user_self_allocations
+            (user_email, project_id, subproject_id, month_start, week_number,
              percent_effort, hours, status, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, 
-                    (%s * (SELECT total_hours FROM monthly_allocation_entries 
-                           WHERE user_email=%s AND month_start=%s LIMIT 1) / 400.0), 
+            VALUES (%s, %s, %s, %s, %s, %s,
+                    (%s * (SELECT total_hours FROM monthly_allocation_entries
+                           WHERE user_email=%s AND month_start=%s LIMIT 1) / 400.0),
                     'PENDING', NOW(), NOW())
             ON DUPLICATE KEY UPDATE
                 percent_effort = VALUES(percent_effort),
@@ -4294,7 +4296,7 @@ def monthly_allocations(request):
         with connection.cursor() as cur:
             # Base query for monthly_allocation_entries
             base_sql = """
-                SELECT 
+                SELECT
                     mae.id as allocation_id,
                     mae.project_id,
                     mae.subproject_id,
@@ -6767,11 +6769,11 @@ def record_leave(request):
             # VALIDATION 1: Check if punching already submitted for this week
             # ============================================================
             cur.execute("""
-                SELECT COUNT(*) 
-                FROM punch_data 
-                WHERE user_email = %s 
-                  AND month_start = %s 
-                  AND week_number = %s 
+                SELECT COUNT(*)
+                FROM punch_data
+                WHERE user_email = %s
+                  AND month_start = %s
+                  AND week_number = %s
                   AND status = 'SUBMITTED'
             """, [user_email, billing_start, week_number])
 
@@ -6817,7 +6819,7 @@ def record_leave(request):
             cur.execute("""
                 INSERT INTO leave_records (
                     user_email, year, month, week_number, leave_date,
-                    leave_hours, leave_type, description, 
+                    leave_hours, leave_type, description,
                     status, created_at, updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', NOW(), NOW())
@@ -6867,7 +6869,7 @@ def get_leaves_for_month(request):
             cur.execute("""
                 SELECT id, week_number, leave_hours, leave_type, reason, status
                 FROM leave_records
-                WHERE LOWER(user_ldap) = LOWER(%s) 
+                WHERE LOWER(user_ldap) = LOWER(%s)
                   AND billing_start = %s
                 ORDER BY week_number
             """, [user_email, billing_start])
@@ -6908,10 +6910,10 @@ def save_my_allocation(request):
         with transaction.atomic(), connection.cursor() as cur:
             # Upsert weekly_allocations as DRAFT
             cur.execute("""
-                INSERT INTO weekly_allocations 
+                INSERT INTO weekly_allocations
                     (allocation_id, week_number, hours, percent, status, updated_at)
                 VALUES (%s, %s, %s, %s, 'DRAFT', NOW())
-                ON DUPLICATE KEY UPDATE 
+                ON DUPLICATE KEY UPDATE
                     hours = VALUES(hours),
                     percent = VALUES(percent),
                     status = 'DRAFT',
@@ -6930,7 +6932,35 @@ def save_my_allocation(request):
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
+# projects/views.py
+from django.http import JsonResponse
+from django.db import connection
 
+def view_allotment(request):
+    if not request.session.get("is_authenticated"):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
 
-
+    month = request.GET.get("month")
+    params = [month] if month else []
+    sql = """
+        SELECT
+            p.name AS project,
+            sp.name AS subproject,
+            e.user_ldap AS resource,
+            e. total_hours AS allocated_hrs,
+            ROUND(e. total_hours / 183.75, 3) AS fte,
+            e.month_start,
+            w.buyer_wbs_cc  AS wbs
+        FROM monthly_allocation_entries e
+        LEFT JOIN projects p ON e.project_id = p.id
+        LEFT JOIN subprojects sp ON e.subproject_id = sp.id
+        LEFT JOIN prism_wbs w ON e.iom_id = w.iom_id
+        WHERE (%s IS NULL OR LEFT(e.month_start, 7) = %s)
+        ORDER BY p.name, sp.name, e.user_ldap
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params * 2)
+        columns = [col[0] for col in cursor.description]
+        data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return JsonResponse({"data": data})
 
