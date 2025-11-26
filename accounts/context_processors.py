@@ -89,6 +89,13 @@ MENU_TREE = [
                 "url": reverse_lazy("projects:my_allocations"),
                 "roles": ["COE_LEADER", "TEAM_LEAD", "ADMIN", "PDL", "EMPLOYEE"],
             },
+            {
+                "key": "tl_punch_review",
+                "title": "TL Punching Review",
+                "icon": "clock",
+                "url": reverse_lazy("projects:tl_punch_review"),
+                "roles": ["COE_LEADER", "TEAM_LEAD", "ADMIN", "PDL", "EMPLOYEE"],
+            },
         ],
     },
     {
