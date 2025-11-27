@@ -1,3 +1,5 @@
+
+
 {% extends "base.html" %}
 {% load static %}
 {% block content %}
@@ -305,7 +307,9 @@ th.week-header {
 
   <!-- Direct reportees summary -->
   <div class="card">
-    <div class="card-header"><span><span class="pill"></span>Reportees Allocation Summary</span></div>
+    <div class="card-header"><span><span class="pill"></span>Reportees Allocation Summary</span>
+    <a id="btnMyApproval" class="btn btn-primary" href="{% url 'projects:tl_punch_review' %}">My Approvals</a>
+    </div>
    <div class="card-body">
        <!--Start of tab-->
        <div class="feas-tabs" style="margin: 16px auto;">
@@ -344,8 +348,8 @@ th.week-header {
                 {% endif %}
               </td>
               <td class="r-hours" style="width:300px">{{ r.total_hours|default:"0.00" }}</td>
-              <td class="r-fte">{{ r.fte|default:"0.000" }}
-              </td><td class="r-ptge">{{ r.ptge|default:"0.000" }}</td>
+              <td class="r-fte">{{ r.fte|default:"0.0" }}
+              </td><td class="r-ptge">{{ r.ptge|default:"0.0" }}</td>
             </tr>
             {% endfor %}
           {% else %}
@@ -369,55 +373,152 @@ th.week-header {
           </tr>
         </thead>
 
-
 <tbody id="summaryBodyprojectview">
-  {% for row in allocations %}
-    <tr class="alloc-row" data-ldap="{{ row.reportee_ldap }}" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
-      <td class="compact-project">
-        {% for p in projects %}
-          {% if p.project_id == row.project_id %}
-            {{ p.bg_code }} - {{ p.name }}
-          {% endif %}
-        {% endfor %}
-      </td>
-      <td class="compact-subproject">
-        {% for sp in subprojects %}
-          {% if sp.id == row.subproject_id %}
-            {{ sp.name }}
-          {% endif %}
-        {% endfor %}
-      </td>
-      <td>
-        {% for r in reportees %}
-          {% if r.ldap|lower == row.reportee_ldap|lower %}
-            {% if r.cn %}
-              {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;
-            {% elif r.name %}
-              {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;
+  {% with prev_program=None %}
+    {% for row in allocations %}
+      {% for p in projects %}
+        {% if p.project_id == row.project_id %}
+          {% with program_name=p.bg_code|stringformat:"s - "|add:p.name %}
+            {% ifchanged program_name %}
+              <tr class="alloc-row" data-ldap="{{ row.reportee_ldap }}" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
+                <td class="compact-project">{{ program_name }}</td>
+                <td class="compact-subproject">
+                  {% for sp in subprojects %}
+                    {% if sp.id == row.subproject_id %}
+                      {{ sp.name }}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+                <td>
+                  {% for r in reportees %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                      {% if r.cn %}
+                        {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                      {% elif r.name %}
+                        {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                      {% else %}
+                        &lt;{{ r.mail|default:r.ldap }}&gt;
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+                <td class="r-hours">{{ row.hours|floatformat:2 }}</td>
+                <td class="r-fte">
+                  {% for r in reportees %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                      {{ r.fte|default:"0.0" }}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+                <td class="r-ptge">
+                  {% for r in reportees %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                      {{ r.ptge|default:"0.0" }}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+              </tr>
             {% else %}
-              &lt;{{ r.mail|default:r.ldap }}&gt;
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-      </td>
-      <td class="r-hours">{{ row.hours|floatformat:2 }}</td>
-      <td class="r-fte">
-        {% for r in reportees %}
-          {% if r.ldap|lower == row.reportee_ldap|lower %}
-            {{ r.fte|default:"0.000" }}
-          {% endif %}
-        {% endfor %}
-      </td>
-      <td class="r-ptge">
-        {% for r in reportees %}
-          {% if r.ldap|lower == row.reportee_ldap|lower %}
-            {{ r.ptge|default:"0.000" }}
-          {% endif %}
-        {% endfor %}
-      </td>
-    </tr>
-  {% endfor %}
+              <tr class="alloc-row" data-ldap="{{ row.reportee_ldap }}" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
+                <td class="compact-project"></td>
+                <td class="compact-subproject">
+                  {% for sp in subprojects %}
+                    {% if sp.id == row.subproject_id %}
+                      {{ sp.name }}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+                <td>
+                  {% for r in reportees %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                      {% if r.cn %}
+                        {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                      {% elif r.name %}
+                        {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;
+                      {% else %}
+                        &lt;{{ r.mail|default:r.ldap }}&gt;
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+                <td class="r-hours">{{ row.hours|floatformat:2 }}</td>
+                <td class="r-fte">
+                  {% for r in reportees %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                      {{ r.fte|default:"0.0" }}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+                <td class="r-ptge">
+                  {% for r in reportees %}
+                    {% if r.ldap|lower == row.reportee_ldap|lower %}
+                      {{ r.ptge|default:"0.0" }}
+                    {% endif %}
+                  {% endfor %}
+                </td>
+              </tr>
+            {% endifchanged %}
+          {% endwith %}
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+  {% endwith %}
 </tbody>
+
+
+
+
+
+<!--Original code-->
+<!--<tbody id="summaryBodyprojectview">-->
+<!--  {% for row in allocations %}-->
+<!--    <tr class="alloc-row" data-ldap="{{ row.reportee_ldap }}" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">-->
+<!--      <td class="compact-project">-->
+<!--        {% for p in projects %}-->
+<!--          {% if p.project_id == row.project_id %}-->
+<!--            {{ p.bg_code }} - {{ p.name }}-->
+<!--          {% endif %}-->
+<!--        {% endfor %}-->
+<!--      </td>-->
+<!--      <td class="compact-subproject">-->
+<!--        {% for sp in subprojects %}-->
+<!--          {% if sp.id == row.subproject_id %}-->
+<!--            {{ sp.name }}-->
+<!--          {% endif %}-->
+<!--        {% endfor %}-->
+<!--      </td>-->
+<!--      <td>-->
+<!--        {% for r in reportees %}-->
+<!--          {% if r.ldap|lower == row.reportee_ldap|lower %}-->
+<!--            {% if r.cn %}-->
+<!--              {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--            {% elif r.name %}-->
+<!--              {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--            {% else %}-->
+<!--              &lt;{{ r.mail|default:r.ldap }}&gt;-->
+<!--            {% endif %}-->
+<!--          {% endif %}-->
+<!--        {% endfor %}-->
+<!--      </td>-->
+<!--      <td class="r-hours">{{ row.hours|floatformat:2 }}</td>-->
+<!--      <td class="r-fte">-->
+<!--        {% for r in reportees %}-->
+<!--          {% if r.ldap|lower == row.reportee_ldap|lower %}-->
+<!--            {{ r.fte|default:"0.0" }}-->
+<!--          {% endif %}-->
+<!--        {% endfor %}-->
+<!--      </td>-->
+<!--      <td class="r-ptge">-->
+<!--        {% for r in reportees %}-->
+<!--          {% if r.ldap|lower == row.reportee_ldap|lower %}-->
+<!--            {{ r.ptge|default:"0.0" }}-->
+<!--          {% endif %}-->
+<!--        {% endfor %}-->
+<!--      </td>-->
+<!--    </tr>-->
+<!--  {% endfor %}-->
+<!--</tbody>-->
+            <!-- End of original code -->
 
       </table>
     </section>
@@ -550,7 +651,7 @@ th.week-header {
       </table>
          <div style="text-align:right; margin-top:14px;">
              <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
-          <button id="btnExportExcel" class="btn btn-primary" style="background:#0284c7;">Export to Excel</button>
+          <button id="btnExportExcel" class="btn btn-primary" >Export to Excel</button>
         <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
       </div>
     </section>
@@ -818,7 +919,7 @@ th.week-header {
     const hrs = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
     const fte = MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT) : 0;
     const td = tr.querySelector('.auto-fte');
-    if(td) td.textContent = (hrs > 0 && isFinite(fte)) ? fte.toFixed(3) : '--';
+    if(td) td.textContent = (hrs > 0 && isFinite(fte)) ? fte.toFixed(2) : '--';
   }
 
   // Create a new row (prefill optional)
@@ -989,8 +1090,8 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
       const fteEl = rr.querySelector('.r-fte');
       const ptgeEl = rr.querySelector('.r-ptge');
       if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
-      if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(3) : '0.000');
-      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
+      if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(1) : '0.0');
+      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(1) : '0.0' );
       // if(ptgeEl) hrsEl.textContent = hrs.toFixed(2);
     });
 
@@ -1009,8 +1110,8 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
      // fillSubprojectOptions(rr.querySelector('.sel-subproject'), projectId, subprojectSelected);
 
       if(hrsEl){
-            fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(3) : '0.000');
-            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
+            fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(1) : '0.0');
+            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MAX_FTE_PM * 100).toFixed(1) : '0.0' );
       }
       //if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
        // console.log("/////JAYASHREE", fteEl, hrs, hrsEl);
@@ -1644,6 +1745,57 @@ document.getElementById("month").addEventListener("change", function() {
   }
 });
 
+
+document.getElementById('btnMyApproval').addEventListener('click', function(e){
+  e.preventDefault();
+  window.location.href = "{% url 'projects:tl_punch_review' %}";
+});
+
+// Sort Project View tab by Program column (first column)
+// document.addEventListener('DOMContentLoaded', function() {
+//   const tbody = document.getElementById('summaryBodyprojectview');
+//   if (!tbody) return;
+//   const rows = Array.from(tbody.querySelectorAll('tr'));
+//   rows.sort((a, b) => {
+//     const progA = (a.cells[0]?.textContent || '').toLowerCase();
+//     const progB = (b.cells[0]?.textContent || '').toLowerCase();
+//     return progA.localeCompare(progB);
+//   });
+//   rows.forEach(row => tbody.appendChild(row));
+// });
+
+document.addEventListener('DOMContentLoaded', function() {
+  const tbody = document.getElementById('summaryBodyprojectview');
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  rows.sort((a, b) => {
+    const progA = (a.cells[0]?.textContent || '').toLowerCase();
+    const progB = (b.cells[0]?.textContent || '').toLowerCase();
+    return progA.localeCompare(progB);
+  });
+
+  const seenPrograms = new Set();
+  const seenProjects = new Set();
+  rows.forEach(row => {
+    // Program column (first cell)
+    const progCell = row.cells[0];
+    const progName = (progCell?.textContent || '').trim();
+    if (seenPrograms.has(progName)) {
+      progCell.textContent = '';
+    } else if (progName) {
+      seenPrograms.add(progName);
+    }
+    // Project column (second cell)
+    const projCell = row.cells[1];
+    const projName = (projCell?.textContent || '').trim();
+    if (seenProjects.has(projName)) {
+      projCell.textContent = '';
+    } else if (projName) {
+      seenProjects.add(projName);
+    }
+    tbody.appendChild(row);
+  });
+});
 
 
 

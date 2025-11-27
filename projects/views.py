@@ -6948,7 +6948,7 @@ def view_allotment(request):
             sp.name AS subproject,
             e.user_ldap AS resource,
             e. total_hours AS allocated_hrs,
-            ROUND(e. total_hours / 183.75, 3) AS fte,
+            ROUND(e. total_hours / 183.75, 1) AS fte,
             e.month_start,
             w.buyer_wbs_cc  AS wbs
         FROM monthly_allocation_entries e
