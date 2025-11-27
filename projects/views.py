@@ -6948,7 +6948,7 @@ def view_allotment(request):
             sp.name AS subproject,
             e.user_ldap AS resource,
             e. total_hours AS allocated_hrs,
-            ROUND(e. total_hours / 183.75, 3) AS fte,
+            ROUND(e. total_hours / 183.75, 1) AS fte,
             e.month_start,
             w.buyer_wbs_cc  AS wbs
         FROM monthly_allocation_entries e
@@ -7016,9 +7016,8 @@ def tl_punch_review(request):
                 "cn": cn or identifier,
             })
 
-    # --- Add logged-in user if PDL and not already in reportees ---
+    # Add logged-in user if PDL and not already in reportees
     role = (request.session.get("role") or "").upper()
-    print("User role:", role)
     if "PDL" in role:
         logged_ldap = (session_ldap or "").lower()
         if not any(r["ldap"] == logged_ldap for r in reportees):
@@ -7028,33 +7027,6 @@ def tl_punch_review(request):
                 "cn": request.session.get("cn") or session_ldap,
             })
 
-    # Fetch punch data for all reportees for the month, grouped by user and week
-    reportee_ldaps = [r["ldap"] for r in reportees]
-    punch_data = {}
-    leave_data = {}
-    if reportee_ldaps:
-        placeholders = ",".join(["%s"] * len(reportee_ldaps))
-        with connection.cursor() as cur:
-            # Punch data
-            cur.execute(f"""
-                SELECT user_email, project_id, subproject_id, week_number, allocated_hours, punched_hours, status, id, comments
-                FROM punch_data
-                WHERE month_start = %s AND LOWER(user_email) IN ({placeholders})
-                ORDER BY user_email, project_id, subproject_id, week_number
-            """, [month_start] + reportee_ldaps)
-            for row in dictfetchall(cur):
-                user = row["user_email"].lower()
-                punch_data.setdefault(user, []).append(row)
-            # Leave data
-            cur.execute(f"""
-                SELECT user_email, week_number, leave_hours, leave_type, description
-                FROM leave_records
-                WHERE year = %s AND month = %s AND LOWER(user_email) IN ({placeholders})
-            """, [month_start.year, month_start.month] + reportee_ldaps)
-            for row in dictfetchall(cur):
-                user = row["user_email"].lower()
-                leave_data.setdefault(user, {})[row["week_number"]] = row
-
     # Fetch project/subproject names for display
     with connection.cursor() as cur:
         cur.execute("SELECT id, name FROM projects")
@@ -7063,15 +7035,61 @@ def tl_punch_review(request):
         subprojects = {r["id"]: r["name"] for r in dictfetchall(cur)}
 
     # Weeks in month (assume 4 or 5 weeks)
-    from calendar import monthrange
-    num_weeks = 5  # For UI, always show 5 weeks
+    num_weeks = 5
     weeks = list(range(1, num_weeks + 1))
+
+    # Fetch all punch and leave data, group as required
+    reportee_ldaps = [r["ldap"] for r in reportees]
+    punch_rows = {}
+    if reportee_ldaps:
+        placeholders = ",".join(["%s"] * len(reportee_ldaps))
+        with connection.cursor() as cur:
+            # Fetch punch data
+            cur.execute(f"""
+                SELECT user_email, project_id, subproject_id, week_number, allocated_hours, punched_hours, status, id, comments
+                FROM punch_data
+                WHERE month_start = %s AND LOWER(user_email) IN ({placeholders})
+                ORDER BY user_email, project_id, subproject_id, week_number
+            """, [month_start] + reportee_ldaps)
+            punch_records = dictfetchall(cur)
+
+            # Fetch leave data
+            cur.execute(f"""
+                SELECT user_email, week_number, leave_hours, leave_type, description
+                FROM leave_records
+                WHERE year = %s AND month = %s AND LOWER(user_email) IN ({placeholders})
+            """, [month_start.year, month_start.month] + reportee_ldaps)
+            leave_records = dictfetchall(cur)
+
+        # Build leave lookup: {user: {week: leave_hours}}
+        leave_lookup = {}
+        for row in leave_records:
+            user = row["user_email"].lower()
+            week = row["week_number"]
+            leave_lookup.setdefault(user, {})[week] = row.get("leave_hours", 0)
+
+        # Group punch data for frontend
+        for row in punch_records:
+            user = row["user_email"].lower()
+            project_id = row["project_id"]
+            subproject_id = row["subproject_id"]
+            week = row["week_number"]
+            punch_rows.setdefault(user, []).append({
+                "project_name": projects.get(project_id, str(project_id)),
+                "subproject_name": subprojects.get(subproject_id, str(subproject_id)),
+                "week_number": week,
+                "allocated_hours": row.get("allocated_hours", 0),
+                "punched_hours": row.get("punched_hours", 0),
+                "leave_hours": leave_lookup.get(user, {}).get(week, 0),
+                "status": row.get("status"),
+                "punch_id": row.get("id"),
+                "comments": row.get("comments", ""),
+            })
 
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
-        "punch_data": punch_data,
-        "leave_data": leave_data,
+        "punch_rows": punch_rows,
         "projects": projects,
         "subprojects": subprojects,
         "weeks": weeks,

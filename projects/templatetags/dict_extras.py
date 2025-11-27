@@ -18,3 +18,9 @@ def get_by_key_value(items, args):
         if str(item.get(key)) == value:
             return item
     return None
+
+@register.filter
+def get_item(dictionary, key):
+    if isinstance(dictionary, dict):
+        return dictionary.get(key)
+    return None
