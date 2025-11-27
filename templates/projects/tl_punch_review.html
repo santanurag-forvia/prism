@@ -24,7 +24,8 @@
                                     data-target="#collapse-{{ rep.ldap }}"
                                     aria-expanded="false"
                                     aria-controls="collapse-{{ rep.ldap }}">
-                                    <span class="fa fa-chevron-down"></span> Expand
+                                    <span class="fa fa-chevron-down"></span>
+                                    <span class="expand-text">Expand</span>
                                 </button>
                             </div>
                             <div id="collapse-{{ rep.ldap }}" class="collapse" data-parent="#reporteeAccordion">
@@ -47,38 +48,40 @@
                                             </thead>
                                             <tbody>
                                             {% for row in rep_punch_rows %}
-                                                <tr>
-                                                    <td>{{ row.project_name|default:"None" }}</td>
-                                                    <td>{{ row.subproject_name|default:"None" }}</td>
-                                                    <td>W{{ row.week_number }}</td>
-                                                    <td>{{ row.allocated_hours|default:"" }}</td>
-                                                    <td>
-                                                        <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input"
-                                                            value="{{ row.punched_hours|default_if_none:'' }}"
-                                                            data-punch-id="{{ row.punch_id }}"
-                                                            data-week="{{ row.week_number }}"
-                                                            style="width:80px;"
-                                                            {% if row.status == "APPROVED" %}readonly{% endif %}
-                                                        >
-                                                    </td>
-                                                    <td>
-                                                        {% with leave_dict=leave_map|get_item:rep.ldap %}
-                                                            {% if leave_dict %}
-                                                                {% with leave=leave_dict|get_item:row.week_number %}
-                                                                    {{ leave.leave_hours|default_if_none:"" }}
-                                                                {% endwith %}
-                                                            {% endif %}
-                                                        {% endwith %}
-                                                    </td>
-                                                    <td>
-                                                        {{ row.status|default:"" }}
-                                                    </td>
-                                                    <td>
-                                                        {% if row.status != "APPROVED" %}
-                                                        <button class="btn btn-success btn-sm approve-btn" data-punch-id="{{ row.punch_id }}">Approve</button>
-                                                        {% endif %}
-                                                    </td>
-                                                </tr>
+                                            <tr>
+                                                <td>{{ row.project_name|default:"None" }}</td>
+                                                <td>{{ row.subproject_name|default:"None" }}</td>
+                                                <td>W{{ row.week_number }}</td>
+                                                <td>{{ row.allocated_hours|default:"" }}</td>
+                                                <td>
+                                                    <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input"
+                                                        value="{{ row.punched_hours|default_if_none:'' }}"
+                                                        data-punch-id="{{ row.punch_id }}"
+                                                        data-week="{{ row.week_number }}"
+                                                        style="width:80px;"
+                                                        {% if row.status == "APPROVED" %}readonly{% endif %}
+                                                    >
+                                                </td>
+                                                <td>
+                                                    {{ row.leave_hours|default_if_none:"" }}
+                                                </td>
+                                                <td>
+                                                    {{ row.status|default:"" }}
+                                                </td>
+                                                <td>
+                                                    {% if row.status == "APPROVED" %}
+                                                        <button class="btn btn-light btn-sm approve-btn approved-inactive" disabled>
+                                                            <span class="fa fa-check-circle text-success mr-1"></span>
+                                                            <strong>Approved</strong>
+                                                        </button>
+                                                    {% else %}
+                                                        <button class="btn btn-primary btn-sm approve-btn font-weight-bold" data-punch-id="{{ row.punch_id }}">
+                                                            <span class="fa fa-check mr-1"></span>
+                                                            Approve
+                                                        </button>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
                                             {% endfor %}
                                             </tbody>
                                         </table>
@@ -102,24 +105,24 @@
 {% block extra_js %}
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    // Accordion expand/collapse
     document.querySelectorAll(".expand-btn").forEach(function(btn) {
         btn.addEventListener("click", function() {
             var target = document.querySelector(btn.getAttribute("data-target"));
+            var icon = btn.querySelector(".fa");
+            var text = btn.querySelector(".expand-text");
             if (target.classList.contains("show")) {
                 target.classList.remove("show");
-                btn.querySelector(".fa").classList.remove("fa-chevron-up");
-                btn.querySelector(".fa").classList.add("fa-chevron-down");
-                btn.innerHTML = '<span class="fa fa-chevron-down"></span> Expand';
+                icon.classList.remove("fa-chevron-up");
+                icon.classList.add("fa-chevron-down");
+                text.textContent = "Expand";
             } else {
-                // Collapse all others
                 document.querySelectorAll(".collapse.show").forEach(function(open) {
                     open.classList.remove("show");
                 });
                 target.classList.add("show");
-                btn.querySelector(".fa").classList.remove("fa-chevron-down");
-                btn.querySelector(".fa").classList.add("fa-chevron-up");
-                btn.innerHTML = '<span class="fa fa-chevron-up"></span> Collapse';
+                icon.classList.remove("fa-chevron-down");
+                icon.classList.add("fa-chevron-up");
+                text.textContent = "Collapse";
             }
         });
     });
@@ -315,6 +318,28 @@ input[type="month"]:focus {
     transition: background 0.2s;
 }
 .btn-success.btn-sm.approve-btn:hover {
+    background: #155ab6;
+}
+.approved-inactive {
+    background: #e6f4ea !important;
+    color: #198754 !important;
+    border: 1.5px solid #b6e2c6 !important;
+    font-weight: 700;
+    opacity: 1 !important;
+    cursor: not-allowed;
+}
+.btn-primary.btn-sm.approve-btn {
+    background: #1f6feb;
+    border: none;
+    color: #fff;
+    font-weight: 700;
+    border-radius: 5px;
+    padding: 0.25rem 1.1rem;
+    font-size: 1.01rem;
+    box-shadow: 0 1px 4px rgba(31,111,235,0.08);
+    transition: background 0.2s;
+}
+.btn-primary.btn-sm.approve-btn:hover {
     background: #155ab6;
 }
 .text-muted {
