@@ -560,7 +560,7 @@ class DatabaseInitializer:
                 `project_id` BIGINT NULL,
                 `subproject_id` BIGINT NULL,
                 `month_start` DATE NOT NULL,
-                `week_number` TINYINT NOT NULL,
+                `punch_date` DATE NOT NULL,
                 `allocated_hours` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
                 `punched_hours` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
                 `percent_effort` DECIMAL(5,2) NULL,
@@ -571,7 +571,7 @@ class DatabaseInitializer:
                 `comments` TEXT NULL,
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY `uq_punch_user_td_week` (`user_email`, `team_distribution_id`, `month_start`, `week_number`),
+                UNIQUE KEY `uq_punch_user_td_day` (`user_email`, `team_distribution_id`, `month_start`, `punch_date`),
                 INDEX `idx_punch_user_month` (`user_email`, `month_start`),
                 INDEX `idx_punch_status` (`status`),
                 CONSTRAINT `fk_punch_team_dist` FOREIGN KEY (`team_distribution_id`) 
