@@ -3172,90 +3172,49 @@ def save_effort_draft(request):
 @require_http_methods(["POST"])
 def submit_effort(request):
     """Submit punched hours for approval."""
-    print("\n" + "="*80)
-    print("=== submit_effort START ===")
-    print("="*80)
-
     user_email = request.session.get("ldap_username")
-    print(f"[AUTH] user_email: {user_email}")
-
     if not user_email:
-        print("[ERROR] User not authenticated")
         return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
 
     try:
-        # Parse request body
-        print("\n[STEP 1] Parsing request body...")
         payload = json.loads(request.body.decode('utf-8'))
-        print(f"[PAYLOAD] Raw payload: {payload}")
-
         month_str = payload.get('billing_start')
         weeks_data = payload.get('weeks', [])
 
-        print(f"[PAYLOAD] month_str: {month_str}")
-        print(f"[PAYLOAD] weeks_data count: {len(weeks_data)}")
-        print(f"[PAYLOAD] weeks_data: {weeks_data}")
-
         if not month_str or not weeks_data:
-            print("[ERROR] Missing month or weeks data")
             return JsonResponse({'ok': False, 'error': 'Missing month or weeks data'}, status=400)
 
         # Parse month_start
-        print("\n[STEP 2] Parsing billing month...")
         try:
             parts = month_str.split('-')
-            print(f"[PARSE] Date parts: {parts}")
-
             if len(parts) == 2:
                 year, month = map(int, parts)
-                print(f"[PARSE] Detected YYYY-MM format: year={year}, month={month}")
             elif len(parts) == 3:
                 year, month = int(parts[0]), int(parts[1])
-                print(f"[PARSE] Detected YYYY-MM-DD format: year={year}, month={month}")
             else:
                 raise ValueError(f"Invalid date format: {month_str}")
-
-            print(f"[BILLING] Calling get_billing_period({year}, {month})...")
             billing_start, billing_end = get_billing_period(year, month)
-            print(f"[BILLING] billing_start: {billing_start}")
-            print(f"[BILLING] billing_end: {billing_end}")
-
         except Exception as e:
-            print(f"[ERROR] Failed to parse billing month: {e}")
             logger.error(f"Failed to parse billing month: {month_str} - {e}")
             return JsonResponse({'ok': False, 'error': 'Invalid month format'}, status=400)
 
         if not billing_start:
-            print("[ERROR] No billing period found")
             return JsonResponse({'ok': False, 'error': 'No billing period found'}, status=400)
 
         month_start = billing_start
-        print(f"[BILLING] Final month_start: {month_start}")
 
         # Validation
-        print("\n[STEP 3] Validating punched hours against allocations...")
         errors = []
         with connection.cursor() as cur:
             for idx, week_data in enumerate(weeks_data):
-                print(f"\n  [VALIDATION {idx+1}] Processing week_data: {week_data}")
-
                 td_id = week_data.get('team_distribution_id') or week_data.get('td_id')
                 week_num = week_data.get('week_num') or week_data.get('week_number')
-
-                print(f"    td_id: {td_id}")
-                print(f"    week_num: {week_num}")
-
                 if not td_id:
-                    print(f"    [ERROR] Missing team_distribution_id")
                     errors.append(f"Week {week_num or 'Unknown'}: Missing allocation ID")
                     continue
-
                 if week_num is None:
-                    print(f"    [ERROR] Missing week_num for td_id={td_id}")
                     errors.append(f"Allocation {td_id}: Missing week number")
                     continue
-
-                # Query punch_data for allocated vs punched hours
                 cur.execute("""
                     SELECT allocated_hours, punched_hours
                     FROM punch_data
@@ -3264,83 +3223,63 @@ def submit_effort(request):
                       AND user_email = %s
                       AND month_start = %s
                 """, [td_id, week_num, user_email, month_start])
-
                 row = cur.fetchone()
-                print(f"    [DB QUERY] td_id={td_id}, week={week_num} -> row={row}")
-
                 if not row:
-                    print(f"    [ERROR] No punch_data found for td_id={td_id}, week={week_num}")
                     errors.append(f"Week {week_num}: Allocation not found")
                     continue
-
                 allocated_hours = Decimal(str(row[0] or '0.00'))
                 punched_hours = Decimal(str(row[1] or '0.00'))
-
-                print(f"    allocated_hours: {allocated_hours}")
-                print(f"    punched_hours: {punched_hours}")
-
                 if punched_hours > allocated_hours:
-                    print(f"    [ERROR] Overpunch: {punched_hours} > {allocated_hours}")
                     errors.append(
                         f"Week {week_num}: Punched {punched_hours}h exceeds allocated {allocated_hours}h"
                     )
 
         if errors:
-            print(f"\n[VALIDATION FAILED] Errors: {errors}")
             return JsonResponse({'ok': False, 'errors': errors}, status=400)
 
-        print("\n[VALIDATION] All validations passed")
-
         # Save data
-        print("\n[STEP 4] Saving punch data to database...")
         with transaction.atomic(), connection.cursor() as cur:
             for idx, week_data in enumerate(weeks_data):
-                print(f"\n[SAVE] Week {idx+1}/{len(weeks_data)}")
                 td_id = week_data.get('team_distribution_id')
                 week_num = week_data.get('week_number')
                 punched = Decimal(str(week_data.get('punched_hours', 0))).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
 
-                print(f"  td_id: {td_id}")
-                print(f"  week_num: {week_num}")
-                print(f"  punched (quantized): {punched}")
-
-                # Fetch allocated hours
-                print(f"  [SQL] Fetching allocation...")
-                cur.execute("SELECT hours FROM team_distributions WHERE id = %s", [td_id])
+                # Fetch allocated hours, project_id, subproject_id from team_distributions
+                cur.execute(
+                    "SELECT hours, project_id, subproject_id FROM team_distributions WHERE id = %s",
+                    [td_id]
+                )
                 row = cur.fetchone()
-                allocated = Decimal(str(row[0])) if row else Decimal('0.00')
-                print(f"  allocated: {allocated}")
+                if row:
+                    allocated = Decimal(str(row[0]))
+                    project_id = row[1]
+                    subproject_id = row[2]
+                else:
+                    allocated = Decimal('0.00')
+                    project_id = None
+                    subproject_id = None
 
-                # Insert/update punch_data
+                # Insert/update punch_data with project_id and subproject_id
                 sql = """
                     INSERT INTO punch_data
-                    (user_email, team_distribution_id, month_start, week_number,
+                    (user_email, team_distribution_id, project_id, subproject_id, month_start, week_number,
                      allocated_hours, punched_hours, status, submitted_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'SUBMITTED', NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'SUBMITTED', NOW(), NOW())
                     ON DUPLICATE KEY UPDATE
                         punched_hours = VALUES(punched_hours),
                         status = 'SUBMITTED',
                         submitted_at = NOW(),
-                        updated_at = NOW()
+                        updated_at = NOW(),
+                        project_id = VALUES(project_id),
+                        subproject_id = VALUES(subproject_id)
                 """
-                params = [user_email, td_id, month_start, week_num, str(allocated), str(punched)]
-                print(f"  [SQL] Executing INSERT/UPDATE with params: {params}")
-
-                try:
-                    cur.execute(sql, params)
-                    print(f"  [SQL] Success - rows affected: {cur.rowcount}")
-                except Exception as e:
-                    print(f"  [SQL ERROR] {e}")
-                    raise
-
-        print("\n[SUCCESS] All punch data saved successfully")
-        print(f"[RESPONSE] Returning success for {len(weeks_data)} weeks")
-
-        print("="*80)
-        print("=== submit_effort END ===")
-        print("="*80 + "\n")
+                params = [
+                    user_email, td_id, project_id, subproject_id, month_start, week_num,
+                    str(allocated), str(punched)
+                ]
+                cur.execute(sql, params)
 
         return JsonResponse({
             'ok': True,
@@ -3348,10 +3287,8 @@ def submit_effort(request):
         })
 
     except json.JSONDecodeError as e:
-        print(f"\n[EXCEPTION] JSONDecodeError: {e}")
         return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        print(f"\n[EXCEPTION] Unexpected error: {e}")
         logger.exception("submit_effort error: %s", e)
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
@@ -7027,32 +6964,35 @@ def tl_punch_review(request):
                 "cn": request.session.get("cn") or session_ldap,
             })
 
-    # Fetch project/subproject names for display
+    # Get month limit for FTE calculation
     with connection.cursor() as cur:
-        cur.execute("SELECT id, name FROM projects")
-        projects = {r["id"]: r["name"] for r in dictfetchall(cur)}
-        cur.execute("SELECT id, name FROM subprojects")
-        subprojects = {r["id"]: r["name"] for r in dictfetchall(cur)}
-
-    # Weeks in month (assume 4 or 5 weeks)
-    num_weeks = 5
-    weeks = list(range(1, num_weeks + 1))
+        cur.execute(
+            "SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s",
+            [month_start.year, month_start.month]
+        )
+        row = cur.fetchone()
+        month_limit = float(row[0]) if row and row[0] else 173.0  # fallback
 
     # Fetch all punch and leave data, group as required
     reportee_ldaps = [r["ldap"] for r in reportees]
     punch_rows = {}
+    fte_totals = {}
     if reportee_ldaps:
         placeholders = ",".join(["%s"] * len(reportee_ldaps))
         with connection.cursor() as cur:
-            # Fetch punch data
+            # Fetch punch data with JOINs for project/subproject names
             cur.execute(f"""
-                SELECT user_email, project_id, subproject_id, week_number, allocated_hours, punched_hours, status, id, comments
-                FROM punch_data
-                WHERE month_start = %s AND LOWER(user_email) IN ({placeholders})
-                ORDER BY user_email, project_id, subproject_id, week_number
+                SELECT pd.user_email, pd.project_id, pd.subproject_id, pd.week_number,
+                       pd.allocated_hours, pd.punched_hours, pd.status, pd.id, pd.comments,
+                       p.name AS project_name, sp.name AS subproject_name
+                FROM punch_data pd
+                LEFT JOIN projects p ON pd.project_id = p.id
+                LEFT JOIN subprojects sp ON pd.subproject_id = sp.id
+                WHERE pd.month_start = %s AND LOWER(pd.user_email) IN ({placeholders})
+                ORDER BY pd.user_email, pd.project_id, pd.subproject_id, pd.week_number
             """, [month_start] + reportee_ldaps)
             punch_records = dictfetchall(cur)
-
+            print("Punch Records:", punch_records)
             # Fetch leave data
             cur.execute(f"""
                 SELECT user_email, week_number, leave_hours, leave_type, description
@@ -7068,31 +7008,34 @@ def tl_punch_review(request):
             week = row["week_number"]
             leave_lookup.setdefault(user, {})[week] = row.get("leave_hours", 0)
 
-        # Group punch data for frontend
-        for row in punch_records:
-            user = row["user_email"].lower()
-            project_id = row["project_id"]
-            subproject_id = row["subproject_id"]
-            week = row["week_number"]
-            punch_rows.setdefault(user, []).append({
-                "project_name": projects.get(project_id, str(project_id)),
-                "subproject_name": subprojects.get(subproject_id, str(subproject_id)),
-                "week_number": week,
-                "allocated_hours": row.get("allocated_hours", 0),
-                "punched_hours": row.get("punched_hours", 0),
-                "leave_hours": leave_lookup.get(user, {}).get(week, 0),
-                "status": row.get("status"),
-                "punch_id": row.get("id"),
-                "comments": row.get("comments", ""),
-            })
+        # Group punch data for frontend and compute FTE
+        for rep in reportees:
+            user = rep["ldap"]
+            user_rows = [
+                row for row in punch_records if row["user_email"].lower() == user
+            ]
+            punch_rows[user] = []
+            total_alloc = 0.0
+            for row in user_rows:
+                total_alloc += float(row.get("allocated_hours") or 0)
+                punch_rows[user].append({
+                    "project_name": row.get("project_name") or "None",
+                    "subproject_name": row.get("subproject_name") or "None",
+                    "week_number": row.get("week_number"),
+                    "allocated_hours": row.get("allocated_hours", 0),
+                    "punched_hours": row.get("punched_hours", 0),
+                    "leave_hours": leave_lookup.get(user, {}).get(row.get("week_number"), 0),
+                    "status": row.get("status"),
+                    "punch_id": row.get("id"),
+                    "comments": row.get("comments", ""),
+                })
+            fte_totals[user] = round(total_alloc / month_limit, 2) if month_limit else 0.0
 
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
         "punch_rows": punch_rows,
-        "projects": projects,
-        "subprojects": subprojects,
-        "weeks": weeks,
+        "fte_totals": fte_totals,
     })
 
 @require_POST
@@ -7115,6 +7058,55 @@ def tl_punch_approve(request):
                 SET punched_hours = %s, status = 'APPROVED', approved_by = %s, approved_at = NOW(), comments = %s, updated_at = NOW()
                 WHERE id = %s
             """, [punched_hours, session_ldap, comments, punch_id])
+        return JsonResponse({"ok": True})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+# projects/views.py
+
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse
+from django.db import connection, transaction
+import json
+
+@require_POST
+def tl_punch_bulk_approve(request):
+    # Session and role check
+    if not request.session.get("is_authenticated"):
+        return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
+    user_role = request.session.get("role", "")
+    if user_role not in ("TEAM_LEAD", "PDL", "ADMIN"):
+        return JsonResponse({"ok": False, "error": "Unauthorized"}, status=403)
+
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        punch_ids = data.get("punch_ids", [])
+        if not punch_ids or not isinstance(punch_ids, list):
+            return JsonResponse({"ok": False, "error": "No punch IDs provided"}, status=400)
+        # Only allow integer IDs
+        punch_ids = [int(pid) for pid in punch_ids if str(pid).isdigit()]
+        if not punch_ids:
+            return JsonResponse({"ok": False, "error": "Invalid punch IDs"}, status=400)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": "Invalid request: %s" % str(e)}, status=400)
+
+    # Bulk update punch rows
+    try:
+        with transaction.atomic(), connection.cursor() as cur:
+            # Optionally, you can filter by reportee/team lead if needed
+            sql = (
+                "UPDATE punch_data "
+                "SET status = %s, approved_by = %s, approved_at = NOW() "
+                "WHERE id IN (%s) AND status != 'APPROVED'"
+            )
+            params = ["APPROVED", request.session.get("ldap_username"), ",".join(str(pid) for pid in punch_ids)]
+            # Use parameterized query for IN clause
+            in_clause = ",".join(["%s"] * len(punch_ids))
+            cur.execute(
+                f"UPDATE punch_data SET status = %s, approved_by = %s, approved_at = NOW() "
+                f"WHERE id IN ({in_clause}) AND status != 'APPROVED'",
+                ["APPROVED", request.session.get("ldap_username")] + punch_ids
+            )
         return JsonResponse({"ok": True})
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)

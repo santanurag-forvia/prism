@@ -644,13 +644,21 @@ th.week-header {
               </td>
             {% endfor %}
 
-              <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
+              <td class="action-cell">
+                  <button class="btn btn-danger btn-remove">Remove</button>
+              </td>
+                <td>
+                  <button id="btnAddProjectForResource" class="btn btn-primary btn-add-row" title="Add row for same resource">+</button>
+              </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
          <div style="text-align:right; margin-top:14px;">
              <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
+<!-- Place this next to Add Resource button in Allocation by Team Member tab -->
+
+
           <button id="btnExportExcel" class="btn btn-primary" >Export to Excel</button>
         <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
       </div>
@@ -727,7 +735,13 @@ th.week-header {
                  value="{{ row.week_perc|default_if_none:''|slice:forloop.counter0|default:'0' }}">
         </td>
       {% endfor %}
-      <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
+      <td class="action-cell">
+          <button class="btn btn-danger btn-remove">Remove</button></td>
+        <td>
+<!--            <button  id="btnAddResourceForProject" class="btn btn-primary btn-add-row" title="Add row for same resource">+</button>-->
+        <button class="btn btn-primary btn-add-row btn-add-resource-for-project" title="Add row for same resource">+</button>
+        </td>
+
     </tr>
   {% endfor %}
 </tbody>
@@ -844,11 +858,17 @@ th.week-header {
                value="">
       </td>
     {% endfor %}
-    <td class="action-cell"><button class="btn btn-danger btn-remove">Remove</button></td>
+
+    <td class="action-cell">
+
+        <button class="btn btn-danger btn-remove">Remove</button>
+
+    </td>
   </tr>
 </template>
 
 <script>
+
 (function(){
   // Config / server-provided values
   const MONTHLY_LIMIT = {{ monthly_hours|default:183.75 }};           // per-billing-cycle maximum hours (one scalar)
@@ -857,6 +877,7 @@ th.week-header {
   const MAX_FTE_PM = {{175}};
 
   // Helper: populate subproject select for a row given a project id and optional selected subproject id
+
   function fillSubprojectOptions(selSub, projectId, selectedId){
     selSub.innerHTML = '<option value="">-- select --</option>';
     if(!projectId){
@@ -913,6 +934,7 @@ th.week-header {
       // console.debug('fillSubprojectOptions error', e);
     }
   }
+
 
   // Update FTE cell for the given row
   function updateFTE(tr){
@@ -992,7 +1014,7 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
     document.getElementById('allocBody').appendChild(tr);
     return tr;
   }
-
+window.createRow = createRow;
 // end of a new row creation
 
  // Create a new row in allocation by project tab(prefill optional)
@@ -1035,36 +1057,67 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
     });
 
     // apply prefill values if provided
-    if(prefill){
-      if(prefill.reportee_ldap){
-        const selR = tr.querySelector('.sel-resource');
-        for(let i=0;i<selR.options.length;i++){
-          if(String(selR.options[i].value).toLowerCase() === String(prefill.reportee_ldap).toLowerCase()){
-            selR.selectedIndex = i; break;
-          }
+    // if(prefill){
+    //   if(prefill.reportee_ldap){
+    //     const selR = tr.querySelector('.sel-resource');
+    //     for(let i=0;i<selR.options.length;i++){
+    //       if(String(selR.options[i].value).toLowerCase() === String(prefill.reportee_ldap).toLowerCase()){
+    //         selR.selectedIndex = i; break;
+    //       }
+    //     }
+    //   }
+    //   if(prefill.project_id){
+    //     selProj.value = prefill.project_id;
+    //     fillSubprojectOptions(selSub, prefill.project_id, prefill.subproject_id || null);
+    //   } else if(prefill.subproject_id){
+    //     // if only subproject known, try to set it (fillSubprojectOptions has fallback)
+    //     fillSubprojectOptions(selSub, '', prefill.subproject_id);
+    //   }
+    //   if(prefill.hours) tr.querySelector('.inp-hours').value = prefill.hours;
+    //   if(Array.isArray(prefill.week_perc)){
+    //     tr.querySelector('.wpct-1').value = prefill.week_perc[0]||0;
+    //     tr.querySelector('.wpct-2').value = prefill.week_perc[1]||0;
+    //     tr.querySelector('.wpct-3').value = prefill.week_perc[2]||0;
+    //     tr.querySelector('.wpct-4').value = prefill.week_perc[3]||0;
+    //   }
+    //   if(prefill.id) tr.setAttribute('data-team-dist-id', prefill.id);
+    //   updateFTE(tr);
+
+// apply prefill values if provided
+if(prefill){
+  if(prefill.reportee_ldap){
+    const selR = tr.querySelector('.sel-resource1');
+    if (selR) {
+      for(let i=0;i<selR.options.length;i++){
+        if(String(selR.options[i].value).toLowerCase() === String(prefill.reportee_ldap).toLowerCase()){
+          selR.selectedIndex = i; break;
         }
       }
-      if(prefill.project_id){
-        selProj.value = prefill.project_id;
-        fillSubprojectOptions(selSub, prefill.project_id, prefill.subproject_id || null);
-      } else if(prefill.subproject_id){
-        // if only subproject known, try to set it (fillSubprojectOptions has fallback)
-        fillSubprojectOptions(selSub, '', prefill.subproject_id);
-      }
-      if(prefill.hours) tr.querySelector('.inp-hours').value = prefill.hours;
-      if(Array.isArray(prefill.week_perc)){
-        tr.querySelector('.wpct-1').value = prefill.week_perc[0]||0;
-        tr.querySelector('.wpct-2').value = prefill.week_perc[1]||0;
-        tr.querySelector('.wpct-3').value = prefill.week_perc[2]||0;
-        tr.querySelector('.wpct-4').value = prefill.week_perc[3]||0;
-      }
-      if(prefill.id) tr.setAttribute('data-team-dist-id', prefill.id);
-      updateFTE(tr);
+    }
+  }
+  if(prefill.project_id){
+    selProj.value = prefill.project_id;
+    fillSubprojectOptions(selSub, prefill.project_id, prefill.subproject_id || null);
+  } else if(prefill.subproject_id){
+    fillSubprojectOptions(selSub, '', prefill.subproject_id);
+  }
+  if(prefill.hours) tr.querySelector('.inp-hours').value = prefill.hours;
+  if(Array.isArray(prefill.week_perc)){
+    tr.querySelector('.wpct-1').value = prefill.week_perc[0]||0;
+    tr.querySelector('.wpct-2').value = prefill.week_perc[1]||0;
+    tr.querySelector('.wpct-3').value = prefill.week_perc[2]||0;
+    tr.querySelector('.wpct-4').value = prefill.week_perc[3]||0;
+  }
+  if(prefill.id) tr.setAttribute('data-team-dist-id', prefill.id);
+  updateFTE(tr);
+
+
     }
 
     document.getElementById('allocBodyByProject').appendChild(tr);
     return tr;
   }
+  window.createRowByProject = createRowByProject;
 
 // end of a new row creation for allocation by project tab
 
@@ -1708,32 +1761,32 @@ function recomputeSummaryTotals(){
 
   }
 
-  function loadAllotmentView() {
-  const month = document.getElementById("month")?.value || "{{ billing_month }}";
-    console.log("JS: Loading Allotment View Data...",month);
-  fetch("{% url 'projects:view_allotment' %}?month=" + encodeURIComponent(month))
-    .then(r => r.json())
-    .then(j => {
-      const tbody = document.getElementById("summaryBodyallottmentview");
-      tbody.innerHTML = "";
-      if (j.data && j.data.length) {
-        j.data.forEach(row => {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td>${row.project || ""}</td>
-            <td>${row.subproject || ""}</td>
-            <td>${row.resource || ""}</td>
-            <td>${row.allocated_hrs || "0.00"}</td>
-            <td>${row.fte || "0.000"}</td>
-            <td>${row.wbs || ""}</td>
-          `;
-          tbody.appendChild(tr);
-        });
-      } else {
-        tbody.innerHTML = `<tr><td colspan="6" class="small-muted">No allotments found.</td></tr>`;
-      }
-    });
-}
+//   function loadAllotmentView() {
+//   const month = document.getElementById("month")?.value || "{{ billing_month }}";
+//     console.log("JS: Loading Allotment View Data...",month);
+//   fetch("{% url 'projects:view_allotment' %}?month=" + encodeURIComponent(month))
+//     .then(r => r.json())
+//     .then(j => {
+//       const tbody = document.getElementById("summaryBodyallottmentview");
+//       tbody.innerHTML = "";
+//       if (j.data && j.data.length) {
+//         j.data.forEach(row => {
+//           const tr = document.createElement("tr");
+//           tr.innerHTML = `
+//             <td>${row.project || ""}</td>
+//             <td>${row.subproject || ""}</td>
+//             <td>${row.resource || ""}</td>
+//             <td>${row.allocated_hrs || "0.00"}</td>
+//             <td>${row.fte || "0.000"}</td>
+//             <td>${row.wbs || ""}</td>
+//           `;
+//           tbody.appendChild(tr);
+//         });
+//       } else {
+//         tbody.innerHTML = `<tr><td colspan="6" class="small-muted">No allotments found.</td></tr>`;
+//       }
+//     });
+// }
 
 // Load data when the tab is activated
 document.querySelector('[aria-controls="panel-three"]').addEventListener('click', loadAllotmentView);
@@ -1796,6 +1849,182 @@ document.addEventListener('DOMContentLoaded', function() {
     tbody.appendChild(row);
   });
 });
+
+function loadAllotmentView() {
+  const month = document.getElementById("month")?.value || "{{ billing_month }}";
+  fetch("{% url 'projects:view_allotment' %}?month=" + encodeURIComponent(month))
+    .then(r => r.json())
+    .then(j => {
+      const tbody = document.getElementById("summaryBodyallottmentview");
+      tbody.innerHTML = "";
+      if (j.data && j.data.length) {
+        // Sort by Program and Project
+        j.data.sort((a, b) => {
+          const progA = (a.project || "").toLowerCase();
+          const progB = (b.project || "").toLowerCase();
+          const projA = (a.subproject || "").toLowerCase();
+          const projB = (b.subproject || "").toLowerCase();
+          if (progA === progB) return projA.localeCompare(projB);
+          return progA.localeCompare(progB);
+        });
+
+        // Track seen Program and Project names
+        const seenPrograms = new Set();
+        const seenProjects = new Set();
+        j.data.forEach(row => {
+          const progName = row.project || "";
+          const projName = row.subproject || "";
+          const showProg = !seenPrograms.has(progName);
+          const showProj = !seenProjects.has(projName);
+          seenPrograms.add(progName);
+          seenProjects.add(projName);
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${showProg ? progName : ""}</td>
+            <td>${showProj ? projName : ""}</td>
+            <td>${row.resource || ""}</td>
+            <td>${row.allocated_hrs || "0.00"}</td>
+            <td>${row.fte || "0.000"}</td>
+            <td>${row.wbs || ""}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } else {
+        tbody.innerHTML = `<tr><td colspan="6" class="small-muted">No allotments found.</td></tr>`;
+      }
+    });
+}
+
+// JS: Add Project for Resource button handler (insert below current row)
+document.addEventListener('click', function(e){
+  if (e.target && e.target.id === 'btnAddProjectForResource') {
+    e.preventDefault();
+    const currentTr = e.target.closest('tr.alloc-row');
+    if (!currentTr) return;
+
+    // Get the selected resource in this row
+    const selResource = currentTr.querySelector('.sel-resource');
+    const selectedResource = selResource ? selResource.value : '';
+
+    if (!selectedResource) {
+      alert('Please select a resource in this row before adding a project for that resource.');
+      return;
+    }
+
+    // Create a new row with the same resource pre-selected
+    const newTr = createRow({ reportee_ldap: selectedResource });
+
+    // Insert the new row right after the current row
+    currentTr.parentNode.insertBefore(newTr, currentTr.nextSibling);
+
+    // Focus on the project select for quick input
+    const selProj = newTr.querySelector('.sel-project');
+    if (selProj) selProj.focus();
+  }
+});
+
+// Sort Allocation by Team Member tab by Resource column
+document.addEventListener('DOMContentLoaded', function() {
+  function sortAllocBodyByResource() {
+    const tbody = document.getElementById('allocBody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+    rows.sort((a, b) => {
+      const resA = a.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
+      const resB = b.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
+      return resA.localeCompare(resB);
+    });
+    rows.forEach(row => tbody.appendChild(row));
+  }
+  sortAllocBodyByResource();
+
+  // Optionally, re-sort after adding a row
+  //document.getElementById('btnAddRow').addEventListener('click', function() {
+   // setTimeout(sortAllocBodyByResource, 100); // Delay to allow row insertion
+  //});
+});
+
+
+
+// Sort Allocation by Project tab by Program column (first column)
+document.addEventListener('DOMContentLoaded', function() {
+  function sortAllocBodyByProgram() {
+    const tbody = document.getElementById('allocBodyByProject');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+    rows.sort((a, b) => {
+      const progA = a.querySelector('.sel-project option:checked')?.textContent.trim().toLowerCase() || '';
+      const progB = b.querySelector('.sel-project option:checked')?.textContent.trim().toLowerCase() || '';
+      return progA.localeCompare(progB);
+    });
+    rows.forEach(row => tbody.appendChild(row));
+  }
+  sortAllocBodyByProgram();
+});
+
+
+// JS: Add Resource for Project button handler (insert below current row in Allocation by Project tab)
+
+document.addEventListener('click', function(e){
+  if (e.target && e.target.classList.contains('btn-add-resource-for-project')) {
+    e.preventDefault();
+    const currentTr = e.target.closest('tr.alloc-row');
+    if (!currentTr) return;
+
+    // Get the selected project and resource in this row
+    const selProject = currentTr.querySelector('.sel-project');
+    const selResource = currentTr.querySelector('.sel-resource1');
+    const selectedProject = selProject ? selProject.value : '';
+    const selectedResource = selResource ? selResource.value : '';
+
+    if (!selectedResource) {
+      alert('Please select resource in this row before adding another allocation.');
+      return;
+    }
+
+    // Create a new row with the same project and resource pre-selected
+    const newTr = createRowByProject({
+      project_id: selectedProject,
+      reportee_ldap: selectedResource
+    });
+
+    // Insert the new row right after the current row
+    currentTr.parentNode.insertBefore(newTr, currentTr.nextSibling);
+
+    // Focus on the subproject select for quick input
+    const selSub = newTr.querySelector('.sel-subproject');
+    if (selSub) selSub.focus();
+  }
+});
+
+// Group Program and Project names in Allocation by Project tab
+document.addEventListener('DOMContentLoaded', function() {
+  const tbody = document.getElementById('allocBodyByProject');
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+  let seenPrograms = new Set();
+  let seenProjects = new Set();
+
+  rows.forEach(row => {
+    // Program column (first cell)
+    const progCell = row.cells[0];
+    const progName = progCell?.querySelector('select option:checked')?.textContent.trim() || '';
+    if (seenPrograms.has(progName)) {
+      progCell.innerHTML = '';
+    } else if (progName) {
+      seenPrograms.add(progName);
+    }
+    // Project column (second cell)
+    const projCell = row.cells[1];
+    const projName = projCell?.querySelector('select option:checked')?.textContent.trim() || '';
+    if (seenProjects.has(projName)) {
+      projCell.innerHTML = '';
+    } else if (projName) {
+      seenProjects.add(projName);
+    }
+  });
+});
+
 
 
 
