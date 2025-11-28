@@ -34,7 +34,7 @@
                                     {% with rep_punch_rows=punch_rows|get_item:rep.ldap %}
                                     {% if rep_punch_rows %}
                                     <div class="table-responsive">
-                                        <table class="table table-bordered table-sm punch-table mb-0">
+                                        <table class="table table-bordered table-sm punch-table-modern mb-0">
                                             <thead class="thead-light">
                                                 <tr>
                                                     <th>
@@ -366,6 +366,74 @@ input[type="month"]:focus {
     color: #6b7280;
     border-color: #d1d9e6;
 }
+.punch-table-modern {
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 2px 16px rgba(31,111,235,0.08), 0 1.5px 4px rgba(0,0,0,0.04);
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+}
+.punch-table-modern th {
+    background: linear-gradient(90deg, #6a8dff 0%, #4f6bed 100%);
+    color: #fff;
+    font-weight: 600;
+    font-size: 1.06rem;
+    border: none;
+    padding: 0.85rem 0.7rem;
+    letter-spacing: 0.01em;
+}
+.punch-table-modern td {
+    background: #fff;
+    color: #222;
+    font-size: 1.04rem;
+    border-top: 1px solid #f0f3fa;
+    padding: 0.75rem 0.7rem;
+    vertical-align: middle;
+    transition: background 0.2s;
+}
+.punch-table-modern tr:hover td {
+    background: #f5f8ff;
+}
+.punch-table-modern .badge-leave {
+    background: #fff3e0;
+    color: #ff9800;
+    border-radius: 12px;
+    font-weight: 600;
+    padding: 0.22em 0.9em;
+    font-size: 0.98em;
+}
+.punch-table-modern .badge-status {
+    background: #e6f4ea;
+    color: #198754;
+    border-radius: 12px;
+    font-weight: 700;
+    padding: 0.22em 1.1em;
+    font-size: 0.98em;
+    letter-spacing: 0.01em;
+}
+.punch-table-modern .badge-status.draft {
+    background: #fff7e6;
+    color: #ff9800;
+}
+.punch-table-modern input[type="number"] {
+    border: 1.5px solid #d1d9e6;
+    border-radius: 7px;
+    background: #f8fafc;
+    font-size: 1.04rem;
+    padding: 0.25rem 0.7rem;
+    width: 90px;
+    transition: border 0.2s, background 0.2s;
+}
+.punch-table-modern input[type="number"]:focus {
+    border-color: #4f6bed;
+    background: #eaf1fb;
+    outline: none;
+}
+.punch-table-modern input[readonly] {
+    background: #f0f3fa;
+    color: #6b7280;
+}
 .btn-success.btn-sm.approve-btn {
     background: #1f6feb;
     border: none;
@@ -439,7 +507,7 @@ input[type="month"]:focus {
         font-size: 1.4rem;
     }
 }
-.punch-table th, .punch-table td { text-align: center; vertical-align: middle; }
+.punch-table-modern th, .punch-table-modern td { font-size: 15px;text-align: center; vertical-align: middle; }
 .punch-input[readonly] { background: #e9ecef; }
 .card-header { background: #f8f9fa; }
 .btn-outline-primary { font-size: 0.95em; }
