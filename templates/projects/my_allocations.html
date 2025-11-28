@@ -832,7 +832,8 @@
                             </thead>
                             <tbody>
                                 {% for week in row.weeks_list %}
-                                <tr data-week="{{ week.num }}"
+                                    {% if selected_week == 'all' or week.num|stringformat:"s" == selected_week|stringformat:"s" %}
+                                        <tr data-week="{{ week.num }}"
                                     data-week-num="{{ week.num }}"
                                     data-tdid="{{ row.team_distribution_id }}"
                                     data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
@@ -851,14 +852,19 @@
                                     </td>
                                     <td>
                                         {% for day in week.days_list %}
-                                                   <input type="number"
-                                                          class="punch-input"
-                                                          step="0.01"
-                                                          min="0"
-                                                          max="{{ day.allocated_hours|default:'0.00' }}"
-                                                          value="{{ day.initial_punch_value|default:day.punched_hours|default:'0.00' }}"
-                                                          {% if not day.is_editable %}disabled{% endif %}
-                                                          style="width: 90px;">
+                                            <div style="display: inline-block; text-align: center; margin-right: 6px;">
+                                                <div style="font-size: 11px; color: #718096; margin-bottom: 2px;">
+                                                    {{ day.weekday }}
+                                                </div>
+                                                <input type="number"
+                                                       class="punch-input"
+                                                       step="0.01"
+                                                       min="0"
+                                                       max="{{ day.allocated_hours|default:'0.00' }}"
+                                                       value="{{ day.initial_punch_value|default:day.punched_hours|default:'0.00' }}"
+                                                       {% if not day.is_editable %}disabled{% endif %}
+                                                       style="width: 60px;">
+                                            </div>
                                         {% endfor %}
                                         <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
                                             Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours|default:"0.00" }}h leave)
@@ -870,6 +876,7 @@
                                         </span>
                                     </td>
                                 </tr>
+                                    {% endif %}
                                 {% endfor %}
                             </tbody>
                         </table>

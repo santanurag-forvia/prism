@@ -2737,31 +2737,23 @@ from decimal import Decimal, ROUND_HALF_UP
 import json
 
 def my_allocations(request):
-    """
-    Renders My Weekly Allocations with day-wise punching support.
-    FEAS conventions: session-based auth, raw SQL, no Django ORM.
-    """
-    # Session-based authentication and role check
     if not request.session.get("is_authenticated"):
         return HttpResponseForbidden("Not authenticated")
     user_email = request.session.get("ldap_username")
     if not user_email:
         return HttpResponseForbidden("Not authenticated")
 
-    # Get year/month from query or default to today
     today = date.today()
     selected_year = int(request.GET.get('year', today.year))
     selected_month = int(request.GET.get('month', today.month))
+    selected_week = request.GET.get('week', 'all')
 
-    # Year and month options for filters
     current_year = today.year
     years = list(range(current_year - 2, current_year + 3))
     months = [{'num': i, 'name': date(2000, i, 1).strftime('%B')} for i in range(1, 13)]
 
-    # Billing period
     billing_start, billing_end = _get_billing_period_from_month(selected_year, selected_month)
 
-    # Monthly max hours
     monthly_max_hours = Decimal('0.00')
     with connection.cursor() as cur:
         cur.execute("SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1", [selected_year, selected_month])
@@ -2769,7 +2761,6 @@ def my_allocations(request):
         if r and r[0]:
             monthly_max_hours = Decimal(str(r[0]))
 
-    # Compute weeks
     weeks = _compute_weeks_for_billing(billing_start, billing_end)
 
     # Holidays
@@ -2810,7 +2801,6 @@ def my_allocations(request):
         """, [user_email, billing_start])
         td_rows = dictfetchall(cur)
 
-    # If no allocations, try for the whole billing period
     if not td_rows:
         with connection.cursor() as cur:
             cur.execute("""
@@ -2824,6 +2814,21 @@ def my_allocations(request):
                 ORDER BY td.id
             """, [user_email, billing_start, billing_end])
             td_rows = dictfetchall(cur)
+
+    # --- NEW: Fetch weekly_allocations for all team_distribution_ids ---
+    weekly_alloc_map = {}  # (team_distribution_id, week_number) -> {hours, percent, status}
+    if td_rows:
+        td_ids = [r['team_distribution_id'] for r in td_rows]
+        placeholders = ','.join(['%s'] * len(td_ids))
+        with connection.cursor() as cur:
+            cur.execute(f"""
+                SELECT team_distribution_id, week_number, hours, percent, status
+                FROM weekly_allocations
+                WHERE team_distribution_id IN ({placeholders})
+            """, td_ids)
+            for row in dictfetchall(cur):
+                key = (row['team_distribution_id'], row['week_number'])
+                weekly_alloc_map[key] = row
 
     # Prepare punch_data: day-wise
     td_ids = [r['team_distribution_id'] for r in td_rows]
@@ -2861,10 +2866,22 @@ def my_allocations(request):
             'total_hours': format(total_hours, '0.2f'),
             'weeks_list': []
         }
-        # For each week, build days_list
         for w in weeks:
             wknum = w['num']
             wk_start, wk_end = w['start'], w['end']
+            # --- NEW: Attach weekly allocation info ---
+            week_alloc = weekly_alloc_map.get((tdid, wknum), {})
+            max_percent = week_alloc.get('percent', 0)
+            allocated_hours = week_alloc.get('hours', 0)
+            status = week_alloc.get('status', '')
+            # Count working days (Mon-Fri, not holidays)
+            working_days = 0
+            cur_day = wk_start
+            while cur_day <= wk_end and cur_day <= billing_end:
+                if cur_day.weekday() < 5 and cur_day not in holidays_set:
+                    working_days += 1
+                cur_day += timedelta(days=1)
+            # Build days_list
             days_list = []
             cur_day = wk_start
             while cur_day <= wk_end and cur_day <= billing_end:
@@ -2889,6 +2906,10 @@ def my_allocations(request):
                 'num': wknum,
                 'week_start': wk_start.strftime('%Y-%m-%d'),
                 'week_end': wk_end.strftime('%Y-%m-%d'),
+                'working_days': working_days,
+                'max_percent': max_percent,
+                'allocated_hours': allocated_hours,
+                'status': status,
                 'days_list': days_list
             })
         groups.setdefault(td.get('subproject_name') or 'Unspecified', {
@@ -2909,7 +2930,7 @@ def my_allocations(request):
         'weeks': weeks,
         'all_weeks_list': all_weeks_list,
         'all_weeks_list_json': all_weeks_list_json,
-        'selected_week': request.GET.get('week', 'all'),
+        'selected_week': selected_week,
         'current_week': None,
         'billing_start': billing_start,
         'billing_end': billing_end,
