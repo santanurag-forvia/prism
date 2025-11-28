@@ -18,6 +18,7 @@
                                 <span>
                                     <strong class="text-dark">{{ rep.cn }}</strong>
                                     <small class="text-muted">&lt;{{ rep.mail }}&gt;</small>
+                                    <span class="badge badge-info ml-2">FTE: {{ fte_totals|get_item:rep.ldap|floatformat:2 }}</span>
                                 </span>
                                 <button class="btn btn-sm btn-outline-primary expand-btn" type="button"
                                     data-toggle="collapse"
@@ -36,6 +37,9 @@
                                         <table class="table table-bordered table-sm punch-table mb-0">
                                             <thead class="thead-light">
                                                 <tr>
+                                                    <th>
+                                                        <input type="checkbox" class="select-all" data-rep="{{ rep.ldap }}">
+                                                    </th>
                                                     <th>Project</th>
                                                     <th>Subproject</th>
                                                     <th>Week</th>
@@ -49,6 +53,9 @@
                                             <tbody>
                                             {% for row in rep_punch_rows %}
                                             <tr>
+                                                <td>
+                                                    <input type="checkbox" class="row-select" data-rep="{{ rep.ldap }}" data-punch-id="{{ row.punch_id }}">
+                                                </td>
                                                 <td>{{ row.project_name|default:"None" }}</td>
                                                 <td>{{ row.subproject_name|default:"None" }}</td>
                                                 <td>W{{ row.week_number }}</td>
@@ -85,6 +92,11 @@
                                             {% endfor %}
                                             </tbody>
                                         </table>
+                                        <button class="btn bulk-approve mt-4 mb-2 px-4 fw-semibold float-end d-flex align-items-center gap-2 shadow-sm"
+                                                data-rep="{{ rep.ldap }}">
+                                            <span class="fa fa-check-circle text-primary" style="font-size:1.2em;"></span>
+                                            <span class="text-dark">Approve Selected</span>
+                                        </button>
                                     </div>
                                     {% else %}
                                     <div class="text-muted py-3">No punch data for this reportee.</div>
@@ -130,6 +142,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Approve button handler
     document.querySelectorAll(".approve-btn").forEach(function(btn) {
         btn.addEventListener("click", function(e) {
+            if (btn.hasAttribute("disabled")) return;
             var punchId = btn.getAttribute("data-punch-id");
             var input = document.querySelector('.punch-input[data-punch-id="' + punchId + '"]');
             var punchedHours = input.value;
@@ -158,6 +171,52 @@ document.addEventListener("DOMContentLoaded", function() {
                     alert("Error: " + data.error);
                     btn.disabled = false;
                 }
+            });
+        });
+    });
+
+    // Select all checkboxes
+    document.querySelectorAll(".select-all").forEach(function(selectAll) {
+        selectAll.addEventListener("change", function() {
+            var rep = selectAll.getAttribute("data-rep");
+            document.querySelectorAll('.row-select[data-rep="' + rep + '"]').forEach(function(cb) {
+                cb.checked = selectAll.checked;
+            });
+        });
+    });
+
+    // Bulk approve
+    document.querySelectorAll(".bulk-approve").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+            var rep = btn.getAttribute("data-rep");
+            var punchIds = Array.from(document.querySelectorAll('.row-select[data-rep="' + rep + '"]:checked'))
+                .map(cb => cb.getAttribute("data-punch-id"));
+            if (punchIds.length === 0) {
+                alert("Select at least one row to approve.");
+                return;
+            }
+            btn.disabled = true;
+            fetch("{% url 'projects:tl_punch_bulk_approve' %}", {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": "{{ csrf_token }}",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ punch_ids: punchIds })
+            }).then(resp => resp.json()).then(data => {
+                if (data.ok) {
+                    punchIds.forEach(function(id) {
+                        var row = document.querySelector('.row-select[data-punch-id="' + id + '"]').closest("tr");
+                        var approveBtn = row.querySelector(".approve-btn");
+                        if (approveBtn) approveBtn.remove();
+                        row.querySelector("td:nth-last-child(2)").textContent = "APPROVED";
+                        var input = row.querySelector(".punch-input");
+                        if (input) input.setAttribute("readonly", "readonly");
+                    });
+                } else {
+                    alert("Error in bulk approval.");
+                }
+                btn.disabled = false;
             });
         });
     });
@@ -268,7 +327,7 @@ input[type="month"]:focus {
     background: #f9fafb;
     border-radius: 10px;
     overflow: hidden;
-    margin-bottom: 0;
+    margin-bottom: 8px;
 }
 .punch-table th, .punch-table td {
     text-align: center;
@@ -319,6 +378,23 @@ input[type="month"]:focus {
 }
 .btn-success.btn-sm.approve-btn:hover {
     background: #155ab6;
+}
+.bulk-approve {
+    background: #eaf1fb;
+    color: #1f2937;
+    border: none;
+    border-radius: 24px;
+    font-size: 1.04rem;
+    letter-spacing: 0.01em;
+    box-shadow: 0 2px 8px 8px rgba(31,111,235,0.10);
+    transition: background 0.2s, box-shadow 0.2s;
+    margin-right: 0.5rem;
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+}
+.bulk-approve:active, .bulk-approve:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #b6d4fe;
 }
 .approved-inactive {
     background: #e6f4ea !important;
