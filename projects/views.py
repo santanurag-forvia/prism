@@ -2746,7 +2746,7 @@ def my_allocations(request):
     today = date.today()
     selected_year = int(request.GET.get('year', today.year))
     selected_month = int(request.GET.get('month', today.month))
-    selected_week = request.GET.get('week', 'all')
+
 
     current_year = today.year
     years = list(range(current_year - 2, current_year + 3))
@@ -2762,7 +2762,20 @@ def my_allocations(request):
             monthly_max_hours = Decimal(str(r[0]))
 
     weeks = _compute_weeks_for_billing(billing_start, billing_end)
+    # Find the current week number (1-based) for today
+    weeks = _compute_weeks_for_billing(billing_start, billing_end)
+    current_week = None
+    for w in weeks:
+        if w['start'] <= today <= w['end']:
+            current_week = w['num']
+            break
+    if not current_week:
+        current_week = weeks[0]['num'] if weeks else 1  # fallback to first week
 
+    # Set selected_week to current_week if not provided
+    selected_week = request.GET.get('week')
+    if not selected_week :
+        selected_week = str(current_week)
     # Holidays
     with connection.cursor() as cur:
         cur.execute("SELECT holiday_date, name FROM holidays WHERE holiday_date BETWEEN %s AND %s", [billing_start, billing_end])
@@ -2931,7 +2944,7 @@ def my_allocations(request):
         'all_weeks_list': all_weeks_list,
         'all_weeks_list_json': all_weeks_list_json,
         'selected_week': selected_week,
-        'current_week': None,
+        'current_week': current_week,
         'billing_start': billing_start,
         'billing_end': billing_end,
         'month_label': billing_start.strftime('%b %Y'),
