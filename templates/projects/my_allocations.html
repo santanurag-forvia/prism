@@ -898,6 +898,9 @@
                                                               data-date="{{ day.date }}"
                                                               data-week="{{ week.num }}"
                                                               data-tdid="{{ row.team_distribution_id }}"
+                                                                data-project-id="{{ row.project_id }}"
+                                                               data-subproject-id="{{ row.subproject_id }}"
+                                                               data-month-start="{{ billing_start|date:'Y-m-d' }}"
                                                               {% if not day.is_editable %}disabled{% endif %}
                                                               style="width: 90px; text-align: right;">
                                             </div>
@@ -1206,7 +1209,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // === SAVE DRAFT ===
     btnSaveDraft.addEventListener('click', async function() {
-        const efforts = collectEffortData();
+        // Usage:
+        const rawEfforts = collectEffortData(); // your existing function
+        const efforts = groupEfforts(rawEfforts);
         console.log('Efforts to save:', efforts);
         if (efforts.length === 0) {
             showNotification('No editable efforts to save', 'warning');
@@ -1470,17 +1475,45 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    // After collecting all day entries as `rawEfforts`
+    function groupEfforts(rawEfforts) {
+        const grouped = {};
+        rawEfforts.forEach(e => {
+            const key = `${e.team_distribution_id}_${e.week_number}`;
+            if (!grouped[key]) {
+                grouped[key] = {
+                    team_distribution_id: e.team_distribution_id,
+                    week_number: e.week_number,
+                    project_id: e.project_id,           // include if available
+                    subproject_id: e.subproject_id,     // include if available
+                    month_start: e.month_start,         // include if available
+                    days: []
+                };
+            }
+            grouped[key].days.push({
+                punch_date: e.date,
+                punched_hours: e.punched_hours,
+                allocated_hours: e.allocated_hours,    // include if available
+                percent_effort: e.percent_effort       // include if available
+            });
+        });
+        return Object.values(grouped);
+    }
+
 
     function collectEffortData() {
         const efforts = [];
         document.querySelectorAll('.punch-input:not([disabled])').forEach(input => {
             const punchedHours = parseFloat(input.value) || 0;
             const maxHours = parseFloat(input.getAttribute('max')) || 0;
-            console.log(`Input for date ${input.dataset.date}: punched ${punchedHours}, max ${maxHours}`);
-
             const date = input.dataset.date;
             const weekNum = parseInt(input.dataset.week);
             const tdid = parseInt(input.dataset.tdid);
+            // New: extract project, subproject, and month_start
+            const projectId = parseInt(input.dataset.projectId);
+            const subprojectId = parseInt(input.dataset.subprojectId);
+            const monthStart = input.dataset.monthStart;
+
             if (!date || isNaN(weekNum) || isNaN(tdid)) {
                 showNotification('Invalid data: missing date, week, or allocation ID', 'error');
                 return;
@@ -1489,7 +1522,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 team_distribution_id: tdid,
                 week_number: weekNum,
                 date: date,
-                punched_hours: punchedHours
+                punched_hours: punchedHours,
+                project_id: projectId,
+                subproject_id: subprojectId,
+                month_start: monthStart
             });
         });
         return efforts;
