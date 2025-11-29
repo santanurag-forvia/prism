@@ -2934,6 +2934,16 @@ def my_allocations(request):
 
     # All weeks for dropdown
     all_weeks_list = _compute_weeks_for_billing(billing_start, billing_end)
+    # Add days_list to each week in all_weeks_list
+    for week in all_weeks_list:
+        # week['start'] is a date object, convert to string for the helper
+        week['days_list'] = [
+            {
+                'date': (week['start'] + timedelta(days=i)).strftime('%Y-%m-%d'),
+                'weekday': (week['start'] + timedelta(days=i)).strftime('%A')
+            }
+            for i in range((week['end'] - week['start']).days + 1)
+        ]
     all_weeks_list_json = json.dumps(
         all_weeks_list,
         default=lambda obj: obj.isoformat() if isinstance(obj, datetime) else str(obj)
@@ -2962,6 +2972,16 @@ def my_allocations(request):
     }
     return render(request, 'projects/my_allocations.html', context)
 
+def get_days_list_for_week(start_date):
+    days = []
+    d = datetime.strptime(start_date, "%Y-%m-%d")
+    for i in range(6):  # Sunday to Friday
+        day = d + timedelta(days=i)
+        days.append({
+            "weekday": day.strftime("%A"),
+            "date": day.strftime("%Y-%m-%d")
+        })
+    return days
 
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse

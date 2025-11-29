@@ -933,7 +933,7 @@
     </div>
 </div>
 
-<!-- Add Allocation Modal -->
+<!-- Add Allocation Modal (Redesigned for Day-wise Punching) -->
 <div id="addAllocationModal" class="modal-overlay">
     <div class="modal-dialog">
         <div class="modal-header">
@@ -973,33 +973,29 @@
             <div class="form-section">
                 <div class="form-section-title">
                     <i class="fas fa-calendar-week"></i>
-                    Week-wise Effort Allocation
+                    Day-wise Effort Punching
                 </div>
-                <table class="week-allocation-table">
+                <div class="form-group">
+                    <label for="modalWeekSelector">Select Week</label>
+                    <select id="modalWeekSelector" required>
+                        <option value="">Select Week...</option>
+                        {% for week in all_weeks_list %}
+                        <option value="{{ week.num }}">
+                            Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <table class="week-allocation-table" id="modalDayTable">
                     <thead>
                         <tr>
-                            <th style="width: 15%;">Week</th>
-                            <th style="width: 45%;">Date Range</th>
-                            <th style="width: 40%;">% Effort</th>
+                            <th style="width: 30%;">Day</th>
+                            <th style="width: 40%;">Date</th>
+                            <th style="width: 30%;">Effort (hours)</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for week in all_weeks_list %}
-                        <tr>
-                            <td><strong>Week {{ week.num }}</strong></td>
-                            <td>{{ week.start|date:"M d, Y" }} - {{ week.end|date:"M d, Y" }}</td>
-                            <td>
-                                <input type="number"
-                                       class="modal-percent-input"
-                                       data-week="{{ week.num }}"
-                                       step="0.01"
-                                       min="0"
-                                       max="100"
-                                       value="0"
-                                       placeholder="0.00">
-                            </td>
-                        </tr>
-                        {% endfor %}
+                        <!-- Populated by JS based on selected week -->
                     </tbody>
                 </table>
             </div>
@@ -1014,6 +1010,8 @@
         </div>
     </div>
 </div>
+
+
 
 <!-- Record Leave Modal -->
 <div id="recordLeaveModal" class="modal-overlay">
@@ -1115,516 +1113,522 @@
 
 {% block extra_js %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // === DOM ELEMENTS ===
-    const weekSelector = document.getElementById('weekSelector');
-    const btnSaveDraft = document.getElementById('btnSaveDraft');
-    const btnSubmit = document.getElementById('btnSubmit');
-    const btnAddAllocation = document.getElementById('btnAddAllocation');
-    const btnRecordLeave = document.getElementById('btnRecordLeave');
-    const monthSelect = document.getElementById('monthSelect');
-    const yearSelect = document.getElementById('yearSelect');
+    document.addEventListener('DOMContentLoaded', function() {
+        // === DOM ELEMENTS ===
+        const weekSelector = document.getElementById('weekSelector');
+        const btnSaveDraft = document.getElementById('btnSaveDraft');
+        const btnSubmit = document.getElementById('btnSubmit');
+        const btnAddAllocation = document.getElementById('btnAddAllocation');
+        const btnRecordLeave = document.getElementById('btnRecordLeave');
+        const monthSelect = document.getElementById('monthSelect');
+        const yearSelect = document.getElementById('yearSelect');
 
-    // Add Allocation Modal
-    const modal = document.getElementById('addAllocationModal');
-    const modalProject = document.getElementById('modalProject');
-    const modalSubproject = document.getElementById('modalSubproject');
-    const btnModalClose = document.getElementById('btnModalClose');
-    const btnModalCancel = document.getElementById('btnModalCancel');
-    const btnModalSave = document.getElementById('btnModalSave');
+        // Add Allocation Modal
+        const modal = document.getElementById('addAllocationModal');
+        const modalProject = document.getElementById('modalProject');
+        const modalSubproject = document.getElementById('modalSubproject');
+        const btnModalClose = document.getElementById('btnModalClose');
+        const btnModalCancel = document.getElementById('btnModalCancel');
+        const btnModalSave = document.getElementById('btnModalSave');
+        const modalWeekSelector = document.getElementById('modalWeekSelector');
+        const modalDayTable = document.getElementById('modalDayTable');
 
-    // Record Leave Modal
-    const leaveModal = document.getElementById('recordLeaveModal');
-    const leaveWeek = document.getElementById('leaveWeek');
-    const leaveType = document.getElementById('leaveType');
-    const leaveHours = document.getElementById('leaveHours');
-    const leaveDays = document.getElementById('leaveDays');
-    const leaveReason = document.getElementById('leaveReason');
-    const btnLeaveModalClose = document.getElementById('btnLeaveModalClose');
-    const btnLeaveModalCancel = document.getElementById('btnLeaveModalCancel');
-    const btnLeaveModalSave = document.getElementById('btnLeaveModalSave');
+        // Record Leave Modal
+        const leaveModal = document.getElementById('recordLeaveModal');
+        const leaveWeek = document.getElementById('leaveWeek');
+        const leaveType = document.getElementById('leaveType');
+        const leaveHours = document.getElementById('leaveHours');
+        const leaveDays = document.getElementById('leaveDays');
+        const leaveReason = document.getElementById('leaveReason');
+        const btnLeaveModalClose = document.getElementById('btnLeaveModalClose');
+        const btnLeaveModalCancel = document.getElementById('btnLeaveModalCancel');
+        const btnLeaveModalSave = document.getElementById('btnLeaveModalSave');
 
-    let projectsData = [];
-    const BILLING_START = '{{ month_start|date:"Y-m-d" }}';
-    const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
-    const HOURS_PER_DAY = 8;
+        let projectsData = [];
+        const BILLING_START = '{{ month_start|date:"Y-m-d" }}';
+        const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
+        const HOURS_PER_DAY = 8;
 
-    document.querySelectorAll('.punch-input').forEach(input => {
-        input.addEventListener('blur', function() {
-            if (this.value !== '') {
-                this.value = parseFloat(this.value).toFixed(2);
-            }
-        });
-    });
-    // Add keyboard support for Enter key
-    [yearSelect, monthSelect].forEach(select => {
-        if (select) {
-            select.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    changeMonthYear();
+        // --- Main page event listeners ---
+        document.querySelectorAll('.punch-input').forEach(input => {
+            input.addEventListener('blur', function() {
+                if (this.value !== '') {
+                    this.value = parseFloat(this.value).toFixed(2);
                 }
             });
+        });
+
+        [yearSelect, monthSelect].forEach(select => {
+            if (select) {
+                select.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        changeMonthYear();
+                    }
+                });
+            }
+        });
+
+        weekSelector.addEventListener('change', function() {
+            const url = new URL(window.location.href);
+            url.searchParams.set('week', this.value);
+            window.location.href = url.toString();
+        });
+
+        // --- Record Leave Modal ---
+        btnRecordLeave.addEventListener('click', function() {
+            leaveWeek.value = '';
+            leaveType.value = '';
+            leaveHours.value = '';
+            leaveDays.value = '';
+            leaveReason.value = '';
+            leaveModal.classList.add('active');
+        });
+
+        leaveHours.addEventListener('input', function() {
+            const hours = parseFloat(this.value) || 0;
+            const days = (hours / HOURS_PER_DAY).toFixed(2);
+            leaveDays.value = `${days} days`;
+        });
+
+        btnLeaveModalClose.addEventListener('click', closeLeaveModal);
+        btnLeaveModalCancel.addEventListener('click', closeLeaveModal);
+
+        leaveModal.addEventListener('click', function(e) {
+            if (e.target === leaveModal) {
+                closeLeaveModal();
+            }
+        });
+
+        function closeLeaveModal() {
+            leaveModal.classList.remove('active');
         }
-    });
 
-    // === WEEK SELECTOR ===
-    weekSelector.addEventListener('change', function() {
-        const url = new URL(window.location.href);
-        url.searchParams.set('week', this.value);
-        window.location.href = url.toString();
-    });
-
-    // === RECORD LEAVE MODAL ===
-    btnRecordLeave.addEventListener('click', function() {
-        leaveWeek.value = '';
-        leaveType.value = '';
-        leaveHours.value = '';
-        leaveDays.value = '';
-        leaveReason.value = '';
-        leaveModal.classList.add('active');
-    });
-
-    leaveHours.addEventListener('input', function() {
-        const hours = parseFloat(this.value) || 0;
-        const days = (hours / HOURS_PER_DAY).toFixed(2);
-        leaveDays.value = `${days} days`;
-    });
-
-    btnLeaveModalClose.addEventListener('click', closeLeaveModal);
-    btnLeaveModalCancel.addEventListener('click', closeLeaveModal);
-
-    leaveModal.addEventListener('click', function(e) {
-        if (e.target === leaveModal) {
-            closeLeaveModal();
-        }
-    });
-
-    function closeLeaveModal() {
-        leaveModal.classList.remove('active');
-    }
-
-    // === SAVE DRAFT ===
-    btnSaveDraft.addEventListener('click', async function() {
-        // Usage:
-        const rawEfforts = collectEffortData(); // your existing function
-        const efforts = groupEfforts(rawEfforts);
-        console.log('Efforts to save:', efforts);
-        if (efforts.length === 0) {
-            showNotification('No editable efforts to save', 'warning');
-            return;
-        }
-        try {
-            const response = await fetch('{{ save_effort_url }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token }}'
-                },
-                body: JSON.stringify({ efforts: efforts })
-            });
-            const data = await response.json();
-            console.log('Save draft response:', data);
-            if (data.ok) {
-                showNotification('Draft saved successfully!', 'success');
-
-
-            } else {
-                if (data.details && Array.isArray(data.details)) {
-                    const errorMsg = data.details.join('\n');
-                    showNotification(errorMsg, 'error');
+        // --- Save Draft ---
+        btnSaveDraft.addEventListener('click', async function() {
+            const rawEfforts = collectEffortData();
+            const efforts = groupEfforts(rawEfforts);
+            if (efforts.length === 0) {
+                showNotification('No editable efforts to save', 'warning');
+                return;
+            }
+            try {
+                const response = await fetch('{{ save_effort_url }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify({ efforts: efforts })
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    showNotification('Draft saved!', 'success');
+                    setTimeout(() => window.location.reload(), 1000);
                 } else {
                     showNotification('Error: ' + data.error, 'error');
                 }
+            } catch (err) {
+                showNotification('Network error occurred', 'error');
+                console.error(err);
             }
-        } catch (err) {
-            showNotification('Network error occurred', 'error');
-            console.error(err);
-        }
-    });
+        });
 
-    btnSubmit.addEventListener('click', async function() {
-        const effortsData = [];
-        console.log("Collecting efforts for submission...");
-        document.querySelectorAll('.allocation-card').forEach(card => {
-            const tdId = parseInt(card.dataset.tdid);
-            // For each day input inside this allocation card
-            card.querySelectorAll('input[data-date][data-week]').forEach(input => {
-                const date = input.dataset.date;
-                const weekNum = parseInt(input.dataset.week);
-                const punchedHours = parseFloat(input.value || 0);
-                console.log(`TD ID: ${tdId}, Week: ${weekNum}, Date: ${date}, Punched Hours: ${punchedHours}`);
-                if (tdId && weekNum && date && punchedHours > 0) {
-                    effortsData.push({
-                        team_distribution_id: tdId,
-                        week_number: weekNum,
-                        date: date,
-                        punched_hours: punchedHours
+        btnSubmit.addEventListener('click', async function() {
+            const effortsData = [];
+            document.querySelectorAll('.allocation-card').forEach(card => {
+                const tdId = parseInt(card.dataset.tdid);
+                card.querySelectorAll('input[data-date][data-week]').forEach(input => {
+                    const date = input.dataset.date;
+                    const weekNum = parseInt(input.dataset.week);
+                    const punchedHours = parseFloat(input.value || 0);
+                    if (tdId && weekNum && date && punchedHours > 0) {
+                        effortsData.push({
+                            team_distribution_id: tdId,
+                            week_number: weekNum,
+                            date: date,
+                            punched_hours: punchedHours
+                        });
+                    }
+                });
+            });
+            if (effortsData.length === 0) {
+                showNotification('No punched hours to submit', 'warning');
+                return;
+            }
+            const billingStart = document.getElementById('hiddenMonthStart').value;
+            if (!billingStart) {
+                showNotification('Missing billing period information', 'error');
+                return;
+            }
+            const payload = {
+                billing_start: billingStart,
+                efforts: effortsData
+            };
+            try {
+                const response = await fetch('{{ submit_effort_url }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    showNotification('Efforts submitted!', 'success');
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showNotification('Error: ' + data.error, 'error');
+                }
+            } catch (err) {
+                showNotification('Network error occurred', 'error');
+                console.error(err);
+            }
+        });
+
+        // --- Add Allocation Modal (with day-wise effort) ---
+        btnAddAllocation.addEventListener('click', async function() {
+            try {
+                const response = await fetch('{{ get_projects_url }}');
+                const data = await response.json();
+                if (data.ok) {
+                    projectsData = data.projects;
+                    modalProject.innerHTML = '<option value="">Select Project...</option>';
+                    data.projects.forEach(proj => {
+                        modalProject.innerHTML += `<option value="${proj.id}">${proj.name}</option>`;
+                    });
+                    modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
+                    modalSubproject.disabled = true;
+                    modal.classList.add('active');
+                    setupModalWeekSelector();
+                }
+            } catch (err) {
+                showNotification('Failed to load projects', 'error');
+                console.error(err);
+            }
+        });
+
+        modalProject.addEventListener('change', function() {
+            const projectId = parseInt(this.value);
+            const project = projectsData.find(p => p.id === projectId);
+            modalSubproject.disabled = !project;
+            modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
+            if (project && project.subprojects) {
+                project.subprojects.forEach(sub => {
+                    modalSubproject.innerHTML += `<option value="${sub.id}">${sub.name}</option>`;
+                });
+            }
+        });
+
+        btnModalClose.addEventListener('click', closeModal);
+        btnModalCancel.addEventListener('click', closeModal);
+
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        function closeModal() {
+            modal.classList.remove('active');
+        }
+
+        // --- Modal Week Selector and Day Table ---
+        function setupModalWeekSelector() {
+            console.log("Setting up modal week selector");
+            // Defensive: remove any previous event listeners by replacing the element
+            const oldSelector = document.getElementById('modalWeekSelector');
+            if (!oldSelector) return;
+            const newSelector = oldSelector.cloneNode(true);
+            oldSelector.parentNode.replaceChild(newSelector, oldSelector);
+
+            // Populate week selector
+            const allWeeksList = JSON.parse(document.getElementById('hiddenWeeksData').value);
+            newSelector.innerHTML = '<option value="">Select Week...</option>';
+            allWeeksList.forEach(w => {
+                newSelector.innerHTML += `<option value="${w.num}">Week ${w.num}: ${w.start} - ${w.end}</option>`;
+            });
+
+            // Clear day table
+            const dayTable = document.getElementById('modalDayTable');
+            if (dayTable) {
+                dayTable.querySelector('tbody').innerHTML = '';
+            }
+
+            // Attach event listener for week change
+            newSelector.addEventListener('change', function() {
+                console.log("Week selected:", this.value);
+                const weekNum = this.value;
+                const week = allWeeksList.find(w => String(w.num) === String(weekNum));
+                const tbody = document.getElementById('modalDayTable').querySelector('tbody');
+                tbody.innerHTML = '';
+                console.log("Populating days for week:", week, weekNum);
+                console.log("days_list for week:", week.days_list);
+                if (week && week.days_list && week.days_list.length > 0) {
+                    week.days_list.forEach(day => {
+                        tbody.innerHTML += `
+                            <tr>
+                                <td>${day.weekday}</td>
+                                <td>${day.date}</td>
+                                <td>
+                                    <input type="number"
+                                        class="modal-day-effort"
+                                        data-date="${day.date}"
+                                        min="0"
+                                        max="24"
+                                        step="0.01"
+                                        value="0"
+                                        placeholder="0.00"
+                                        style="width: 80px; text-align: right;">
+                                </td>
+                            </tr>
+                        `;
+                    });
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#a0aec0;">No days found for this week</td></tr>`;
+                }
+            });
+        }
+
+        // --- Save Allocation (day-wise) ---
+        btnModalSave.addEventListener('click', async function() {
+            const projectId = parseInt(modalProject.value);
+            const subprojectId = parseInt(modalSubproject.value);
+            const weekNum = parseInt(document.getElementById('modalWeekSelector').value);
+            if (!projectId || !subprojectId || !weekNum) {
+                showNotification('Please select project, subproject, and week', 'warning');
+                return;
+            }
+            const days = [];
+            document.querySelectorAll('.modal-day-effort').forEach(input => {
+                const hours = parseFloat(input.value) || 0;
+                if (hours > 0) {
+                    days.push({
+                        punch_date: input.dataset.date,
+                        punched_hours: hours
                     });
                 }
             });
-        });
-        console.log("Efforts to submit:", effortsData);
-        if (effortsData.length === 0) {
-            showNotification('No punched hours to submit', 'warning');
-            return;
-        }
-        const billingStart = document.getElementById('hiddenMonthStart').value;
-        if (!billingStart) {
-            showNotification('Missing billing period information', 'error');
-            return;
-        }
-        const payload = {
-            billing_start: billingStart,
-            efforts: effortsData
-        };
-        try {
-            const response = await fetch('{{ submit_effort_url }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token }}'
-                },
-                body: JSON.stringify(payload)
-            });
-            const data = await response.json();
-            if (data.ok) {
-                showNotification('Submitted successfully!', 'success');
-                setTimeout(() => location.reload(), 1500);
-            } else {
-                const errorMsg = Array.isArray(data.errors)
-                    ? data.errors.join(', ')
-                    : (data.error || 'Submission failed');
-                showNotification(errorMsg, 'error');
-            }
-        } catch (err) {
-            showNotification('Network error occurred', 'error');
-            console.error(err);
-        }
-    });
-
-    // === ADD ALLOCATION MODAL ===
-    btnAddAllocation.addEventListener('click', async function() {
-        try {
-            const response = await fetch('{{ get_projects_url }}');
-            const data = await response.json();
-            if (data.ok) {
-                projectsData = data.projects;
-                modalProject.innerHTML = '<option value="">Select Project...</option>';
-                data.projects.forEach(proj => {
-                    modalProject.innerHTML += `<option value="${proj.id}">${proj.name}</option>`;
-                });
-                modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
-                modalSubproject.disabled = true;
-                document.querySelectorAll('.modal-percent-input').forEach(input => {
-                    input.value = 0;
-                });
-                modal.classList.add('active');
-            }
-        } catch (err) {
-            showNotification('Failed to load projects', 'error');
-            console.error(err);
-        }
-    });
-
-    modalProject.addEventListener('change', function() {
-        const projectId = parseInt(this.value);
-        const project = projectsData.find(p => p.id === projectId);
-        modalSubproject.disabled = !project;
-        modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
-        if (project && project.subprojects) {
-            project.subprojects.forEach(sub => {
-                modalSubproject.innerHTML += `<option value="${sub.id}">${sub.name}</option>`;
-            });
-        }
-    });
-
-    btnModalClose.addEventListener('click', closeModal);
-    btnModalCancel.addEventListener('click', closeModal);
-
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-            closeModal();
-        }
-    });
-
-    function closeModal() {
-        modal.classList.remove('active');
-    }
-
-    btnModalSave.addEventListener('click', async function() {
-        const projectId = parseInt(modalProject.value);
-        const subprojectId = parseInt(modalSubproject.value);
-        if (!projectId || !subprojectId) {
-            showNotification('Please select both project and subproject', 'warning');
-            return;
-        }
-        const allocations = [];
-        document.querySelectorAll('.modal-percent-input').forEach(input => {
-            const pct = parseFloat(input.value) || 0;
-            if (pct > 0) {
-                allocations.push({
-                    week_number: parseInt(input.dataset.week),
-                    percent_effort: pct
-                });
-            }
-        });
-        if (allocations.length === 0) {
-            showNotification('Please enter at least one week allocation', 'warning');
-            return;
-        }
-        try {
-            const response = await fetch("{% url 'projects:add_self_allocation' %}", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token }}'
-                },
-                body: JSON.stringify({
-                    project_id: projectId,
-                    subproject_id: subprojectId,
-                    month_start: BILLING_START,
-                    allocations: allocations
-                })
-            });
-            const data = await response.json();
-            if (data.ok) {
-                showNotification('Allocation added successfully!', 'success');
-                closeModal();
-                setTimeout(() => window.location.reload(), 1500);
-            } else {
-                showNotification('Error: ' + data.error, 'error');
-            }
-        } catch (err) {
-            showNotification('Network error occurred', 'error');
-            console.error(err);
-        }
-    });
-
-    btnLeaveModalSave.addEventListener('click', async function() {
-        const week = parseInt(leaveWeek.value);
-        const type = leaveType.value;
-        const hours = parseFloat(leaveHours.value) || 0;
-        const reason = leaveReason.value.trim();
-        const billingStart = document.getElementById('hiddenBillingStart').value;
-        const billingEnd = document.getElementById('hiddenBillingEnd').value;
-        if (!week || !type || hours <= 0) {
-            showNotification('Please fill all required fields', 'warning');
-            return;
-        }
-        if (!billingStart || !billingEnd) {
-            showNotification('Billing period not available', 'error');
-            return;
-        }
-        try {
-            const response = await fetch("{% url 'projects:record_leave' %}", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token }}'
-                },
-                body: JSON.stringify({
-                    billing_start: billingStart,
-                    billing_end: billingEnd,
-                    week_number: week,
-                    leave_hours: hours,
-                    leave_type: type,
-                    reason: reason
-                })
-            });
-            const data = await response.json();
-            if (data.ok) {
-                showNotification('Leave recorded successfully!', 'success');
-                closeLeaveModal();
-                updateLeaveHoursInUI(week, hours);
-                setTimeout(() => window.location.reload(), 2000);
-            } else {
-                showNotification('Error: ' + data.error, 'error');
-            }
-        } catch (err) {
-            showNotification('Network error occurred', 'error');
-            console.error(err);
-        }
-    });
-
-    function updateLeaveHoursInUI(weekNumber, leaveHours) {
-        document.querySelectorAll('.allocation-card').forEach(card => {
-            const weekRow = card.querySelector(`tr[data-week="${weekNumber}"]`);
-            if (weekRow) {
-                const leaveCell = weekRow.cells[4];
-                if (leaveCell) {
-                    leaveCell.innerHTML = `
-                        <span class="badge badge-warning" style="background: #fef5e7; color: #d68910; padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">
-                            ${leaveHours}h Leave
-                        </span>
-                    `;
-                }
-                const punchedInput = weekRow.querySelector('.punch-input');
-                if (punchedInput) {
-                    const allocatedHours = parseFloat(weekRow.cells[3].textContent) || 0;
-                    const maxPunchable = allocatedHours - leaveHours;
-                    punchedInput.setAttribute('max', maxPunchable);
-                    const helpText = punchedInput.parentElement.querySelector('small') || document.createElement('small');
-                    helpText.style.cssText = 'display: block; margin-top: 4px; color: #718096; font-size: 11px;';
-                    helpText.textContent = `Max: ${maxPunchable.toFixed(2)}h (${allocatedHours}h - ${leaveHours}h leave)`;
-                    if (!punchedInput.parentElement.querySelector('small')) {
-                        punchedInput.parentElement.appendChild(helpText);
-                    }
-                }
-            }
-        });
-    }
-    // After collecting all day entries as `rawEfforts`
-    function groupEfforts(rawEfforts) {
-        const grouped = {};
-        rawEfforts.forEach(e => {
-            const key = `${e.team_distribution_id}_${e.week_number}`;
-            if (!grouped[key]) {
-                grouped[key] = {
-                    team_distribution_id: e.team_distribution_id,
-                    week_number: e.week_number,
-                    project_id: e.project_id,           // include if available
-                    subproject_id: e.subproject_id,     // include if available
-                    month_start: e.month_start,         // include if available
-                    days: []
-                };
-            }
-            grouped[key].days.push({
-                punch_date: e.date,
-                punched_hours: e.punched_hours,
-                allocated_hours: e.allocated_hours,    // include if available
-                percent_effort: e.percent_effort       // include if available
-            });
-        });
-        return Object.values(grouped);
-    }
-
-
-    function collectEffortData() {
-        const efforts = [];
-        document.querySelectorAll('.punch-input:not([disabled])').forEach(input => {
-            const punchedHours = parseFloat(input.value) || 0;
-            const maxHours = parseFloat(input.getAttribute('max')) || 0;
-            const date = input.dataset.date;
-            const weekNum = parseInt(input.dataset.week);
-            const tdid = parseInt(input.dataset.tdid);
-            // New: extract project, subproject, and month_start
-            const projectId = parseInt(input.dataset.projectId);
-            const subprojectId = parseInt(input.dataset.subprojectId);
-            const monthStart = input.dataset.monthStart;
-
-            if (!date || isNaN(weekNum) || isNaN(tdid)) {
-                showNotification('Invalid data: missing date, week, or allocation ID', 'error');
+            if (days.length === 0) {
+                showNotification('Please enter effort for at least one day', 'warning');
                 return;
             }
-            efforts.push({
-                team_distribution_id: tdid,
+            const payload = {
+                team_distribution_id: null,
                 week_number: weekNum,
-                date: date,
-                punched_hours: punchedHours,
                 project_id: projectId,
                 subproject_id: subprojectId,
-                month_start: monthStart
-            });
+                month_start: BILLING_START,
+                days: days
+            };
+            try {
+                const response = await fetch("{% url 'projects:add_self_allocation' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    showNotification('Allocation added successfully!', 'success');
+                    closeModal();
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showNotification('Error: ' + data.error, 'error');
+                }
+            } catch (err) {
+                showNotification('Network error occurred', 'error');
+                console.error(err);
+            }
         });
-        return efforts;
-    }
 
-    function showNotification(message, type) {
-        const colors = {
-            success: { bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e' },
-            error: { bg: '#fadbd8', border: '#a93226', text: '#a93226' },
-            warning: { bg: '#fef5e7', border: '#d68910', text: '#d68910' },
-            info: { bg: '#d6eaf8', border: '#1a5490', text: '#1a5490' }
-        };
-        const color = colors[type] || colors.info;
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            min-width: 300px;
-            max-width: 500px;
-            background: ${color.bg};
-            color: ${color.text};
-            border-left: 4px solid ${color.border};
-            padding: 16px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 600;
-            animation: slideInRight 0.3s ease;
-        `;
-        const icons = {
-            success: 'fas fa-check-circle',
-            error: 'fas fa-exclamation-circle',
-            warning: 'fas fa-exclamation-triangle',
-            info: 'fas fa-info-circle'
-        };
-        notification.innerHTML = `
-            <i class="${icons[type]}" style="font-size: 20px;"></i>
-            <span>${message}</span>
-            <button onclick="this.parentElement.remove()"
-                    style="margin-left: auto; background: none; border: none;
-                           color: ${color.text}; font-size: 20px; cursor: pointer;
-                           opacity: 0.7; padding: 0; width: 24px; height: 24px;">
-                ×
-            </button>
-        `;
-        document.body.appendChild(notification);
-        setTimeout(() => {
-            notification.style.animation = 'slideOutRight 0.3s ease';
-            setTimeout(() => notification.remove(), 300);
-        }, 5000);
-    }
-});
+        // --- Leave Modal Save ---
+        btnLeaveModalSave.addEventListener('click', async function() {
+            const week = parseInt(leaveWeek.value);
+            const type = leaveType.value;
+            const hours = parseFloat(leaveHours.value) || 0;
+            const reason = leaveReason.value.trim();
+            const billingStart = document.getElementById('hiddenBillingStart').value;
+            const billingEnd = document.getElementById('hiddenBillingEnd').value;
+            if (!week || !type || hours <= 0) {
+                showNotification('Please fill all required fields', 'warning');
+                return;
+            }
+            if (!billingStart || !billingEnd) {
+                showNotification('Billing period not available', 'error');
+                return;
+            }
+            try {
+                const response = await fetch("{% url 'projects:record_leave' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify({
+                        billing_start: billingStart,
+                        billing_end: billingEnd,
+                        week_number: week,
+                        leave_hours: hours,
+                        leave_type: type,
+                        reason: reason
+                    })
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    showNotification('Leave recorded successfully!', 'success');
+                    closeLeaveModal();
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    showNotification('Error: ' + data.error, 'error');
+                }
+            } catch (err) {
+                showNotification('Network error occurred', 'error');
+                console.error(err);
+            }
+        });
 
-// Add CSS animations
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideInRight {
-        from {
-            transform: translateX(400px);
-            opacity: 0;
+        // --- Utility Functions ---
+        function groupEfforts(rawEfforts) {
+            const grouped = {};
+            rawEfforts.forEach(e => {
+                const key = `${e.team_distribution_id}_${e.week_number}`;
+                if (!grouped[key]) {
+                    grouped[key] = {
+                        team_distribution_id: e.team_distribution_id,
+                        week_number: e.week_number,
+                        project_id: e.project_id,
+                        subproject_id: e.subproject_id,
+                        month_start: e.month_start,
+                        days: []
+                    };
+                }
+                grouped[key].days.push({
+                    punch_date: e.date,
+                    punched_hours: e.punched_hours,
+                    allocated_hours: e.allocated_hours,
+                    percent_effort: e.percent_effort
+                });
+            });
+            return Object.values(grouped);
         }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    @keyframes slideOutRight {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(400px);
-            opacity: 0;
-        }
-    }
-`;
-document.head.appendChild(style);
 
-function changeMonthYear() {
-    const yearSel = document.getElementById("yearSelect");
-    const monthSel = document.getElementById("monthSelect");
-    if (!yearSel || !monthSel) return;
-    const year = yearSel.value;
-    const month = monthSel.value;
-    const paddedMonth = month.padStart(2, '0');
-    if (!year || !month) {
-        showNotification('Please select both year and month', 'warning');
-        return;
-    }
-    const searchBtn = document.getElementById('searchBtn');
-    if (searchBtn) {
-        searchBtn.disabled = true;
-        searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
-    }
-    const targetUrl = `/projects/my-allocations/?year=${encodeURIComponent(year)}&month=${encodeURIComponent(paddedMonth)}`;
-    window.location.href = targetUrl;
-}
+        function collectEffortData() {
+            const efforts = [];
+            document.querySelectorAll('.punch-input:not([disabled])').forEach(input => {
+                const punchedHours = parseFloat(input.value) || 0;
+                const date = input.dataset.date;
+                const weekNum = parseInt(input.dataset.week);
+                const tdid = parseInt(input.dataset.tdid);
+                const projectId = parseInt(input.dataset.projectId);
+                const subprojectId = parseInt(input.dataset.subprojectId);
+                const monthStart = input.dataset.monthStart;
+                if (!date || isNaN(weekNum) || isNaN(tdid)) {
+                    showNotification('Invalid data: missing date, week, or allocation ID', 'error');
+                    return;
+                }
+                efforts.push({
+                    team_distribution_id: tdid,
+                    week_number: weekNum,
+                    date: date,
+                    punched_hours: punchedHours,
+                    project_id: projectId,
+                    subproject_id: subprojectId,
+                    month_start: monthStart
+                });
+            });
+            return efforts;
+        }
+
+        function showNotification(message, type) {
+            const colors = {
+                success: { bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e' },
+                error: { bg: '#fadbd8', border: '#a93226', text: '#a93226' },
+                warning: { bg: '#fef5e7', border: '#d68910', text: '#d68910' },
+                info: { bg: '#d6eaf8', border: '#1a5490', text: '#1a5490' }
+            };
+            const color = colors[type] || colors.info;
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                min-width: 300px;
+                max-width: 500px;
+                background: ${color.bg};
+                color: ${color.text};
+                border-left: 4px solid ${color.border};
+                padding: 16px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-weight: 600;
+                animation: slideInRight 0.3s ease;
+            `;
+            const icons = {
+                success: 'fas fa-check-circle',
+                error: 'fas fa-exclamation-circle',
+                warning: 'fas fa-exclamation-triangle',
+                info: 'fas fa-info-circle'
+            };
+            notification.innerHTML = `
+                <i class="${icons[type]}" style="font-size: 20px;"></i>
+                <span>${message}</span>
+                <button onclick="this.parentElement.remove()"
+                        style="margin-left: auto; background: none; border: none;
+                               color: ${color.text}; font-size: 20px; cursor: pointer;
+                               opacity: 0.7; padding: 0; width: 24px; height: 24px;">
+                    ×
+                </button>
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s ease';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+
+        // --- Month/Year Change ---
+        function changeMonthYear() {
+            const yearSel = document.getElementById("yearSelect");
+            const monthSel = document.getElementById("monthSelect");
+            if (!yearSel || !monthSel) return;
+            const year = yearSel.value;
+            const month = monthSel.value;
+            const paddedMonth = month.padStart(2, '0');
+            if (!year || !month) {
+                showNotification('Please select both year and month', 'warning');
+                return;
+            }
+            const searchBtn = document.getElementById('searchBtn');
+            if (searchBtn) {
+                searchBtn.disabled = true;
+                searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+            }
+            const targetUrl = `/projects/my-allocations/?year=${encodeURIComponent(year)}&month=${encodeURIComponent(paddedMonth)}`;
+            window.location.href = targetUrl;
+        }
+
+        window.changeMonthYear = changeMonthYear;
+    });
+
+    // --- CSS Animations for notifications ---
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideInRight {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOutRight {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(400px); opacity: 0; }
+        }
+    `;
+    document.head.appendChild(style);
 </script>
 {% endblock %}
