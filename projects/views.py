@@ -3238,66 +3238,100 @@ def submit_effort(request):
 
 @require_http_methods(["POST"])
 def add_self_allocation(request):
-    if request.method != 'POST':
-        return JsonResponse({'ok': False, 'error': 'Invalid request method'}, status=400)
+    print("[add_self_allocation] Entry")
+    if not request.session.get("is_authenticated"):
+        print("[add_self_allocation] Not authenticated")
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
 
     try:
+        print(f"[add_self_allocation] Raw request.body: {request.body}")
         data = json.loads(request.body)
         user_email = request.session['ldap_username']
+        print(f"[add_self_allocation] user_email: {user_email}")
         project_id = data.get('project_id')
         subproject_id = data.get('subproject_id')
-        month_start = data.get('month_start')  # Expected format: 'YYYY-MM-DD'
+        month_start = data.get('month_start')  # 'YYYY-MM-DD'
         allocations = data.get('allocations', [])
 
-        # Validate required fields
-        if not all([project_id, subproject_id, month_start]):
-            return JsonResponse({
-                'ok': False,
-                'error': 'Missing required fields: project_id, subproject_id, or month_start'
-            }, status=400)
+        print(f"[add_self_allocation] project_id: {project_id}, subproject_id: {subproject_id}, month_start: {month_start}")
+        print(f"[add_self_allocation] allocations: {allocations}")
 
-        # Validate month_start format
+        if not all([project_id, subproject_id, month_start]):
+            print("[add_self_allocation] Missing required fields")
+            return JsonResponse({'ok': False, 'error': 'Missing required fields'}, status=400)
         try:
             datetime.strptime(month_start, '%Y-%m-%d')
         except ValueError:
-            return JsonResponse({
-                'ok': False,
-                'error': f'Invalid month_start format: {month_start}. Expected YYYY-MM-DD'
-            }, status=400)
-
+            print(f"[add_self_allocation] Invalid month_start format: {month_start}")
+            return JsonResponse({'ok': False, 'error': f'Invalid month_start format: {month_start}. Expected YYYY-MM-DD'}, status=400)
         if not allocations:
+            print("[add_self_allocation] No allocations provided")
             return JsonResponse({'ok': False, 'error': 'No allocations provided'}, status=400)
 
-        # Insert allocations
-        sql = """
-            INSERT INTO user_self_allocations
-            (user_email, project_id, subproject_id, month_start, week_number,
-             percent_effort, hours, status, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s,
-                    (%s * (SELECT total_hours FROM monthly_allocation_entries
-                           WHERE user_email=%s AND month_start=%s LIMIT 1) / 400.0),
-                    'PENDING', NOW(), NOW())
-            ON DUPLICATE KEY UPDATE
-                percent_effort = VALUES(percent_effort),
-                hours = VALUES(hours),
-                updated_at = NOW()
-        """
+        with transaction.atomic():
+            # 1. Insert into team_distributions (lead_ldap = reportee_ldap = user)
+            total_hours = sum(Decimal(str(a.get('hours', 0))) for a in allocations)
+            print(f"[add_self_allocation] Calculated total_hours for team_distributions: {total_hours}")
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO team_distributions
+                        (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    """,
+                    [month_start, user_email, project_id, subproject_id, user_email, total_hours]
+                )
+                cur.execute("SELECT LAST_INSERT_ID()")
+                team_distribution_id = cur.fetchone()[0]
+                print(f"[add_self_allocation] Inserted team_distribution_id: {team_distribution_id}")
 
-        with connection.cursor() as cursor:
-            for alloc in allocations:
-                week_num = alloc['week_number']
-                pct = alloc['percent_effort']
+            # 2. Insert into weekly_allocations for each week
+            with connection.cursor() as cur:
+                for alloc in allocations:
+                    week_number = alloc.get('week_number')
+                    hours = Decimal(str(alloc.get('hours', 0)))
+                    percent = Decimal(str(alloc.get('percent_effort', 0)))
+                    print(f"[add_self_allocation] Inserting weekly_allocation: week_number={week_number}, hours={hours}, percent={percent}")
+                    cur.execute(
+                        """
+                        INSERT INTO weekly_allocations
+                            (allocation_id, team_distribution_id, week_number, hours, percent, status, created_at, updated_at)
+                        VALUES (NULL, %s, %s, %s, %s, 'PENDING', NOW(), NOW())
+                        """,
+                        [team_distribution_id, week_number, hours, percent]
+                    )
 
-                cursor.execute(sql, [
-                    user_email, project_id, subproject_id, month_start,
-                    week_num, pct, pct, user_email, month_start
-                ])
+            # 3. Insert into punch_data for each day in each week
+            with connection.cursor() as cur:
+                for alloc in allocations:
+                    week_number = alloc.get('week_number')
+                    days = alloc.get('days', [])
+                    print(f"[add_self_allocation] Processing week_number={week_number}, days={days}")
+                    for day in days:
+                        punch_date = day.get('punch_date')
+                        punched_hours = Decimal(str(day.get('punched_hours', 0)))
+                        print(f"[add_self_allocation] Inserting punch_data: punch_date={punch_date}, punched_hours={punched_hours}")
+                        cur.execute(
+                            """
+                            INSERT INTO punch_data
+                                (user_email, team_distribution_id, project_id, subproject_id, month_start,
+                                 punch_date, allocated_hours, punched_hours, status, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'DRAFT', NOW(), NOW())
+                            """,
+                            [user_email, team_distribution_id, project_id, subproject_id, month_start,
+                             punch_date, 0, punched_hours]
+                        )
 
+        print("[add_self_allocation] Success")
         return JsonResponse({'ok': True})
 
     except json.JSONDecodeError:
+        print("[add_self_allocation] Invalid JSON")
         return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
+        print(f"[add_self_allocation] Exception: {e}")
+        import logging
+        logging.getLogger(__name__).exception("add_self_allocation error")
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
