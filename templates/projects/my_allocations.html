@@ -1176,7 +1176,7 @@
         const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
 
 
-// --- Main page event listeners ---
+        // --- Main page event listeners ---
         document.querySelectorAll('.punch-input').forEach(input => {
             input.addEventListener('blur', function () {
                 if (this.value !== '') {
@@ -1201,8 +1201,8 @@
             window.location.href = url.toString();
         });
 
-// Leave Recording     Modal Handlers
-// Show Record Leave Modal on button click
+        // Leave Recording     Modal Handlers
+        // Show Record Leave Modal on button click
         btnRecordLeave.addEventListener('click', function () {
             leaveModal.classList.add('active');
             leaveStartDate.value = '';
