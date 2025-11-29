@@ -2789,17 +2789,35 @@ def my_allocations(request):
             holidays_map[d.strftime("%Y-%m-%d")] = h.get('name', '')
 
     # Leave records (per day)
+
     leave_map = {}
     with connection.cursor() as cur:
         cur.execute("""
-            SELECT leave_date, SUM(leave_hours) as total_leave
+            SELECT leave_start, leave_end, leave_hours
             FROM leave_records
             WHERE LOWER(user_email) = LOWER(%s) AND year = %s AND month = %s
-            GROUP BY leave_date
+              AND status IN ('PENDING', 'APPROVED')
         """, [user_email, selected_year, selected_month])
         for r in dictfetchall(cur):
-            leave_map[r['leave_date']] = Decimal(str(r['total_leave'] or '0.00'))
-
+            start = r['leave_start']
+            end = r['leave_end']
+            hours = Decimal(str(r['leave_hours'] or '0.00'))
+            if not start or not end:
+                continue
+            # Build list of working days in the range
+            working_days = []
+            cur_date = start
+            while cur_date <= end:
+                if cur_date.weekday() < 5 and cur_date not in holidays_set:
+                    working_days.append(cur_date)
+                cur_date += timedelta(days=1)
+            num_days = len(working_days)
+            if num_days == 0:
+                continue
+            per_day = (hours / Decimal(num_days)).quantize(Decimal('0.01'))
+            for d in working_days:
+                leave_map[d] = leave_map.get(d, Decimal('0.00')) + per_day
+    print(f"Leave map: {leave_map}")
     # Team distributions (allocations)
     with connection.cursor() as cur:
         cur.execute("""
@@ -2949,6 +2967,18 @@ def my_allocations(request):
         default=lambda obj: obj.isoformat() if isinstance(obj, datetime) else str(obj)
     )
 
+    # 1. Aggregate leave hours per week
+    week_leave_hours = {}
+    for week in weeks:
+        week_start = week['start']
+        week_end = week['end']
+        total = Decimal('0.00')
+        cur = week_start
+        while cur <= week_end:
+            total += leave_map.get(cur, Decimal('0.00'))
+            cur += timedelta(days=1)
+        week_leave_hours[week['num']] = total
+
     context = {
         'weeks': weeks,
         'all_weeks_list': all_weeks_list,
@@ -2964,6 +2994,7 @@ def my_allocations(request):
         "selected_year": selected_year,
         "selected_month": selected_month,
         'holidays_map': holidays_map,
+        'week_leave_hours': week_leave_hours,
         'monthly_max_hours': format(monthly_max_hours, '0.2f'),
         'save_effort_url': reverse('projects:save_effort_draft'),
         'submit_effort_url': reverse('projects:submit_effort'),
@@ -6611,158 +6642,112 @@ def tl_action_view(request, conf_id):
         logger.exception("tl_action_view error: %s", e)
         return JsonResponse({'ok': False, 'error': 'server error'}, status=500)
 
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse
+from django.db import transaction, connection
+from datetime import datetime, timedelta, date
+from decimal import Decimal
+
 @require_POST
 def record_leave(request):
     """
-    Records leave (sick/vacation/etc.) for a specific week in the billing period.
-
-    Leave hours are stored separately and reduce available punching capacity.
-    The allocated hours remain unchanged - leave only affects max punchable hours.
+    Record leave for a date range, ensuring no overlap with submitted punches,
+    and total hours per day (punch + leave) ≤ 8.75. Skips weekends and holidays.
     """
     import json
-    from decimal import Decimal
-    from datetime import datetime, timedelta
-    from django.db import transaction, connection
-
     logger = logging.getLogger(__name__)
 
-    # Get user from session
-    user_email = request.session.get('mail') or request.session.get('ldap_username')
+    user_email = request.session.get('ldap_username')
     if not user_email:
         return JsonResponse({'ok': False, 'error': 'User not authenticated'}, status=401)
 
-    # Parse request payload
     try:
         data = json.loads(request.body)
-        billing_start = data.get('billing_start')  # YYYY-MM-DD
-        billing_end = data.get('billing_end')      # YYYY-MM-DD
-        week_number = int(data.get('week_number'))
-        leave_hours = Decimal(str(data.get('leave_hours', 0)))
+        leave_start = data.get('leave_start')  # YYYY-MM-DD
+        leave_end = data.get('leave_end')      # YYYY-MM-DD
         leave_type = data.get('leave_type', '').strip().upper()
         reason = data.get('reason', '').strip()
-
-        if not all([billing_start, billing_end, week_number, leave_hours > 0, leave_type]):
-            return JsonResponse({
-                'ok': False,
-                'error': 'Missing required fields: billing_start, billing_end, week_number, leave_hours, leave_type'
-            }, status=400)
-
-    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        if not all([leave_start, leave_end, leave_type]):
+            return JsonResponse({'ok': False, 'error': 'Missing required fields'}, status=400)
+        start_date = datetime.strptime(leave_start, '%Y-%m-%d').date()
+        end_date = datetime.strptime(leave_end, '%Y-%m-%d').date()
+        if end_date < start_date:
+            return JsonResponse({'ok': False, 'error': 'End date cannot be before start date'}, status=400)
+    except Exception as e:
         return JsonResponse({'ok': False, 'error': f'Invalid request data: {e}'}, status=400)
 
-    # Map frontend leave types to database enum
+    # Map frontend leave types to DB enum
     leave_type_mapping = {
-        'CASUAL': 'VACATION',
-        'SICK': 'SICK',
-        'EARNED': 'VACATION',
-        'UNPAID': 'OTHER',
-        'MATERNITY': 'OTHER',
-        'PATERNITY': 'OTHER',
-        'COMPENSATORY': 'PERSONAL',
-        'OTHER': 'OTHER'
+        'CASUAL': 'CASUAL', 'SICK': 'SICK', 'EARNED': 'EARNED', 'UNPAID': 'UNPAID',
+        'MATERNITY': 'MATERNITY', 'PATERNITY': 'PATERNITY', 'COMPENSATORY': 'COMPENSATORY', 'OTHER': 'OTHER'
     }
     db_leave_type = leave_type_mapping.get(leave_type, 'OTHER')
 
-    # Calculate year, month, and leave_date
-    try:
-        billing_start_date = datetime.strptime(billing_start, '%Y-%m-%d').date()
-        year = billing_start_date.year
-        month = billing_start_date.month
+    # Get holidays in the range
+    with connection.cursor() as cur:
+        cur.execute("SELECT holiday_date FROM holidays WHERE holiday_date BETWEEN %s AND %s", [start_date, end_date])
+        holidays = {row[0] for row in cur.fetchall()}
 
-        # Calculate leave_date as the Monday of the specified week
-        # Assuming week 1 starts on billing_start date
-        days_offset = (week_number - 1) * 7
-        leave_date = billing_start_date + timedelta(days=days_offset)
+    eligible_days = []
+    skipped_days = []
+    with connection.cursor() as cur:
+        cur2 = connection.cursor()
+        cur_date = start_date
+        while cur_date <= end_date:
+            # Skip weekends and holidays
+            if cur_date.weekday() >= 5 or cur_date in holidays:
+                cur_date += timedelta(days=1)
+                continue
+            # Check punch_data for submitted punch
+            cur.execute("""
+                SELECT status, punched_hours FROM punch_data
+                WHERE LOWER(user_email) = LOWER(%s) AND punch_date = %s
+                ORDER BY id DESC LIMIT 1
+            """, [user_email, cur_date])
+            row = cur.fetchone()
+            if row and row[0] == 'SUBMITTED':
+                skipped_days.append(f"{cur_date} (punch submitted)")
+                cur_date += timedelta(days=1)
+                continue
+            punched_hours = float(row[1]) if row else 0.0
+            if punched_hours + 8.75 > 8.75 + 1e-2:
+                skipped_days.append(f"{cur_date} (punched_hours={punched_hours} too high)")
+                cur_date += timedelta(days=1)
+                continue
+            eligible_days.append(cur_date)
+            cur_date += timedelta(days=1)
+        cur2.close()
 
-    except ValueError as e:
-        return JsonResponse({'ok': False, 'error': f'Invalid date format: {e}'}, status=400)
+    if not eligible_days:
+        return JsonResponse({'ok': False, 'error': 'No eligible days for leave', 'skipped_days': skipped_days}, status=400)
 
-    # Database operations
+    leave_days = len(eligible_days)
+    leave_hours = round(leave_days * 8.75, 2)
+    year = eligible_days[0].year
+    month = eligible_days[0].month
+
     try:
         with transaction.atomic(), connection.cursor() as cur:
-            # ============================================================
-            # VALIDATION 1: Check if punching already submitted for this week
-            # ============================================================
             cur.execute("""
-                SELECT COUNT(*)
-                FROM punch_data
-                WHERE user_email = %s
-                  AND month_start = %s
-                  AND week_number = %s
-                  AND status = 'SUBMITTED'
-            """, [user_email, billing_start, week_number])
-
-            if cur.fetchone()[0] > 0:
-                return JsonResponse({
-                    'ok': False,
-                    'error': f'Cannot record leave for Week {week_number}. Punching already submitted for this week.'
-                }, status=400)
-
-            # ============================================================
-            # VALIDATION 2: Check if leave hours exceed allocated hours
-            # Get total allocated hours for this user/week from weekly_allocations
-            # ============================================================
-            cur.execute("""
-                SELECT COALESCE(SUM(wa.hours), 0) as total_allocated
-                FROM weekly_allocations wa
-                INNER JOIN team_distributions td ON wa.team_distribution_id = td.id
-                WHERE td.reportee_ldap = %s
-                  AND td.month_start = %s
-                  AND wa.week_number = %s
-            """, [user_email, billing_start, week_number])
-
-            row = cur.fetchone()
-            total_allocated = float(row[0]) if row else 0.0
-
-            logger.info(f"Week {week_number} - Total allocated hours: {total_allocated}h")
-
-            if leave_hours > total_allocated:
-                return JsonResponse({
-                    'ok': False,
-                    'error': f'Leave hours ({leave_hours}h) cannot exceed total allocated hours ({total_allocated}h) for Week {week_number}.'
-                }, status=400)
-
-            if leave_hours > total_allocated:
-                return JsonResponse({
-                    'ok': False,
-                    'error': f'Leave hours ({leave_hours}h) cannot exceed total allocated hours ({total_allocated}h) for Week {week_number}.'
-                }, status=400)
-            # ============================================================
-            # UPSERT: Insert or update leave record
-            # Composite unique key: (user_email, year, month, week_number)
-            # ============================================================
-            cur.execute("""
-                INSERT INTO leave_records (
-                    user_email, year, month, week_number, leave_date,
-                    leave_hours, leave_type, description,
-                    status, created_at, updated_at
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    leave_hours = VALUES(leave_hours),
-                    leave_type = VALUES(leave_type),
-                    description = VALUES(description),
-                    updated_at = NOW()
+                INSERT INTO leave_records
+                (user_email, year, month, leave_start, leave_end, leave_days, leave_hours, leave_type, description, status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', NOW(), NOW())
             """, [
-                user_email, year, month, week_number, leave_date,
-                leave_hours, db_leave_type, reason
+                user_email, year, month,
+                eligible_days[0], eligible_days[-1],
+                leave_days, leave_hours, db_leave_type, reason
             ])
-
-            logger.info(
-                f"Leave recorded: user={user_email}, week={week_number}, "
-                f"hours={leave_hours}, type={db_leave_type}"
-            )
-
-            return JsonResponse({
-                'ok': True,
-                'message': f'Leave recorded successfully for Week {week_number}',
-                'leave_hours': float(leave_hours),
-                'week_number': week_number
-            })
-
     except Exception as e:
         logger.exception(f"record_leave error: {e}")
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+    return JsonResponse({
+        'ok': True,
+        'message': f'Leave recorded for {leave_days} day(s): {", ".join(str(d) for d in eligible_days)}',
+        'leave_days': leave_days,
+        'leave_hours': leave_hours,
+        'skipped_days': skipped_days
+    })
 
 
 @require_GET
