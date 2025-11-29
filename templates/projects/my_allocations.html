@@ -386,7 +386,15 @@
             .allocation-table tbody tr:hover {
                 background-color: #f7fafc;
             }
-
+            /* Add to your <style> section */
+            .allocation-table th:nth-child(2),
+            .allocation-table td:nth-child(2) { width: 7%; min-width: 60px; }
+            .allocation-table th:nth-child(3),
+            .allocation-table td:nth-child(3) { width: 9%; min-width: 70px; }
+            .allocation-table th:nth-child(4),
+            .allocation-table td:nth-child(4) { width: 8%; min-width: 65px; }
+            .allocation-table th:nth-child(5),
+            .allocation-table td:nth-child(5) { width: 23%; }
             /* In your <style> section, update the width for allocation-table inputs: */
             .allocation-table input[type="number"] {
                 width: 90px;
@@ -845,11 +853,10 @@
                             <thead>
                                 <tr>
                                     <th style="width: 10%;">Week</th>
-                                    <th style="width: 12%;">Working Days</th>
-
-                                    <th style="width: 12%;">TL Allocation</th>
-                                    <th style="width: 10%;">Leave Hours</th>
-                                    <th style="width: 13%;">Punched Hours</th>
+                                    <th style="width: 7%;">Working Days</th>
+                                    <th style="width: 9%;">TL Allocation</th>
+                                    <th style="width: 8%;">Leave Hours</th>
+                                    <th style="width: 23%;">Punched Hours</th>>
 
                                 </tr>
                             </thead>
