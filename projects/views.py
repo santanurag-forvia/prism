@@ -3144,8 +3144,8 @@ def submit_effort(request):
                 row = cur.fetchone()
                 #allocated_hours = Decimal(str(row[0])) if row and row[0] is not None else Decimal('0.00')
                 #print(f"[submit_effort] Allocated hours for td_id={td_id}, date={punch_date}: {allocated_hours}")
-
-                if punched_hours > 8.75:
+                allocated_hours = 8.75
+                if punched_hours > allocated_hours:
                     errors.append(
                         f"Date {punch_date}: Punched {punched_hours}h exceeds allocated {allocated_hours}h"
                     )

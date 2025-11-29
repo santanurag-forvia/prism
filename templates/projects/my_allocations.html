@@ -849,7 +849,7 @@
                                     <th style="width: 12%;">Allocated Hours</th>
                                     <th style="width: 10%;">Leave Hours</th>
                                     <th style="width: 13%;">Punched Hours</th>
-                                    <th style="width: 15%;">Status</th>
+
                                 </tr>
                             </thead>
                             <tbody>
@@ -909,11 +909,7 @@
                                             Max: {{ week.available_hours }}h ({{ week.allocated_hours }}h - {{ week.leave_hours|default:"0.00" }}h leave)
                                         </small>
                                     </td>
-                                    <td>
-                                        <span class="status-badge status-{{ week.status|lower }}">
-                                            {{ week.status }}
-                                        </span>
-                                    </td>
+
                                 </tr>
                                     {% endif %}
                                 {% endfor %}
