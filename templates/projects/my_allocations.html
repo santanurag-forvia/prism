@@ -351,7 +351,24 @@
                 color: #4a5568;
                 border-bottom: 2px solid #e2e8f0;
             }
+            /* Add or update these styles in your <style> section */
+            .allocation-table th,
+            .allocation-table td {
+                white-space: normal !important;
+                word-break: break-word;
+                vertical-align: top;
+            }
 
+            .allocation-table th[style*="width: 10%"],
+            .allocation-table td[style*="width: 10%"] {
+                min-width: 120px;
+                max-width: 180px;
+            }
+
+            .allocation-table td {
+                /* Remove or override any overflow: hidden or text-overflow styles */
+                overflow: visible !important;
+            }
             .allocation-table td {
                 padding: 16px 20px;
                 border-bottom: 1px solid #f1f1f1;
@@ -361,18 +378,23 @@
             .allocation-table tbody tr:last-child td {
                 border-bottom: none;
             }
-
+            .allocation-table td strong + br + small {
+                display: block;
+                margin-top: 2px;
+            }
             .allocation-table tbody tr:hover {
                 background-color: #f7fafc;
             }
 
+            /* In your <style> section, update the width for allocation-table inputs: */
             .allocation-table input[type="number"] {
-                width: 100px;
+                width: 90px;
                 padding: 8px 12px;
                 border: 2px solid #e2e8f0;
                 border-radius: 6px;
                 font-size: 14px;
                 font-weight: 600;
+                text-align: right;
                 transition: all 0.3s ease;
             }
 
@@ -837,7 +859,14 @@
                                     data-week-num="{{ week.num }}"
                                     data-tdid="{{ row.team_distribution_id }}"
                                     data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
-                                    <td><strong>Week {{ week.num }}</strong></td>
+
+                                    <td>
+                                        <strong>Week {{ week.num }}</strong>
+                                        <br>
+                                        <small style="color: #718096; font-size: 12px;">
+                                            {{ week.week_start|date:"d M" }} - {{ week.week_end|date:"d M" }}
+                                        </small>
+                                    </td>
                                     <td>{{ week.working_days }} days</td>
                                     <td>{{ week.max_percent }}%</td>
                                     <td>{{ week.allocated_hours }}h</td>
@@ -851,19 +880,23 @@
                                         {% endif %}
                                     </td>
                                     <td>
+
                                         {% for day in week.days_list %}
                                             <div style="display: inline-block; text-align: center; margin-right: 6px;">
                                                 <div style="font-size: 11px; color: #718096; margin-bottom: 2px;">
                                                     {{ day.weekday }}
+                                                    <span style="color: #a0aec0; font-size: 10px;">
+                                                        {{ day.date|date:"d M" }}
+                                                    </span>
                                                 </div>
                                                 <input type="number"
                                                        class="punch-input"
                                                        step="0.01"
                                                        min="0"
                                                        max="{{ day.allocated_hours|default:'0.00' }}"
-                                                       value="{{ day.initial_punch_value|default:day.punched_hours|default:'0.00' }}"
+                                                       value="{{ day.initial_punch_value|default:day.punched_hours|default:'0.00'|floatformat:2 }}"
                                                        {% if not day.is_editable %}disabled{% endif %}
-                                                       style="width: 60px;">
+                                                       style="width: 90px; text-align: right;">
                                             </div>
                                         {% endfor %}
                                         <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
@@ -1114,6 +1147,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
     const HOURS_PER_DAY = 8;
 
+    document.querySelectorAll('.punch-input').forEach(input => {
+        input.addEventListener('blur', function() {
+            if (this.value !== '') {
+                this.value = parseFloat(this.value).toFixed(2);
+            }
+        });
+    });
     // Add keyboard support for Enter key
     [yearSelect, monthSelect].forEach(select => {
         if (select) {
