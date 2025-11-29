@@ -1247,26 +1247,28 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     btnSubmit.addEventListener('click', async function() {
-        const weeksData = [];
+        const effortsData = [];
+        console.log("Collecting efforts for submission...");
         document.querySelectorAll('.allocation-card').forEach(card => {
             const tdId = parseInt(card.dataset.tdid);
-            const rows = card.querySelectorAll('tbody tr[data-editable="true"]');
-            rows.forEach(row => {
-                const weekNumRaw = row.dataset.weekNum || row.dataset.week;
-                const weekNum = parseInt(weekNumRaw);
-                if (!weekNum || isNaN(weekNum)) return;
-                const punchedInput = row.querySelector('input[type="number"]');
-                const punchedHours = parseFloat(punchedInput?.value || 0);
-                if (tdId && weekNum && punchedHours > 0) {
-                    weeksData.push({
+            // For each day input inside this allocation card
+            card.querySelectorAll('input[data-date][data-week]').forEach(input => {
+                const date = input.dataset.date;
+                const weekNum = parseInt(input.dataset.week);
+                const punchedHours = parseFloat(input.value || 0);
+                console.log(`TD ID: ${tdId}, Week: ${weekNum}, Date: ${date}, Punched Hours: ${punchedHours}`);
+                if (tdId && weekNum && date && punchedHours > 0) {
+                    effortsData.push({
                         team_distribution_id: tdId,
                         week_number: weekNum,
+                        date: date,
                         punched_hours: punchedHours
                     });
                 }
             });
         });
-        if (weeksData.length === 0) {
+        console.log("Efforts to submit:", effortsData);
+        if (effortsData.length === 0) {
             showNotification('No punched hours to submit', 'warning');
             return;
         }
@@ -1277,7 +1279,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         const payload = {
             billing_start: billingStart,
-            weeks: weeksData
+            efforts: effortsData
         };
         try {
             const response = await fetch('{{ submit_effort_url }}', {
