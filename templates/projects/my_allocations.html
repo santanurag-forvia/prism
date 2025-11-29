@@ -852,11 +852,11 @@
                         <table class="allocation-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 10%;">Week</th>
+                                    <th style="width: 8%;">Week</th>
                                     <th style="width: 7%;">Working Days</th>
-                                    <th style="width: 9%;">TL Allocation</th>
+                                    <th style="width: 8%;">TL Allocation</th>
                                     <th style="width: 8%;">Leave Hours</th>
-                                    <th style="width: 23%;">Punched Hours</th>>
+                                    <th style="width: 32%;">Daily Effort(hrs)</th>>
 
                                 </tr>
                             </thead>
@@ -915,9 +915,7 @@
                                                               style="width: 90px; text-align: right;">
                                             </div>
                                         {% endfor %}
-                                       <small style="display: block; margin-top: 4px; color: #718096; font-size: 11px;">
-                                            Max: {{ week.allocated_hours }}h ({{ week.allocated_hours }}h - {{ week_leave_hours|dict_get:week.num|default_if_none:"0.00"|floatformat:2 }}h leave)
-                                        </small>
+
                                     </td>
 
                                 </tr>
