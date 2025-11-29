@@ -1013,7 +1013,7 @@
 
 
 
-<!-- Record Leave Modal -->
+<!-- Record Leave Modal (Redesigned) -->
 <div id="recordLeaveModal" class="modal-overlay">
     <div class="modal-dialog">
         <div class="modal-header">
@@ -1033,18 +1033,19 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="leaveWeek">
-                            Week <span style="color: #e53e3e;">*</span>
+                        <label for="leaveStartDate">
+                            From Date <span style="color: #e53e3e;">*</span>
                         </label>
-                        <select id="leaveWeek" required>
-                            <option value="">Select Week...</option>
-                            {% for week in all_weeks_list %}
-                            <option value="{{ week.num }}">
-                                Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
-                            </option>
-                            {% endfor %}
-                        </select>
+                        <input type="date" id="leaveStartDate" required>
                     </div>
+                    <div class="form-group">
+                        <label for="leaveEndDate">
+                            To Date <span style="color: #e53e3e;">*</span>
+                        </label>
+                        <input type="date" id="leaveEndDate" required>
+                    </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label for="leaveType">
                             Leave Type <span style="color: #e53e3e;">*</span>
@@ -1060,20 +1061,6 @@
                             <option value="COMPENSATORY">Compensatory Off</option>
                             <option value="OTHER">Other</option>
                         </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="leaveHours">
-                            Leave Hours <span style="color: #e53e3e;">*</span>
-                        </label>
-                        <input type="number"
-                               id="leaveHours"
-                               step="0.01"
-                               min="0"
-                               max="40"
-                               placeholder="0.00"
-                               required>
                     </div>
                     <div class="form-group">
                         <label for="leaveDays">
@@ -1135,19 +1122,21 @@
 
         // Record Leave Modal
         const leaveModal = document.getElementById('recordLeaveModal');
-        const leaveWeek = document.getElementById('leaveWeek');
+        const leaveStartDate = document.getElementById('leaveStartDate');
+        const leaveEndDate = document.getElementById('leaveEndDate');
         const leaveType = document.getElementById('leaveType');
-        const leaveHours = document.getElementById('leaveHours');
         const leaveDays = document.getElementById('leaveDays');
         const leaveReason = document.getElementById('leaveReason');
         const btnLeaveModalClose = document.getElementById('btnLeaveModalClose');
         const btnLeaveModalCancel = document.getElementById('btnLeaveModalCancel');
         const btnLeaveModalSave = document.getElementById('btnLeaveModalSave');
 
+        const HOURS_PER_DAY = 8.75;
+
         let projectsData = [];
         const BILLING_START = '{{ month_start|date:"Y-m-d" }}';
         const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
-        const HOURS_PER_DAY = 8;
+
 
         // --- Main page event listeners ---
         document.querySelectorAll('.punch-input').forEach(input => {
@@ -1174,34 +1163,115 @@
             window.location.href = url.toString();
         });
 
-        // --- Record Leave Modal ---
+        // Leave Recording     Modal Handlers
+        // Show Record Leave Modal on button click
         btnRecordLeave.addEventListener('click', function() {
-            leaveWeek.value = '';
+            leaveModal.classList.add('active');
+            leaveStartDate.value = '';
+            leaveEndDate.value = '';
             leaveType.value = '';
-            leaveHours.value = '';
             leaveDays.value = '';
             leaveReason.value = '';
-            leaveModal.classList.add('active');
         });
+        function calculateLeaveDays() {
+            const start = leaveStartDate.value;
+            const end = leaveEndDate.value;
+            if (!start || !end) {
+                leaveDays.value = '';
+                return;
+            }
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            if (endDate < startDate) {
+                leaveDays.value = 'Invalid range';
+                return;
+            }
+            // Inclusive of both start and end
+            const diffDays = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            leaveDays.value = `${diffDays} (${(diffDays * HOURS_PER_DAY).toFixed(2)} hrs)`;
+        }
 
-        leaveHours.addEventListener('input', function() {
-            const hours = parseFloat(this.value) || 0;
-            const days = (hours / HOURS_PER_DAY).toFixed(2);
-            leaveDays.value = `${days} days`;
-        });
+        leaveStartDate.addEventListener('change', calculateLeaveDays);
+        leaveEndDate.addEventListener('change', calculateLeaveDays);
 
         btnLeaveModalClose.addEventListener('click', closeLeaveModal);
         btnLeaveModalCancel.addEventListener('click', closeLeaveModal);
 
         leaveModal.addEventListener('click', function(e) {
-            if (e.target === leaveModal) {
-                closeLeaveModal();
-            }
+            if (e.target === leaveModal) closeLeaveModal();
         });
 
         function closeLeaveModal() {
             leaveModal.classList.remove('active');
+            leaveStartDate.value = '';
+            leaveEndDate.value = '';
+            leaveType.value = '';
+            leaveDays.value = '';
+            leaveReason.value = '';
         }
+
+        btnLeaveModalSave.addEventListener('click', async function() {
+            const start = leaveStartDate.value;
+            const end = leaveEndDate.value;
+            const type = leaveType.value;
+            const reason = leaveReason.value.trim();
+            const billingStart = document.getElementById('hiddenBillingStart').value;
+            const billingEnd = document.getElementById('hiddenBillingEnd').value;
+
+            if (!start || !end || !type) {
+                showNotification('Please select from date, to date, and leave type', 'warning');
+                return;
+            }
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            if (endDate < startDate) {
+                showNotification('End date cannot be before start date', 'warning');
+                return;
+            }
+            // Optionally, check if dates are within billing period
+            if (billingStart && start < billingStart) {
+                showNotification('Leave start date is before billing period', 'warning');
+                return;
+            }
+            if (billingEnd && end > billingEnd) {
+                showNotification('Leave end date is after billing period', 'warning');
+                return;
+            }
+            const diffDays = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            const leaveHours = (diffDays * HOURS_PER_DAY).toFixed(2);
+
+            // Build payload for backend
+            const payload = {
+                leave_start: start,
+                leave_end: end,
+                leave_type: type,
+                leave_days: diffDays,
+                leave_hours: leaveHours,
+                reason: reason
+            };
+
+            try {
+                const response = await fetch("{% url 'projects:record_leave' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    showNotification('Leave recorded successfully!', 'success');
+                    closeLeaveModal();
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showNotification('Error: ' + data.error, 'error');
+                }
+            } catch (err) {
+                showNotification('Network error occurred', 'error');
+                console.error(err);
+            }
+        });
 
         // --- Save Draft ---
         btnSaveDraft.addEventListener('click', async function() {
@@ -1464,52 +1534,6 @@
                     showNotification('Allocation added successfully!', 'success');
                     closeModal();
                     setTimeout(() => window.location.reload(), 1500);
-                } else {
-                    showNotification('Error: ' + data.error, 'error');
-                }
-            } catch (err) {
-                showNotification('Network error occurred', 'error');
-                console.error(err);
-            }
-        });
-
-        // --- Leave Modal Save ---
-        btnLeaveModalSave.addEventListener('click', async function() {
-            const week = parseInt(leaveWeek.value);
-            const type = leaveType.value;
-            const hours = parseFloat(leaveHours.value) || 0;
-            const reason = leaveReason.value.trim();
-            const billingStart = document.getElementById('hiddenBillingStart').value;
-            const billingEnd = document.getElementById('hiddenBillingEnd').value;
-            if (!week || !type || hours <= 0) {
-                showNotification('Please fill all required fields', 'warning');
-                return;
-            }
-            if (!billingStart || !billingEnd) {
-                showNotification('Billing period not available', 'error');
-                return;
-            }
-            try {
-                const response = await fetch("{% url 'projects:record_leave' %}", {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    },
-                    body: JSON.stringify({
-                        billing_start: billingStart,
-                        billing_end: billingEnd,
-                        week_number: week,
-                        leave_hours: hours,
-                        leave_type: type,
-                        reason: reason
-                    })
-                });
-                const data = await response.json();
-                if (data.ok) {
-                    showNotification('Leave recorded successfully!', 'success');
-                    closeLeaveModal();
-                    setTimeout(() => window.location.reload(), 2000);
                 } else {
                     showNotification('Error: ' + data.error, 'error');
                 }

@@ -586,25 +586,26 @@ class DatabaseInitializer:
         # 2. Leave Records Table - tracks leave/vacation entries
         print("Adding DDL for table: leave_records")
         ddls.append("""
-            CREATE TABLE IF NOT EXISTS `leave_records` (
-                `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-                `user_email` VARCHAR(255) NOT NULL,
-                `year` SMALLINT NOT NULL,
-                `month` TINYINT NOT NULL,
-                `week_number` TINYINT NOT NULL,
-                `leave_date` DATE NOT NULL,
-                `leave_hours` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
-                `leave_type` ENUM('SICK','VACATION','PERSONAL','BEREAVEMENT','OTHER') NOT NULL DEFAULT 'VACATION',
-                `description` VARCHAR(512) NULL,
-                `status` ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
-                `approved_by` VARCHAR(255) NULL,
-                `approved_at` DATETIME NULL,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX `idx_leave_user_date` (`user_email`, `leave_date`),
-                INDEX `idx_leave_user_month` (`user_email`, `year`, `month`),
-                INDEX `idx_leave_status` (`status`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    CREATE TABLE leave_records (
+            id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            user_email VARCHAR(255) NOT NULL,
+            year SMALLINT NOT NULL,
+            month TINYINT NOT NULL,
+            leave_start DATE NOT NULL,
+            leave_end DATE NOT NULL,
+            leave_days DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+            leave_hours DECIMAL(6,2) NOT NULL DEFAULT 0.00,
+            leave_type ENUM('CASUAL','SICK','EARNED','UNPAID','MATERNITY','PATERNITY','COMPENSATORY','OTHER') NOT NULL DEFAULT 'CASUAL',
+            description VARCHAR(512),
+            status ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+            approved_by VARCHAR(255),
+            approved_at DATETIME,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_user_email (user_email),
+            KEY idx_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
         """)
 
         # 3. User Self-Allocations Table - for add allocation modal
