@@ -793,9 +793,9 @@
                 <label for="yearSelect">Year:</label>
                 <select id="yearSelect" class="filter-select">
                     {% for year in years %}
-                    <option value="{{ year }}" {% if year== selected_year %}selected{% endif %}>
-                        {{ year }}
-                    </option>
+                        <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>
+                            {{ year }}
+                        </option>
                     {% endfor %}
                 </select>
             </div>
@@ -803,9 +803,9 @@
                 <label for="monthSelect">Month:</label>
                 <select id="monthSelect" class="filter-select">
                     {% for month in months %}
-                    <option value="{{ month.num }}" {% if month.num== selected_month %}selected{% endif %}>
-                        {{ month.name }}
-                    </option>
+                        <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>
+                            {{ month.name }}
+                        </option>
                     {% endfor %}
                 </select>
             </div>
@@ -824,17 +824,15 @@
             <div class="week-selector-group">
                 <label for="weekSelector">Select Week</label>
                 <select id="weekSelector">
-                    <option value="all" {% if selected_week==
-                    'all' %}selected{% endif %}>
-                    All Weeks
+                    <option value="all" {% if selected_week == 'all' %}selected{% endif %}>
+                        All Weeks
                     </option>
                     {% for week in all_weeks_list %}
                     <option value="{{ week.num }}"
-                            {% if selected_week|stringformat:
-                    "s" == week.num|stringformat:"s" %}selected{% endif %}
-                    {% if week.num == current_week %}data-current="true"{% endif %}>
-                    Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
-                    {% if week.num == current_week %} ★{% endif %}
+                            {% if selected_week|stringformat:"s" == week.num|stringformat:"s" %}selected{% endif %}
+                            {% if week.num == current_week %}data-current="true"{% endif %}>
+                        Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
+                        {% if week.num == current_week %} ★{% endif %}
                     </option>
                     {% endfor %}
                 </select>
