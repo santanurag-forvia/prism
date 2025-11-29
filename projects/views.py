@@ -2963,102 +2963,120 @@ def my_allocations(request):
     return render(request, 'projects/my_allocations.html', context)
 
 
+from django.views.decorators.http import require_http_methods
+from django.http import JsonResponse
+from django.db import connection, transaction
+from decimal import Decimal, ROUND_HALF_UP
+import json
+import logging
+
+
+
 @require_http_methods(["POST"])
 def save_effort_draft(request):
-    """Save draft effort data with validation against allocated hours."""
+    """
+    Save draft effort data with validation against allocated hours (day-wise).
+    Expects JSON:
+    {
+        "efforts": [
+            ...
+        ]
+    }
+    """
     user_email = request.session.get("ldap_username")
+    print(f"[save_effort_draft] user_email from session: {user_email}")
     if not user_email:
+        print("[save_effort_draft] Not authenticated")
         return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
 
     try:
+        print(f"[save_effort_draft] Raw request.body: {request.body}")
         data = json.loads(request.body)
+        print(f"[save_effort_draft] Parsed JSON data: {data}")
         efforts = data.get('efforts', [])
-
+        print(f"[save_effort_draft] efforts: {efforts}")
         if not efforts:
+            print("[save_effort_draft] No efforts provided in request")
             return JsonResponse({'ok': False, 'error': 'No efforts provided'}, status=400)
 
-        # **STEP 1: Validate punched hours against allocated hours FIRST**
         errors = []
-        with connection.cursor() as cur:
-            for effort in efforts:
-                tdid = int(effort['team_distribution_id'])
-                week_num = int(effort['week_number'])
-                punched = Decimal(str(effort.get('punched_hours', 0)))
-
-                # Get allocated hours for this week from team_distributions
-                cur.execute("""
-                    SELECT td.hours, td.month_start
-                    FROM team_distributions td
-                    WHERE td.id = %s AND td.reportee_ldap = %s
-                """, [tdid, user_email])
-
-                alloc_row = cur.fetchone()
-                if not alloc_row:
-                    errors.append(f"Invalid allocation reference for team_distribution_id {tdid}")
-                    continue
-
-                total_allocated = Decimal(str(alloc_row[0]))
-
-                # Get weekly allocation if exists, otherwise use equal split
+        # Validation: For each week, sum daily punches and compare to allocated hours
+        for effort in efforts:
+            print(f"[save_effort_draft] Processing effort: {effort}")
+            tdid = int(effort.get('team_distribution_id', 0))
+            week_num = int(effort.get('week_number', 0))
+            days = effort.get('days', [])
+            print(f"[save_effort_draft] tdid={tdid}, week_num={week_num}, days={days}")
+            total_punched = Decimal('0.00')
+            for day in days:
+                print(f"[save_effort_draft]   Day: {day}")
+                try:
+                    punched = Decimal(str(day.get('punched_hours', '0.00')))
+                except Exception as ex:
+                    print(f"[save_effort_draft]   Error parsing punched_hours: {ex}")
+                    punched = Decimal('0.00')
+                total_punched += punched
+            # Get allocated hours for this week
+            allocated_hours = Decimal('0.00')
+            with connection.cursor() as cur:
                 cur.execute("""
                     SELECT hours FROM weekly_allocations
-                    WHERE team_distribution_id = %s AND week_number = %s
+                    WHERE team_distribution_id=%s AND week_number=%s
                 """, [tdid, week_num])
+                row = cur.fetchone()
+                if row and row[0]:
+                    allocated_hours = Decimal(str(row[0]))
+            print(f"[save_effort_draft]   total_punched={total_punched}, allocated_hours={allocated_hours}")
+            if total_punched > allocated_hours:
+                errors.append({
+                    'team_distribution_id': tdid,
+                    'week_number': week_num,
+                    'error': f"Punched hours {total_punched} exceed allocated {allocated_hours}"
+                })
 
-                week_row = cur.fetchone()
-                if week_row:
-                    allocated_hours = Decimal(str(week_row[0]))
-                else:
-                    # Equal split fallback (divide by 4 weeks)
-                    allocated_hours = (total_allocated / Decimal('4')).quantize(Decimal('0.01'), ROUND_HALF_UP)
-
-                # **VALIDATION CHECK**
-                if punched > allocated_hours:
-                    errors.append(
-                        f"Week {week_num}: Punched {punched}h exceeds allocated {allocated_hours}h"
-                    )
-
-        # **If validation failed, return errors without saving**
         if errors:
-            return JsonResponse({
-                'ok': False,
-                'error': 'Validation failed',
-                'details': errors
-            }, status=400)
+            print(f"[save_effort_draft] Validation errors: {errors}")
+            return JsonResponse({'ok': False, 'error': 'Validation failed', 'details': errors}, status=400)
 
-        # **STEP 2: Save to database only if validation passed**
+        # Save: upsert punch_data row for each day
         with transaction.atomic():
-            with connection.cursor() as cur:
-                for effort in efforts:
-                    tdid = int(effort['team_distribution_id'])
-                    week_num = int(effort['week_number'])
-                    punched = Decimal(str(effort.get('punched_hours', 0)))
-
-                    cur.execute("""
-                        INSERT INTO punch_data
-                        (user_email, team_distribution_id, month_start, week_number,
-                         allocated_hours, punched_hours, status)
-                        SELECT %s, %s, td.month_start, %s,
-                               COALESCE(
-                                   (SELECT hours FROM weekly_allocations
-                                    WHERE team_distribution_id = td.id AND week_number = %s),
-                                   TRUNCATE(td.hours / 4, 2)
-                               ),
-                               %s, 'DRAFT'
-                        FROM team_distributions td
-                        WHERE td.id = %s
-                        ON DUPLICATE KEY UPDATE
-                            punched_hours = VALUES(punched_hours),
-                            allocated_hours = VALUES(allocated_hours),
-                            status = 'DRAFT',
-                            updated_at = CURRENT_TIMESTAMP
-                    """, [user_email, tdid, week_num, week_num, punched, tdid])
-
+            for effort in efforts:
+                tdid = int(effort.get('team_distribution_id', 0))
+                week_num = int(effort.get('week_number', 0))
+                project_id = effort.get('project_id')
+                subproject_id = effort.get('subproject_id')
+                month_start = effort.get('month_start')
+                days = effort.get('days', [])
+                print(f"[save_effort_draft] Saving effort: tdid={tdid}, week_num={week_num}, project_id={project_id}, subproject_id={subproject_id}, month_start={month_start}")
+                for day in days:
+                    punch_date = day.get('punch_date')
+                    punched_hours = Decimal(str(day.get('punched_hours', '0.00')))
+                    allocated_hours = Decimal(str(day.get('allocated_hours', '0.00')))
+                    percent_effort = day.get('percent_effort')
+                    print(f"[save_effort_draft]   Upserting punch_data: punch_date={punch_date}, punched_hours={punched_hours}, allocated_hours={allocated_hours}, percent_effort={percent_effort}")
+                    with connection.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO punch_data
+                            (user_email, team_distribution_id, project_id, subproject_id, month_start, punch_date,
+                             allocated_hours, punched_hours, percent_effort, status, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'DRAFT', NOW(), NOW())
+                            ON DUPLICATE KEY UPDATE
+                                punched_hours=VALUES(punched_hours),
+                                percent_effort=VALUES(percent_effort),
+                                status='DRAFT',
+                                updated_at=NOW()
+                        """, [
+                            user_email, tdid, project_id, subproject_id, month_start, punch_date,
+                            allocated_hours, punched_hours, percent_effort
+                        ])
+        print("[save_effort_draft] Draft saved successfully")
         return JsonResponse({'ok': True, 'message': 'Draft saved successfully'})
 
     except json.JSONDecodeError:
+        print("[save_effort_draft] Invalid JSON")
         return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
+        print(f"[save_effort_draft] Error: {e}")
         logger.error(f"Error saving draft: {e}", exc_info=True)
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
