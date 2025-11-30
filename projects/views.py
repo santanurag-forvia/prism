@@ -6917,21 +6917,37 @@ import json
 
 # projects/views.py
 
+
+from django.views.decorators.http import require_GET
+from django.shortcuts import render, redirect
+from django.db import connection
+from datetime import date, timedelta
+import calendar
+
+def get_week_number(dt):
+    # Monday is 0, Sunday is 6
+    return dt.isocalendar()[1]
+
+
 @require_GET
 def tl_punch_review(request):
-    # Auth check
+    print("==> tl_punch_review: called")
     if not request.session.get("is_authenticated"):
+        print("User not authenticated, redirecting to login")
         return redirect("accounts:login")
     session_ldap = request.session.get("ldap_username")
     if not session_ldap:
+        print("No ldap_username in session, redirecting to login")
         return redirect("accounts:login")
 
     # Month selection
     month_str = request.GET.get("month") or date.today().strftime("%Y-%m")
+    print(f"Selected month_str: {month_str}")
     try:
         y, m = map(int, month_str.split("-"))
         month_start = date(y, m, 1)
-    except Exception:
+    except Exception as e:
+        print(f"Error parsing month_str: {e}")
         month_start = date.today().replace(day=1)
         month_str = month_start.strftime("%Y-%m")
 
@@ -6939,10 +6955,14 @@ def tl_punch_review(request):
     from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
     creds = (session_ldap, request.session.get("ldap_password"))
     try:
+        print("Fetching user_entry from LDAP")
         user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
         entry_dn = getattr(user_entry, "entry_dn", None)
+        print(f"User entry_dn: {entry_dn}")
         reportees_entries = get_reportees_for_user_dn(entry_dn, username_password_for_conn=creds) or []
-    except Exception:
+        print(f"Fetched {len(reportees_entries)} reportees from LDAP")
+    except Exception as e:
+        print(f"Exception in LDAP fetch: {e}")
         reportees_entries = []
 
     # Normalize reportees
@@ -6958,12 +6978,15 @@ def tl_punch_review(request):
                 "mail": mail or identifier,
                 "cn": cn or identifier,
             })
+    print(f"Normalized reportees: {reportees}")
 
     # Add logged-in user if PDL and not already in reportees
     role = (request.session.get("role") or "").upper()
+    print(f"Session role: {role}")
     if "PDL" in role:
         logged_ldap = (session_ldap or "").lower()
         if not any(r["ldap"] == logged_ldap for r in reportees):
+            print("Adding logged-in user to reportees (PDL case)")
             reportees.insert(0, {
                 "ldap": logged_ldap,
                 "mail": session_ldap,
@@ -6978,70 +7001,76 @@ def tl_punch_review(request):
         )
         row = cur.fetchone()
         month_limit = float(row[0]) if row and row[0] else 173.0  # fallback
+    print(f"Month limit: {month_limit}")
 
-    # Fetch all punch and leave data, group as required
+    # Fetch all punch data for reportees for the month
     reportee_ldaps = [r["ldap"] for r in reportees]
+    print(f"Reportee ldaps: {reportee_ldaps}")
     punch_rows = {}
-    fte_totals = {}
+    punch_records = []
     if reportee_ldaps:
         placeholders = ",".join(["%s"] * len(reportee_ldaps))
+        print(f"SQL placeholders: {placeholders}")
         with connection.cursor() as cur:
-            # Fetch punch data with JOINs for project/subproject names
+            print("Executing punch_data SQL query")
             cur.execute(f"""
-                SELECT pd.user_email, pd.project_id, pd.subproject_id, pd.week_number,
-                       pd.allocated_hours, pd.punched_hours, pd.status, pd.id, pd.comments,
+                SELECT pd.id, pd.user_email, pd.project_id, pd.subproject_id, pd.punch_date,
+                       pd.allocated_hours, pd.punched_hours, pd.status, pd.comments,
                        p.name AS project_name, sp.name AS subproject_name
                 FROM punch_data pd
                 LEFT JOIN projects p ON pd.project_id = p.id
                 LEFT JOIN subprojects sp ON pd.subproject_id = sp.id
                 WHERE pd.month_start = %s AND LOWER(pd.user_email) IN ({placeholders})
-                ORDER BY pd.user_email, pd.project_id, pd.subproject_id, pd.week_number
+                ORDER BY pd.user_email, pd.punch_date, pd.project_id, pd.subproject_id
             """, [month_start] + reportee_ldaps)
             punch_records = dictfetchall(cur)
-            print("Punch Records:", punch_records)
-            # Fetch leave data
-            cur.execute(f"""
-                SELECT user_email, week_number, leave_hours, leave_type, description
-                FROM leave_records
-                WHERE year = %s AND month = %s AND LOWER(user_email) IN ({placeholders})
-            """, [month_start.year, month_start.month] + reportee_ldaps)
-            leave_records = dictfetchall(cur)
+        print(f"Fetched {len(punch_records)} punch records")
+    else:
+        print("No reportee_ldaps, skipping punch data fetch")
 
-        # Build leave lookup: {user: {week: leave_hours}}
-        leave_lookup = {}
-        for row in leave_records:
-            user = row["user_email"].lower()
-            week = row["week_number"]
-            leave_lookup.setdefault(user, {})[week] = row.get("leave_hours", 0)
+    # Build punch_rows: ldap -> list of punch dicts for table
+    from collections import defaultdict
+    punch_rows = defaultdict(list)
+    fte_totals = defaultdict(float)
+    for row in punch_records:
+        ldap = row["user_email"].lower()
+        week_number = row["punch_date"].isocalendar()[1]
+        punch_row = {
+            "punch_id": row["id"],
+            "project_name": row.get("project_name") or "None",
+            "subproject_name": row.get("subproject_name") or "None",
+            "week_number": week_number,
+            "allocated_hours": row.get("allocated_hours"),
+            "punched_hours": row.get("punched_hours"),
+            "leave_hours": None,  # You can fill this if you have leave data
+            "status": row.get("status"),
+            "comments": row.get("comments"),
+        }
+        punch_rows[ldap].append(punch_row)
+        # FTE calculation: sum punched_hours for this user
+        try:
+            if row.get("punched_hours") is not None:
+                fte_totals[ldap] += float(row["punched_hours"])
+        except Exception:
+            pass
 
-        # Group punch data for frontend and compute FTE
-        for rep in reportees:
-            user = rep["ldap"]
-            user_rows = [
-                row for row in punch_records if row["user_email"].lower() == user
-            ]
-            punch_rows[user] = []
-            total_alloc = 0.0
-            for row in user_rows:
-                total_alloc += float(row.get("allocated_hours") or 0)
-                punch_rows[user].append({
-                    "project_name": row.get("project_name") or "None",
-                    "subproject_name": row.get("subproject_name") or "None",
-                    "week_number": row.get("week_number"),
-                    "allocated_hours": row.get("allocated_hours", 0),
-                    "punched_hours": row.get("punched_hours", 0),
-                    "leave_hours": leave_lookup.get(user, {}).get(row.get("week_number"), 0),
-                    "status": row.get("status"),
-                    "punch_id": row.get("id"),
-                    "comments": row.get("comments", ""),
-                })
-            fte_totals[user] = round(total_alloc / month_limit, 2) if month_limit else 0.0
+    # Convert FTE totals to FTE units (hours / month_limit)
+    for ldap in fte_totals:
+        fte_totals[ldap] = fte_totals[ldap] / month_limit if month_limit else 0.0
+
+    # Ensure all reportees have an entry in punch_rows and fte_totals
+    for rep in reportees:
+        if rep["ldap"] not in punch_rows:
+            punch_rows[rep["ldap"]] = []
+        if rep["ldap"] not in fte_totals:
+            fte_totals[rep["ldap"]] = 0.0
 
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
-        "punch_rows": punch_rows,
-        "fte_totals": fte_totals,
+        "punch_rows": dict(punch_rows),
+        "fte_totals": dict(fte_totals),
+        "month_limit": month_limit,
     })
 
 @require_POST
