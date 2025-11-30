@@ -988,7 +988,7 @@
                     <th style="width: 16%;">DATE</th>
                     <th style="width: 14%;">DAY</th>
                     <th style="width: 12%;">HOURS</th>
-                    <th style="width: 12%;">DAYS</th>
+
                     <th style="width: 14%;">TYPE</th>
                     <th>REASON</th>
                   </tr>
@@ -1000,7 +1000,7 @@
                       <td>{{ row.date|date:"M. d, Y" }}</td>
                       <td>{{ row.day_name }}</td>
                       <td>{{ row.hours|floatformat:2 }}</td>
-                      <td>{{ row.leave_days|floatformat:2 }}</td>
+
                       <td>{{ row.leave_type }}</td>
                       <td>{{ row.description }}</td>
                     </tr>
