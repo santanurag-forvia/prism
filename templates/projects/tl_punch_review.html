@@ -12,6 +12,7 @@
                      <input type="month" id="month" name="month" value="{{ month_str }}" class="form-control mr-2" onchange="this.form.submit()" style="max-width: 200px;" aria-label="Select month">
                  </form>
                  <div class="accordion" id="reporteeAccordion">
+
                      {% for rep in reportees %}
                      <div class="card mb-2 border-0 shadow-xs">
                          <div class="card-header bg-light d-flex justify-content-between align-items-center" id="heading-{{ rep.ldap }}">
@@ -33,65 +34,68 @@
                          </div>
                          <div id="collapse-{{ rep.ldap }}" class="collapse" data-parent="#reporteeAccordion">
                              <div class="card-body bg-white">
-                                 {% with rep_punch_rows=punch_rows|get_item:rep.ldap %}
-                                 {% if rep_punch_rows %}
+                                 {% with rep_grouped=grouped|get_item:rep.ldap %}
+                                 {% if rep_grouped %}
                                  <div class="table-responsive">
                                      <table class="table table-bordered table-sm punch-table-modern mb-0">
                                          <thead class="thead-light">
                                              <tr>
-                                                 <th scope="col">
-                                                     <input type="checkbox" class="select-all" data-rep="{{ rep.ldap }}" aria-label="Select all for {{ rep.cn }}">
-                                                 </th>
-                                                 <th scope="col">Project</th>
-                                                 <th scope="col">Subproject</th>
-                                                 <th scope="col">Week</th>
-                                                 <th scope="col">Allocated</th>
-                                                 <th scope="col">Punched</th>
-                                                 <th scope="col">Leave</th>
-                                                 <th scope="col">Status</th>
-                                                 <th scope="col">Action</th>
+                                                 <th>Checkbox</th>
+                                                 <th>Week #</th>
+                                                 <th>Project</th>
+                                                 <th>Subproject</th>
+                                                 <th>Date</th>
+                                                 <th>Day</th>
+                                                 <th>Punched</th>
+                                                 <th>Status</th>
+                                                 <th>Action</th>
                                              </tr>
                                          </thead>
                                          <tbody>
-                                         {% for row in rep_punch_rows %}
-                                         <tr>
-                                             <td>
-                                                 <input type="checkbox" class="row-select" data-rep="{{ rep.ldap }}" data-punch-id="{{ row.punch_id }}" aria-label="Select row for punch {{ row.punch_id }}">
-                                             </td>
-                                             <td>{{ row.project_name|default:"None" }}</td>
-                                             <td>{{ row.subproject_name|default:"None" }}</td>
-                                             <td>W{{ row.week_number }}</td>
-                                             <td>{{ row.allocated_hours|default:"" }}</td>
-                                             <td>
-                                                 <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input"
-                                                     value="{{ row.punched_hours|default_if_none:'' }}"
-                                                     data-punch-id="{{ row.punch_id }}"
-                                                     data-week="{{ row.week_number }}"
-                                                     style="width:80px;"
-                                                     {% if row.status == "APPROVED" %}readonly{% endif %}
-                                                     aria-label="Punched hours for week {{ row.week_number }}"
-                                                 >
-                                             </td>
-                                             <td>
-                                                 {{ row.leave_hours|default_if_none:"" }}
-                                             </td>
-                                             <td>
-                                                 {{ row.status|default:"" }}
-                                             </td>
-                                             <td>
-                                                 {% if row.status == "APPROVED" %}
-                                                     <button class="btn btn-light btn-sm approve-btn approved-inactive" disabled aria-disabled="true" tabindex="-1">
-                                                         <span class="fa fa-check-circle text-success mr-1" aria-hidden="true"></span>
-                                                         <strong>Approved</strong>
-                                                     </button>
-                                                 {% else %}
-                                                     <button class="btn btn-primary btn-sm approve-btn font-weight-bold" data-punch-id="{{ row.punch_id }}" type="button">
-                                                         <span class="fa fa-check mr-1" aria-hidden="true"></span>
-                                                         Approve
-                                                     </button>
-                                                 {% endif %}
-                                             </td>
-                                         </tr>
+                                         {% for week_number, week_data in rep_grouped.items %}
+
+                                             {% for project, project_data in week_data.items %}
+                                                 {% for subproject, punch_list in project_data.items %}
+                                                     {% for punch in punch_list %}
+                                                     <tr>
+                                                         {% if forloop.first %}
+                                                             <td rowspan="{{ punch_list|length }}">
+                                                                 <input type="checkbox" class="row-select" data-rep="{{ rep.ldap }}" data-punch-id="{{ punch.punch_id }}" aria-label="Select row for punch {{ punch.punch_id }}">
+                                                             </td>
+                                                             <td rowspan="{{ punch_list|length }}">W{{ week_number }}</td>
+                                                             <td rowspan="{{ punch_list|length }}">{{ project }}</td>
+                                                             <td rowspan="{{ punch_list|length }}">{{ subproject }}</td>
+                                                         {% endif %}
+                                                         <td>{{ punch.date|date:"Y-m-d" }}</td>
+                                                         <td>{{ punch.day }}</td>
+                                                         <td>
+                                                             <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input"
+                                                                 value="{{ punch.punched_hours|default_if_none:'' }}"
+                                                                 data-punch-id="{{ punch.punch_id }}"
+                                                                 data-week="{{ week_number }}"
+                                                                 style="width:80px;"
+                                                                 {% if punch.status == "APPROVED" %}readonly{% endif %}
+                                                                 aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
+                                                             >
+                                                         </td>
+                                                         <td>{{ punch.status|default:"" }}</td>
+                                                         <td>
+                                                             {% if punch.status == "APPROVED" %}
+                                                                 <button class="btn btn-light btn-sm approve-btn approved-inactive" disabled aria-disabled="true" tabindex="-1">
+                                                                     <span class="fa fa-check-circle text-success mr-1" aria-hidden="true"></span>
+                                                                     <strong>Approved</strong>
+                                                                 </button>
+                                                             {% else %}
+                                                                 <button class="btn btn-primary btn-sm approve-btn font-weight-bold" data-punch-id="{{ punch.punch_id }}" type="button">
+                                                                     <span class="fa fa-check mr-1" aria-hidden="true"></span>
+                                                                     Approve
+                                                                 </button>
+                                                             {% endif %}
+                                                         </td>
+                                                     </tr>
+                                                     {% endfor %}
+                                                 {% endfor %}
+                                             {% endfor %}
                                          {% endfor %}
                                          </tbody>
                                      </table>
@@ -116,6 +120,7 @@
  </div>
 </div>
 {% endblock %}
+
 
 {% block extra_js %}
 <script>

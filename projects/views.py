@@ -6915,9 +6915,6 @@ from django.db import connection, transaction
 from datetime import date
 import json
 
-# projects/views.py
-
-
 from django.views.decorators.http import require_GET
 from django.shortcuts import render, redirect
 from django.db import connection
@@ -6925,13 +6922,26 @@ from datetime import date, timedelta
 import calendar
 
 def get_week_number(dt):
-    # Monday is 0, Sunday is 6
     return dt.isocalendar()[1]
 
+def get_week_start_end(year, week):
+    d = date(year, 1, 1)
+    if d.weekday() > 3:
+        d = d + timedelta(7 - d.weekday())
+    else:
+        d = d - timedelta(d.weekday())
+    return d + timedelta(weeks=week - 1), d + timedelta(weeks=week - 1, days=6)
+
+def dict_keys_to_str(d):
+    if isinstance(d, dict):
+        return {str(k): dict_keys_to_str(v) for k, v in d.items()}
+    elif isinstance(d, list):
+        return [dict_keys_to_str(i) for i in d]
+    return d
 
 @require_GET
 def tl_punch_review(request):
-    print("==> tl_punch_review: called")
+    print("==> tl_punch_review called")
     if not request.session.get("is_authenticated"):
         print("User not authenticated, redirecting to login")
         return redirect("accounts:login")
@@ -6942,27 +6952,32 @@ def tl_punch_review(request):
 
     # Month selection
     month_str = request.GET.get("month") or date.today().strftime("%Y-%m")
-    print(f"Selected month_str: {month_str}")
     try:
         y, m = map(int, month_str.split("-"))
         month_start = date(y, m, 1)
     except Exception as e:
-        print(f"Error parsing month_str: {e}")
+        print(f"Error parsing month_str '{month_str}': {e}")
         month_start = date.today().replace(day=1)
         month_str = month_start.strftime("%Y-%m")
+
+    # Get billing period (FEAS logic: Saturday–Friday weeks)
+    try:
+        billing_start, billing_end = get_billing_period(month_start.year, month_start.month)
+    except Exception as e:
+        print(f"Error getting billing period: {e}")
+        billing_start, billing_end = month_start, None
 
     # Get reportees (reuse LDAP utility)
     from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
     creds = (session_ldap, request.session.get("ldap_password"))
     try:
-        print("Fetching user_entry from LDAP")
         user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
         entry_dn = getattr(user_entry, "entry_dn", None)
         print(f"User entry_dn: {entry_dn}")
         reportees_entries = get_reportees_for_user_dn(entry_dn, username_password_for_conn=creds) or []
         print(f"Fetched {len(reportees_entries)} reportees from LDAP")
     except Exception as e:
-        print(f"Exception in LDAP fetch: {e}")
+        print(f"Error fetching reportees: {e}")
         reportees_entries = []
 
     # Normalize reportees
@@ -6978,20 +6993,21 @@ def tl_punch_review(request):
                 "mail": mail or identifier,
                 "cn": cn or identifier,
             })
-    print(f"Normalized reportees: {reportees}")
+    print(f"Normalized reportees: {[r['ldap'] for r in reportees]}")
 
     # Add logged-in user if PDL and not already in reportees
     role = (request.session.get("role") or "").upper()
-    print(f"Session role: {role}")
     if "PDL" in role:
         logged_ldap = (session_ldap or "").lower()
         if not any(r["ldap"] == logged_ldap for r in reportees):
-            print("Adding logged-in user to reportees (PDL case)")
+            print(f"Adding logged-in user {logged_ldap} to reportees (PDL)")
             reportees.insert(0, {
                 "ldap": logged_ldap,
                 "mail": session_ldap,
                 "cn": request.session.get("cn") or session_ldap,
             })
+
+    print(f"Final reportees list: {[r['ldap'] for r in reportees]}")
 
     # Get month limit for FTE calculation
     with connection.cursor() as cur:
@@ -7000,19 +7016,18 @@ def tl_punch_review(request):
             [month_start.year, month_start.month]
         )
         row = cur.fetchone()
-        month_limit = float(row[0]) if row and row[0] else 173.0  # fallback
-    print(f"Month limit: {month_limit}")
+        month_limit = float(row[0]) if row and row[0] else 173.0
+    print(f"Month limit for FTE: {month_limit}")
 
     # Fetch all punch data for reportees for the month
-    reportee_ldaps = [r["ldap"] for r in reportees]
-    print(f"Reportee ldaps: {reportee_ldaps}")
-    punch_rows = {}
+    reportee_ldaps = [r["ldap"].lower() for r in reportees]
+    print(f"Reportee ldaps for punch fetch: {reportee_ldaps}")
+    print("Month start for punch fetch:", month_start)
     punch_records = []
     if reportee_ldaps:
         placeholders = ",".join(["%s"] * len(reportee_ldaps))
-        print(f"SQL placeholders: {placeholders}")
         with connection.cursor() as cur:
-            print("Executing punch_data SQL query")
+            print(f"Running punch_data query for month_start={month_start} and reportees={reportee_ldaps}")
             cur.execute(f"""
                 SELECT pd.id, pd.user_email, pd.project_id, pd.subproject_id, pd.punch_date,
                        pd.allocated_hours, pd.punched_hours, pd.status, pd.comments,
@@ -7023,55 +7038,63 @@ def tl_punch_review(request):
                 WHERE pd.month_start = %s AND LOWER(pd.user_email) IN ({placeholders})
                 ORDER BY pd.user_email, pd.punch_date, pd.project_id, pd.subproject_id
             """, [month_start] + reportee_ldaps)
-            punch_records = dictfetchall(cur)
-        print(f"Fetched {len(punch_records)} punch records")
-    else:
-        print("No reportee_ldaps, skipping punch data fetch")
+            columns = [col[0] for col in cur.description]
+            punch_records = [dict(zip(columns, row)) for row in cur.fetchall()]
+    print(f"Fetched {len(punch_records)} punch records")
+    for rec in punch_records:
+        print("Punch record:", rec)
 
-    # Build punch_rows: ldap -> list of punch dicts for table
+    # Python
     from collections import defaultdict
-    punch_rows = defaultdict(list)
+
+    grouped = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))))
     fte_totals = defaultdict(float)
+
     for row in punch_records:
         ldap = row["user_email"].lower()
-        week_number = row["punch_date"].isocalendar()[1]
-        punch_row = {
+        # Use FEAS week logic
+        week_number = month_day_to_week_number_for_period(
+            row["punch_date"], billing_start, billing_end
+        )
+        project = row.get("project_name") or "None"
+        subproject = row.get("subproject_name") or "None"
+        # Build punch dict with all fields needed by template
+        punch = {
             "punch_id": row["id"],
-            "project_name": row.get("project_name") or "None",
-            "subproject_name": row.get("subproject_name") or "None",
-            "week_number": week_number,
-            "allocated_hours": row.get("allocated_hours"),
-            "punched_hours": row.get("punched_hours"),
-            "leave_hours": None,  # You can fill this if you have leave data
-            "status": row.get("status"),
-            "comments": row.get("comments"),
+            "date": row["punch_date"],
+            "day": row["punch_date"].strftime("%a"),
+            "punched_hours": float(row.get("punched_hours") or 0),
+            "status": row.get("status") or "",
+            "comments": row.get("comments") or "",
         }
-        punch_rows[ldap].append(punch_row)
-        # FTE calculation: sum punched_hours for this user
-        try:
-            if row.get("punched_hours") is not None:
-                fte_totals[ldap] += float(row["punched_hours"])
-        except Exception:
-            pass
+        grouped[ldap][week_number][project][subproject].append(punch)
+        # FTE calculation (sum all punched hours for this user)
+        fte_totals[ldap] += float(row.get("punched_hours") or 0)
 
-    # Convert FTE totals to FTE units (hours / month_limit)
+    # Normalize FTE by month_limit
     for ldap in fte_totals:
-        fte_totals[ldap] = fte_totals[ldap] / month_limit if month_limit else 0.0
+        fte_totals[ldap] = round(fte_totals[ldap] / float(month_limit or 1), 2)
 
-    # Ensure all reportees have an entry in punch_rows and fte_totals
+    print(f"FTE totals after normalization: {dict(fte_totals)}")
+
     for rep in reportees:
-        if rep["ldap"] not in punch_rows:
-            punch_rows[rep["ldap"]] = []
-        if rep["ldap"] not in fte_totals:
-            fte_totals[rep["ldap"]] = 0.0
-
+        if rep["ldap"] not in grouped:
+            grouped[rep["ldap"]] = {}
+    print("grouped keys ", grouped.keys())  # Should include all reportee ldaps
+    import pprint
+    pp = pprint.PrettyPrinter(indent=2, width=160)
+    print("==== GROUPED DATA ====")
+    pp.pprint(dict(grouped))
+    print("======================")
+    grouped_str = {k: dict_keys_to_str(v) for k, v in grouped.items()}
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
-        "punch_rows": dict(punch_rows),
+        "grouped": grouped_str,
         "fte_totals": dict(fte_totals),
         "month_limit": month_limit,
     })
+
 
 @require_POST
 def tl_punch_approve(request):
