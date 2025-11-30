@@ -897,18 +897,17 @@
                         <th style="width: 8%;">Week</th>
                         <th style="width: 7%;">Working Days</th>
                         <th style="width: 8%;">TL Allocation</th>
-
+                        <th style="width: 8%;">Act. Efforts (hrs)</th>
                         <th style="width: 32%;">Daily Effort(hrs)</th>
-
-
                     </tr>
                     </thead>
                     <tbody>
                     {% for week in row.weeks_list %}
                     {% if selected_week == 'all' or week.num|stringformat:"s" == selected_week|stringformat:"s" %}
-                    <tr data-week="{{ week.num }}"
-                        data-tdid="{{ row.team_distribution_id }}"
-                        data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
+                    <tr class="week-row"
+                            data-week="{{ week.num }}"
+                            data-tdid="{{ row.team_distribution_id }}"
+                            data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
 
                         <td>
                             <strong>Week {{ week.num }}</strong>
@@ -920,20 +919,18 @@
                         <td>{{ week.working_days }} days</td>
 
                         <td>{{ week.allocated_hours }}h</td>
-
+                        <td class="actual-weekly-effort" data-week="{{ week.num }}">0.00</td>
                         <td>
-
                             {% for day in week.days_list %}
                             <div style="display: inline-block; text-align: center; margin-right: 6px;">
                                 <div style="font-size: 11px; color: #718096; margin-bottom: 2px;">
                                     {{ day.weekday }}
                                     <span style="color: #a0aec0; font-size: 10px;">
-                                                {{ day.date}}
-                                            </span>
-
+                                        {{ day.date }}
+                                    </span>
                                 </div>
                                 <input type="number"
-                                       class="punch-input {% if leave_days and day.date in leave_days %}leave-day{% endif %}"
+                                       class="punch-input daily-effort-input {% if leave_days and day.date in leave_days %}leave-day{% endif %}"
                                        step="0.01"
                                        min="0"
                                        max="{{ day.allocated_hours|default:'0.00' }}"
@@ -948,7 +945,6 @@
                                        style="width: 90px; text-align: right; {% if leave_days and day.date in leave_days %}background: #ffeaea;{% endif %}">
                             </div>
                             {% endfor %}
-
                         </td>
 
                     </tr>
@@ -1747,6 +1743,20 @@
         }
 
         window.changeMonthYear = changeMonthYear;
+
+        document.querySelectorAll('.week-row').forEach(function(row) {
+            function updateActualEffort() {
+                let sum = 0;
+                row.querySelectorAll('.daily-effort-input').forEach(function(inp) {
+                    sum += parseFloat(inp.value) || 0;
+                });
+                row.querySelector('.actual-weekly-effort').textContent = sum.toFixed(2);
+            }
+            row.querySelectorAll('.daily-effort-input').forEach(function(inp) {
+                inp.addEventListener('input', updateActualEffort);
+            });
+            updateActualEffort();
+        });
     });
 
     // --- CSS Animations for notifications ---
