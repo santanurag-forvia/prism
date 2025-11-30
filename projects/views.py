@@ -2989,27 +2989,36 @@ def my_allocations(request):
             ORDER BY leave_start
         """, [user_email, selected_year, selected_month])
         leave_rows = dictfetchall(cur)
+    week_start = week_end = None
+    if selected_week != 'all':
+        for w in all_weeks_list:
+            if str(w['num']) == str(selected_week):
+                week_start = w['start']
+                week_end = w['end']
+                break
 
     leave_allocations = []
     leave_days = set()
     sno = 1
     for row in leave_rows:
-                start = row['leave_start']
-                end = row['leave_end']
-                days = (end - start).days + 1
-                for i in range(days):
-                    day = start + timedelta(days=i)
-                    leave_allocations.append({
-                        'sno': sno,
-                        'date': day,
-                        'day_name': day.strftime('%A'),
-                        'hours': float(row['leave_hours']) / float(row['leave_days']) if row['leave_days'] else 0,
-                        'leave_days': float(row['leave_days']),
-                        'leave_type': row['leave_type'],
-                        'description': row['description'] or ''
-                    })
-                    leave_days.add(day)
-                    sno += 1
+        start = row['leave_start']
+        end = row['leave_end']
+        days = (end - start).days + 1
+        for i in range(days):
+            day = start + timedelta(days=i)
+            # Filter by week if not 'all'
+            if selected_week == 'all' or (week_start and week_end and week_start <= day <= week_end):
+                leave_allocations.append({
+                    'sno': sno,
+                    'date': day,
+                    'day_name': day.strftime('%A'),
+                    'hours': float(row['leave_hours']) / float(row['leave_days']) if row['leave_days'] else 0,
+                    'leave_days': float(row['leave_days']),
+                    'leave_type': row['leave_type'],
+                    'description': row['description'] or ''
+                })
+                leave_days.add(day)
+                sno += 1
 
     context = {
         'weeks': weeks,
