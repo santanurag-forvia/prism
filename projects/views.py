@@ -7044,21 +7044,57 @@ def tl_punch_review(request):
     for rec in punch_records:
         print("Punch record:", rec)
 
-    # Python
+    # --- Fetch TL allocations for all reportees/projects/subprojects/weeks ---
+    tl_alloc_map = {}
+    if reportee_ldaps:
+        with connection.cursor() as cur:
+            cur.execute(f"""
+                SELECT td.reportee_ldap, td.project_id, td.subproject_id, wa.week_number, wa.hours
+                FROM team_distributions td
+                JOIN weekly_allocations wa ON wa.team_distribution_id = td.id
+                WHERE td.month_start = %s AND LOWER(td.reportee_ldap) IN ({placeholders})
+            """, [month_start] + reportee_ldaps)
+            for row in cur.fetchall():
+                key = (
+                    (row[0] or "").lower(),
+                    row[1],  # project_id
+                    row[2],  # subproject_id
+                    int(row[3])  # week_number
+                )
+                tl_alloc_map[key] = float(row[4] or 0)
+
+    # --- Group and attach TL allocation and Act. Effort ---
     from collections import defaultdict
 
     grouped = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))))
     fte_totals = defaultdict(float)
 
+    # Helper: get week number for a date
+    def get_week_num(punch_date):
+        return month_day_to_week_number_for_period(punch_date, billing_start, billing_end)
+
+    # Build grouping and sum for act_effort
+    act_effort_map = defaultdict(float)
     for row in punch_records:
         ldap = row["user_email"].lower()
-        # Use FEAS week logic
-        week_number = month_day_to_week_number_for_period(
-            row["punch_date"], billing_start, billing_end
-        )
+        week_number = get_week_num(row["punch_date"])
+        project_id = row.get("project_id")
+        subproject_id = row.get("subproject_id")
         project = row.get("project_name") or "None"
         subproject = row.get("subproject_name") or "None"
-        # Build punch dict with all fields needed by template
+        punched_hours = float(row.get("punched_hours") or 0)
+        # Sum for act_effort
+        act_effort_key = (ldap, project_id, subproject_id, week_number)
+        act_effort_map[act_effort_key] += punched_hours
+
+    # Now build grouped and attach tl_allocation/act_effort to first punch in each group
+    for row in punch_records:
+        ldap = row["user_email"].lower()
+        week_number = get_week_num(row["punch_date"])
+        project_id = row.get("project_id")
+        subproject_id = row.get("subproject_id")
+        project = row.get("project_name") or "None"
+        subproject = row.get("subproject_name") or "None"
         punch = {
             "punch_id": row["id"],
             "date": row["punch_date"],
@@ -7066,10 +7102,25 @@ def tl_punch_review(request):
             "punched_hours": float(row.get("punched_hours") or 0),
             "status": row.get("status") or "",
             "comments": row.get("comments") or "",
+            "project_id": project_id,
+            "subproject_id": subproject_id,
         }
         grouped[ldap][week_number][project][subproject].append(punch)
-        # FTE calculation (sum all punched hours for this user)
         fte_totals[ldap] += float(row.get("punched_hours") or 0)
+
+    # Attach tl_allocation and act_effort to the first punch in each group
+    for ldap, weeks in grouped.items():
+        for week_num, projects in weeks.items():
+            for project, subprojects in projects.items():
+                for subproject, punches in subprojects.items():
+                    if punches:
+                        project_id = punches[0].get("project_id")
+                        subproject_id = punches[0].get("subproject_id")
+                        tl_key = (ldap, project_id, subproject_id, int(week_num))
+                        tl_allocation = tl_alloc_map.get(tl_key, 0.0)
+                        act_effort = act_effort_map.get(tl_key, 0.0)
+                        punches[0]["tl_allocation"] = tl_allocation
+                        punches[0]["act_effort"] = act_effort
 
     # Normalize FTE by month_limit
     for ldap in fte_totals:
@@ -7081,11 +7132,7 @@ def tl_punch_review(request):
         if rep["ldap"] not in grouped:
             grouped[rep["ldap"]] = {}
     print("grouped keys ", grouped.keys())  # Should include all reportee ldaps
-    import pprint
-    pp = pprint.PrettyPrinter(indent=2, width=160)
-    print("==== GROUPED DATA ====")
-    pp.pprint(dict(grouped))
-    print("======================")
+
     grouped_str = {k: dict_keys_to_str(v) for k, v in grouped.items()}
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
