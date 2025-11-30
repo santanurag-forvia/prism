@@ -2979,6 +2979,38 @@ def my_allocations(request):
             cur += timedelta(days=1)
         week_leave_hours[week['num']] = total
 
+
+    # Fetch leave records for the user for the selected month/year
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT id, leave_start, leave_end, leave_type, description, leave_days, leave_hours
+            FROM leave_records
+            WHERE user_email = %s AND year = %s AND month = %s AND status IN ('PENDING', 'APPROVED')
+            ORDER BY leave_start
+        """, [user_email, selected_year, selected_month])
+        leave_rows = dictfetchall(cur)
+
+    leave_allocations = []
+    leave_days = set()
+    sno = 1
+    for row in leave_rows:
+                start = row['leave_start']
+                end = row['leave_end']
+                days = (end - start).days + 1
+                for i in range(days):
+                    day = start + timedelta(days=i)
+                    leave_allocations.append({
+                        'sno': sno,
+                        'date': day,
+                        'day_name': day.strftime('%A'),
+                        'hours': float(row['leave_hours']) / float(row['leave_days']) if row['leave_days'] else 0,
+                        'leave_days': float(row['leave_days']),
+                        'leave_type': row['leave_type'],
+                        'description': row['description'] or ''
+                    })
+                    leave_days.add(day)
+                    sno += 1
+
     context = {
         'weeks': weeks,
         'all_weeks_list': all_weeks_list,
@@ -2991,6 +3023,8 @@ def my_allocations(request):
         'groups': groups,
         "years": years,
         "months": months,
+        'leave_allocations' : leave_allocations,
+        'leave_days' : [d.strftime('%Y-%m-%d') for d in leave_days],
         "selected_year": selected_year,
         "selected_month": selected_month,
         'holidays_map': holidays_map,
