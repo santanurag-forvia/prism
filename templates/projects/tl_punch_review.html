@@ -83,16 +83,21 @@
                                                                               <td>
                                                                                   {% with punch=punch_row.punches_by_day|get_item:day %}
                                                                                       {% if punch %}
-                                                                                          <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input"
-                                                                                              value="{{ punch.punched_hours|default_if_none:'' }}"
-                                                                                              data-punch-id="{{ punch.punch_id }}"
-                                                                                              data-week="{{ week_number }}"
-                                                                                              style="width:80px;"
-                                                                                              {% if punch.status == "APPROVED" %}readonly{% endif %}
-                                                                                              aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
-                                                                                          >
-                                                                                          <div>
-                                                                                              <span>{{ punch.status|default:"" }}</span>
+                                                                                          <div class="punch-cell">
+                                                                                              <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input
+                                                                                                  {% if punch.status == 'APPROVED' %}status-approved
+                                                                                                  {% elif punch.status == 'SUBMITTED' %}status-submitted
+                                                                                                  {% elif punch.status == 'REJECTED' %}status-rejected
+                                                                                                  {% elif punch.status == 'DRAFT' %}status-draft
+                                                                                                  {% else %}status-other
+                                                                                                  {% endif %}"
+                                                                                                  value="{{ punch.punched_hours|default_if_none:'' }}"
+                                                                                                  data-punch-id="{{ punch.punch_id }}"
+                                                                                                  data-week="{{ week_number }}"
+                                                                                                  style="width:80px;"
+                                                                                                  {% if punch.status == "APPROVED" %}readonly{% endif %}
+                                                                                                  aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
+                                                                                              >
                                                                                           </div>
                                                                                       {% endif %}
                                                                                   {% endwith %}
@@ -571,5 +576,25 @@
             .week-separator {
                 border-bottom: 3px solid #1F6FEB !important;
             }
+            .punch-cell.approved {
+                background-color: #e6f7e6; /* light green */
+                color: #1a7f37;
+                font-weight: 600;
+            }
+            .punch-cell.submitted {
+                background-color: #fff4e5; /* light orange */
+                color: #b26a00;
+                font-weight: 600;
+            }
+            .punch-cell.draft {
+                background-color: #e6eaf7; /* light blue */
+                color: #1a3a7f;
+                font-weight: 600;
+            }
+            .status-approved { background: #e6ffe6; border: 2px solid #28a745; }
+            .status-submitted { background: #fffbe6; border: 2px solid #ffc107; }
+            .status-rejected { background: #ffe6e6; border: 2px solid #dc3545; }
+            .status-draft { background: #f0f0f0; border: 2px solid #6c757d; }
+            .status-other { background: #f8f9fa; border: 2px solid #adb5bd; }
              </style>
              {% endblock %}
