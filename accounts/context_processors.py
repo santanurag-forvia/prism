@@ -11,7 +11,7 @@ MENU_TREE = [
         "key": "dashboard",
         "title": "Dashboard",
         "icon": "chart-line",
-        "url": reverse_lazy("dashboard:home"),
+        "url": reverse_lazy("dashboard:tl_dashboard"),
         "roles": ["ADMIN", "PDL", "TEAM_LEAD", "COE_LEADER", "EMPLOYEE"],
     },
 

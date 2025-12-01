@@ -2,7 +2,7 @@
 from django.urls import path
 from . import views
 
-app_name = 'dashboard'
+app_name = "dashboard"
 
 urlpatterns = [
     path('tl_dashboard/', views.tl_dashboard, name='tl_dashboard'),
