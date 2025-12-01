@@ -112,7 +112,11 @@
               </ul>
             {% else %}
               <!-- Single link without submenu -->
-              <a href="{{ item.url|default:projects_edit_default_url|default:'#' }}" class="side-link">
+              {% if item.url or projects_edit_default_url %}
+                <a href="{{ item.url|default:projects_edit_default_url }}" class="side-link">
+              {% else %}
+                <a href="#" class="side-link">
+              {% endif %}
                 <span class="icon">
                   {% if item.icon %}
                     <i class="fa-solid fa-{{ item.icon }}" aria-hidden="true"></i>

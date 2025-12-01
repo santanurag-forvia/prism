@@ -1,0 +1,32 @@
+.dashboard-filters {
+  display: flex;
+  gap: 18px;
+  margin-bottom: 24px;
+  align-items: center;
+}
+.dashboard-filters select {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  font-size: 1rem;
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.dashboard-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.07);
+  padding: 22px 18px 18px 18px;
+  min-width: 0;
+}
+.dashboard-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+  color: #0e2a4a;
+}
+@media (max-width: 900px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
+}
