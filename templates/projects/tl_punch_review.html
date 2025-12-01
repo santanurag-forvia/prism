@@ -59,7 +59,7 @@
                                                               <th>Wed</th>
                                                               <th>Thu</th>
                                                               <th>Fri</th>
-                                                              <th>Action</th>
+
                                                           </tr>
                                                       </thead>
                                                       <tbody>
@@ -98,42 +98,7 @@
                                                                                   {% endwith %}
                                                                               </td>
                                                                           {% endfor %}
-                                                                          <td>
-                                                                              {% if statuses|length > 0 %}
-                                                                                  {% if all_approved %}
-                                                                                      <button class="btn btn-light btn-sm approve-btn approved-inactive" disabled aria-disabled="true" tabindex="-1">
-                                                                                          <span class="fa fa-check-circle text-success mr-1" aria-hidden="true"></span>
-                                                                                          <strong>Approved</strong>
-                                                                                      </button>
-                                                                                  {% elif "DRAFT" in statuses %}
-                                                                                      <button class="btn btn-secondary btn-sm approve-btn font-weight-bold" disabled aria-disabled="true" tabindex="-1">
-                                                                                          <span class="fa fa-hourglass-half mr-1"></span>
-                                                                                          Pending Submission
-                                                                                      </button>
-                                                                                  {% elif "SUBMITTED" in statuses and "APPROVED" not in statuses %}
-                                                                                      {% if "DRAFT" in statuses %}
-                                                                                          <button class="btn btn-primary btn-sm approve-btn font-weight-bold"
-                                                                                              data-week="{{ week_number }}"
-                                                                                              data-project="{{ project }}"
-                                                                                              data-subproject="{{ subproject }}"
-                                                                                              data-punch-ids="{% for punch in punch_row.punch_list %}{% if punch.status == 'SUBMITTED' %}{{ punch.punch_id }}{% if not forloop.last %},{% endif %}{% endif %}{% endfor %}"
-                                                                                              type="button"
-                                                                                              disabled aria-disabled="true" tabindex="-1">
-                                                                                              <span class="fa fa-check mr-1"></span>
-                                                                                          </button>
-                                                                                      {% else %}
-                                                                                          <button class="btn btn-primary btn-sm approve-btn font-weight-bold"
-                                                                                              data-week="{{ week_number }}"
-                                                                                              data-project="{{ project }}"
-                                                                                              data-subproject="{{ subproject }}"
-                                                                                              data-punch-ids="{% for punch in punch_row.punch_list %}{% if punch.status == 'SUBMITTED' %}{{ punch.punch_id }}{% if not forloop.last %},{% endif %}{% endif %}{% endfor %}"
-                                                                                              type="button">
-                                                                                              <span class="fa fa-check mr-1"></span>
-                                                                                          </button>
-                                                                                      {% endif %}
-                                                                                  {% endif %}
-                                                                              {% endif %}
-                                                                          </td>
+
                                                                       </tr>
                                                                   {% endwith %}
                                                               {% endfor %}
@@ -461,22 +426,24 @@
               border-radius: 18px;
               box-shadow: 0 2px 16px rgba(31,111,235,0.08), 0 1.5px 4px rgba(0,0,0,0.04);
               overflow: hidden;
-              margin-bottom: 1.5rem;
+              margin-bottom: 1rem;
               font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
              }
              .punch-table-modern th, .punch-table-modern td {
-              font-size: 15px;
+
               text-align: center;
               vertical-align: middle;
              }
              .punch-table-modern th {
-              background: linear-gradient(90deg, #6a8dff 0%, #4f6bed 100%);
-              color: #fff;
-              font-weight: 600;
-              font-size: 1.06rem;
-              border: none;
-              padding: 0.85rem 0.7rem;
-              letter-spacing: 0.01em;
+               background: linear-gradient(90deg, #6a8dff 0%, #4f6bed 100%);
+               color: #fff;
+               font-weight: 600;
+               font-size: 0.78rem;
+               border: none;
+               padding: 0.35rem 0.4rem; /* Compact: less vertical and horizontal space */
+               letter-spacing: 0.01em;
+               line-height: 1.1;
+               vertical-align: middle;
              }
              .punch-table-modern td {
               background: #fff;
