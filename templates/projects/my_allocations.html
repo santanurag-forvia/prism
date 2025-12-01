@@ -782,10 +782,9 @@
         justify-content: space-between;
         align-items: center;
         margin-bottom: 30px;
-        padding: 20px 30px;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+
     }
 
     .page-title {
@@ -801,40 +800,76 @@
 {% block content %}
 <div class="page-container">
     <!-- Page Header with Month/Year Picker -->
-    <div class="page-header">
-        <h1 class="page-title">My Weekly Allocations</h1>
-        <div class="filter-controls">
-            <div class="filter-group">
-                <label for="yearSelect">Year:</label>
-                <select id="yearSelect" class="filter-select">
-                    {% for year in years %}
-                        <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>
-                            {{ year }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="filter-group">
-                <label for="monthSelect">Month:</label>
-                <select id="monthSelect" class="filter-select">
-                    {% for month in months %}
-                        <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>
-                            {{ month.name }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-            <button id="searchBtn" class="btn-search" onclick="changeMonthYear()">
-                <i class="fas fa-search"></i>
-                Search
-            </button>
-        </div>
-    </div>
+<!--    <div class="page-header">-->
+<!--        <h1 class="page-title">My Weekly Allocations</h1>-->
+<!--        <div class="filter-controls">-->
+<!--            <div class="filter-group">-->
+<!--                <label for="yearSelect">Year:</label>-->
+<!--                <select id="yearSelect" class="filter-select">-->
+<!--                    {% for year in years %}-->
+<!--                        <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>-->
+<!--                            {{ year }}-->
+<!--                        </option>-->
+<!--                    {% endfor %}-->
+<!--                </select>-->
+<!--            </div>-->
+<!--            <div class="filter-group">-->
+<!--                <label for="monthSelect">Month:</label>-->
+<!--                <select id="monthSelect" class="filter-select">-->
+<!--                    {% for month in months %}-->
+<!--                        <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>-->
+<!--                            {{ month.name }}-->
+<!--                        </option>-->
+<!--                    {% endfor %}-->
+<!--                </select>-->
+<!--            </div>-->
+<!--            <button id="searchBtn" class="btn-search" onclick="changeMonthYear()">-->
+<!--                <i class="fas fa-search"></i>-->
+<!--                Search-->
+<!--            </button>-->
+<!--        </div>-->
+<!--    </div>-->
 
     <!-- Action Bar with Week Selector and Buttons -->
-    <input type="hidden" id="hiddenMonthStart" value="{{ billing_start|date:'Y-m-d' }}">
-    <input type="hidden" id="hiddenWeeksData" value="{{ all_weeks_list_json }}">
-    <div class="action-bar">
+
+
+        <!-- Action Bar with Week Selector and Buttons -->
+<input type="hidden" id="hiddenMonthStart" value="{{ billing_start|date:'Y-m-d' }}">
+<input type="hidden" id="hiddenWeeksData" value="{{ all_weeks_list_json }}">
+<div class="action-bar">
+
+     <div class="page-header">
+            <h1 class="page-title">My Weekly Allocations</h1>
+
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label for="yearSelect">Year:</label>
+                    <select id="yearSelect" class="filter-select">
+                        {% for year in years %}
+                            <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>
+                                {{ year }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="monthSelect">Month:</label>
+                    <select id="monthSelect" class="filter-select">
+                        {% for month in months %}
+                            <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>
+                                {{ month.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <button id="searchBtn" class="btn-search" onclick="changeMonthYear()">
+                    <i class="fas fa-search"></i>
+                    Search
+                </button>
+            </div>
+        </div>
         <div class="action-row">
             <div class="week-selector-group">
                 <label for="weekSelector">Select Week</label>
@@ -1384,7 +1419,7 @@
                     const date = input.dataset.date;
                     const weekNum = parseInt(input.dataset.week);
                     const punchedHours = parseFloat(input.value || 0);
-                    if (tdId && weekNum && date && punchedHours > 0) {
+                    if (tdId && weekNum && date ) {
                         effortsData.push({
                             team_distribution_id: tdId,
                             week_number: weekNum,

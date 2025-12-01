@@ -3121,12 +3121,7 @@ def save_effort_draft(request):
                 if row and row[0]:
                     allocated_hours = Decimal(str(row[0]))
             print(f"[save_effort_draft]   total_punched={total_punched}, allocated_hours={allocated_hours}")
-            if total_punched > allocated_hours:
-                errors.append({
-                    'team_distribution_id': tdid,
-                    'week_number': week_num,
-                    'error': f"Punched hours {total_punched} exceed allocated {allocated_hours}"
-                })
+
 
         if errors:
             print(f"[save_effort_draft] Validation errors: {errors}")
@@ -7143,9 +7138,21 @@ def tl_punch_review(request):
                         day = punch["punch_date"].strftime("%a")
                         if day in punches_by_day:
                             punches_by_day[day] = punch
+
+                    # Compute statuses for this punch row
+                    statuses = [p["status"] for p in punches]
+                    all_approved = bool(statuses) and all(s == "APPROVED" for s in statuses)
+                    all_draft = bool(statuses) and all(s == "DRAFT" for s in statuses)
+                    any_submitted = any(s == "SUBMITTED" for s in statuses)
+                    any_approved = any(s == "APPROVED" for s in statuses)
+
                     grouped_final[ldap][week_num][project][subproject] = {
                         "punch_list": punches,
                         "punches_by_day": punches_by_day,
+                        "all_approved": all_approved,
+                        "all_draft": all_draft,
+                        "any_submitted": any_submitted,
+                        "any_approved": any_approved,
                     }
 
     # Normalize FTE by month_limit

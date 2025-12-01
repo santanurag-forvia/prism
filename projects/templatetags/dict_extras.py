@@ -24,3 +24,14 @@ def get_item(dictionary, key):
     if isinstance(dictionary, dict):
         return dictionary.get(key)
     return None
+
+@register.filter
+def map_filter(value, arg=None):
+    # Example: uppercase and append arg
+    if arg:
+        return f"{str(value).upper()} {arg}"
+    return str(value).upper()
+
+@register.filter
+def to_list(value):
+    return list(value)
