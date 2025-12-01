@@ -1,5 +1,4 @@
 
-
 {% extends "base.html" %}
 {% load static %}
 {% block content %}
@@ -1924,25 +1923,54 @@ document.addEventListener('click', function(e){
 });
 
 // Sort Allocation by Team Member tab by Resource column
+// document.addEventListener('DOMContentLoaded', function() {
+//   function sortAllocBodyByResource() {
+//     const tbody = document.getElementById('allocBody');
+//     if (!tbody) return;
+//     const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+//     rows.sort((a, b) => {
+//       const resA = a.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
+//       const resB = b.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
+//       return resA.localeCompare(resB);
+//     });
+//     rows.forEach(row => tbody.appendChild(row));
+//   }
+//   sortAllocBodyByResource();
+//
+//   // Optionally, re-sort after adding a row
+//   //document.getElementById('btnAddRow').addEventListener('click', function() {
+//    // setTimeout(sortAllocBodyByResource, 100); // Delay to allow row insertion
+//   //});
+// });
+
 document.addEventListener('DOMContentLoaded', function() {
-  function sortAllocBodyByResource() {
+  function sortAndHideDuplicateResources() {
     const tbody = document.getElementById('allocBody');
     if (!tbody) return;
     const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+    // Sort rows by resource name
     rows.sort((a, b) => {
       const resA = a.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
       const resB = b.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
       return resA.localeCompare(resB);
     });
-    rows.forEach(row => tbody.appendChild(row));
+    // Hide duplicate resource names
+    const seenResources = new Set();
+    rows.forEach(row => {
+      const resCell = row.querySelector('td');
+      const resName = row.querySelector('.sel-resource option:checked')?.textContent.trim() || '';
+      if (seenResources.has(resName)) {
+        if (resCell) resCell.style.visibility = 'hidden';
+      } else if (resName) {
+        seenResources.add(resName);
+        if (resCell) resCell.style.visibility = '';
+      }
+      tbody.appendChild(row);
+    });
   }
-  sortAllocBodyByResource();
-
-  // Optionally, re-sort after adding a row
-  //document.getElementById('btnAddRow').addEventListener('click', function() {
-   // setTimeout(sortAllocBodyByResource, 100); // Delay to allow row insertion
-  //});
+  sortAndHideDuplicateResources();
 });
+
 
 
 
@@ -1997,7 +2025,7 @@ document.addEventListener('click', function(e){
   }
 });
 
-// Group Program and Project names in Allocation by Project tab
+// Hide duplicate Program and Project names in Allocation by Project tab
 document.addEventListener('DOMContentLoaded', function() {
   const tbody = document.getElementById('allocBodyByProject');
   if (!tbody) return;
@@ -2010,20 +2038,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const progCell = row.cells[0];
     const progName = progCell?.querySelector('select option:checked')?.textContent.trim() || '';
     if (seenPrograms.has(progName)) {
-      progCell.innerHTML = '';
+      progCell.style.visibility = 'hidden';
     } else if (progName) {
       seenPrograms.add(progName);
+      progCell.style.visibility = '';
     }
     // Project column (second cell)
     const projCell = row.cells[1];
     const projName = projCell?.querySelector('select option:checked')?.textContent.trim() || '';
     if (seenProjects.has(projName)) {
-      projCell.innerHTML = '';
+      projCell.style.visibility = 'hidden';
     } else if (projName) {
       seenProjects.add(projName);
+      projCell.style.visibility = '';
     }
   });
 });
+
 
 
 
