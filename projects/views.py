@@ -5961,7 +5961,7 @@ def tl_allocations_view(request):
         "weeks_info": weeks_info,
         "weeks_info_json": weeks_info_json,
         "allocations": allocations,
-        "allocations_json": allocations_json,  # <-- new
+        "allocations_json": allocations_json,
         "monthly_hours": monthly_hours,
     })
 
@@ -6966,6 +6966,14 @@ def tl_punch_review(request):
         print(f"Error getting billing period: {e}")
         billing_start, billing_end = month_start, None
 
+    weeks_list = get_weeks_for_month(billing_start, billing_end)
+    selected_week = request.GET.get("week", "all")
+    today = date.today()
+    current_week = None
+    for week in weeks_list:
+        if week['start'] <= today <= week['end']:
+            current_week = week['num']
+            break
     # Get reportees (reuse LDAP utility)
     from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
     creds = (session_ldap, request.session.get("ldap_password"))
@@ -7166,15 +7174,30 @@ def tl_punch_review(request):
             grouped_final[rep["ldap"]] = {}
     print("grouped keys ", grouped_final.keys())  # Should include all reportee ldaps
 
-    grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
 
+    if selected_week != "all":
+        selected_week_num = int(selected_week)
+        for ldap in grouped_final:
+            # Only keep the selected week for each reportee
+            grouped_final[ldap] = {
+                selected_week_num: grouped_final[ldap].get(selected_week_num, {})
+            }
+        expand_all = True
+    else:
+        expand_all = False
+
+    grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
         "grouped": grouped_str,
+        "expand_all": expand_all,
         'day_names': day_names,
         "fte_totals": dict(fte_totals),
         "month_limit": month_limit,
+        "weeks_list": weeks_list,
+        "selected_week": selected_week,
+        "current_week": current_week,
     })
 
 
@@ -7250,3 +7273,37 @@ def tl_punch_bulk_approve(request):
         return JsonResponse({"ok": True})
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse
+import json
+
+@require_POST
+def punch_status_api(request):
+    data = json.loads(request.body)
+    punch_ids = data.get('punch_ids', [])
+    if not punch_ids:
+        return JsonResponse({'ok': False, 'error': 'No punch_ids'}, status=400)
+    with connection.cursor() as cur:
+        placeholders = ','.join(['%s'] * len(punch_ids))
+        cur.execute(f"SELECT id, status FROM punch_data WHERE id IN ({placeholders})", punch_ids)
+        statuses = [{'punch_id': row[0], 'status': row[1]} for row in cur.fetchall()]
+    return JsonResponse({'ok': True, 'statuses': statuses})
+
+from datetime import date
+
+def get_weeks_for_month(month_start, month_end):
+    weeks = []
+    d = month_start
+    week_num = 1
+    while d <= month_end:
+        week_start = d
+        week_end = min(week_start + timedelta(days=6), month_end)
+        weeks.append({
+            'num': week_num,
+            'start': week_start,
+            'end': week_end,
+        })
+        d = week_end + timedelta(days=1)
+        week_num += 1
+    return weeks

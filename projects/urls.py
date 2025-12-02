@@ -91,5 +91,6 @@ urlpatterns = [
     path("tl-punch-review/", views.tl_punch_review, name="tl_punch_review"),
     path("tl-punch-review/approve/", views.tl_punch_approve, name="tl_punch_approve"),
     path("tl/punch/bulk-approve/", views.tl_punch_bulk_approve, name="tl_punch_bulk_approve"),
+    path('api/punch-status/', views.punch_status_api, name='punch_status_api'),
 ]
 
