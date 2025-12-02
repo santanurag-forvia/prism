@@ -3019,6 +3019,8 @@ def my_allocations(request):
         'weeks': weeks,
         'selected_week': selected_week,
         'current_week': current_week,
+        'selected_year': selected_year,
+        'selected_month': selected_month,
         'billing_start': billing_start,
         'billing_end': billing_end,
         'month_label': billing_start.strftime('%b %Y'),

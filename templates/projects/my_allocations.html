@@ -852,23 +852,20 @@
                 <div class="filter-group">
                     <label for="yearSelect">Year:</label>
                     <select id="yearSelect" class="filter-select">
-                        {% for year in years %}
-                            <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>
-                                {{ year }}
-                            </option>
-                        {% endfor %}
+                      {% for year in years %}
+                        <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+                      {% endfor %}
                     </select>
                 </div>
 
                 <div class="filter-group">
                     <label for="monthSelect">Month:</label>
                     <select id="monthSelect" class="filter-select">
-                        {% for month in months %}
-                            <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>
-                                {{ month.name }}
-                            </option>
-                        {% endfor %}
+                      {% for month in months %}
+                        <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>{{ month.name }}</option>
+                      {% endfor %}
                     </select>
+
                 </div>
 
                 <button id="searchBtn" class="btn-search" onclick="changeMonthYear()">
@@ -907,10 +904,10 @@
                     <i class="fas fa-plus-circle"></i>
                     Add Allocation
                 </button>
-                <button class="btn btn-record-leave" id="btnRecordLeave">
-                    <i class="fas fa-calendar-times"></i>
-                    Record Leave
-                </button>
+<!--                <button class="btn btn-record-leave" id="btnRecordLeave">-->
+<!--                    <i class="fas fa-calendar-times"></i>-->
+<!--                    Record Leave-->
+<!--                </button>-->
             </div>
         </div>
     </div>
@@ -927,7 +924,7 @@
           <table class="week-table">
             <thead>
               <tr>
-                <th style="width:5%;">Week #</th>
+
                 <th style="width:18%;">Project</th>
                 <th style="width:18%;">Subproject</th>
                 <th style="width:8%;">TL Allocation</th>
@@ -940,7 +937,7 @@
             <tbody>
               {% for row in week.rows %}
                 <tr class="week-row" data-week="{{ row.week_num }}" data-tdid="{{ row.team_distribution_id }}">
-                  <td><strong>W{{ row.week_num }}</strong></td>
+
                   <td>{{ row.project_name }}</td>
                   <td>{{ row.subproject_name }}</td>
                   <td>{{ row.tl_allocation_hours }}h</td>
@@ -1194,7 +1191,7 @@
         const btnSaveDraft = document.getElementById('btnSaveDraft');
         const btnSubmit = document.getElementById('btnSubmit');
         const btnAddAllocation = document.getElementById('btnAddAllocation');
-        const btnRecordLeave = document.getElementById('btnRecordLeave');
+        //const btnRecordLeave = document.getElementById('btnRecordLeave');
         const monthSelect = document.getElementById('monthSelect');
         const yearSelect = document.getElementById('yearSelect');
 
@@ -1253,14 +1250,14 @@
 
         // Leave Recording     Modal Handlers
         // Show Record Leave Modal on button click
-        btnRecordLeave.addEventListener('click', function () {
-            leaveModal.classList.add('active');
-            leaveStartDate.value = '';
-            leaveEndDate.value = '';
-            leaveType.value = '';
-            leaveDays.value = '';
-            leaveReason.value = '';
-        });
+        // btnRecordLeave.addEventListener('click', function () {
+        //     leaveModal.classList.add('active');
+        //     leaveStartDate.value = '';
+        //     leaveEndDate.value = '';
+        //     leaveType.value = '';
+        //     leaveDays.value = '';
+        //     leaveReason.value = '';
+        // });
 
         function calculateLeaveDays() {
             const start = leaveStartDate.value;
