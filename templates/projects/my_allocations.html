@@ -733,6 +733,13 @@
     .leave-allocation-card .allocation-table td {
         padding: 6px 10px;
     }
+    /* css */
+    .week-block { margin-bottom:32px; background:#ffffff; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); padding:12px 16px; }
+    .week-header { display:flex; justify-content:space-between; align-items:center; padding:8px 4px 12px; }
+    .week-table { width:100%; border-collapse:separate; border-spacing:0 6px; }
+    .week-table th { background:#667eea; color:#fff; font-weight:600; padding:8px 10px; font-size:13px; }
+    .week-table td { background:#f8fafc; padding:6px 8px; font-size:13px; border-radius:6px; }
+    .week-row td:first-child { font-weight:600; }
     /* === ANIMATIONS === */
     @keyframes fadeIn {
         from {
@@ -908,100 +915,74 @@
         </div>
     </div>
 
-    <!-- Allocations Container -->
+    <!-- html -->
     <div class="allocations-container">
-        {% if groups %}
-        {% for group_key, group in groups.items %}
-        {% for row in group.rows %}
-        <div class="allocation-card" data-tdid="{{ row.team_distribution_id }}">
-            <div class="card-header">
-                <div>
-                    <div class="card-title">{{ row.project_name }}</div>
-                    <div class="card-subtitle">{{ row.subproject_name }}</div>
-                </div>
-                {% if row.is_self_allocation %}
-                <span class="self-allocation-badge">
-                    <i class="fas fa-user-plus"></i> Self Added
-                </span>
-                {% endif %}
-            </div>
-            <div class="card-body">
-                <table class="allocation-table">
-                    <thead>
-                    <tr>
-                        <th style="width: 8%;">Week</th>
-                        <th style="width: 7%;">Working Days</th>
-                        <th style="width: 8%;">TL Allocation</th>
-                        <th style="width: 8%;">Act. Efforts (hrs)</th>
-                        <th style="width: 32%;">Daily Effort(hrs)</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {% for week in row.weeks_list %}
-                    {% if selected_week == 'all' or week.num|stringformat:"s" == selected_week|stringformat:"s" %}
-                    <tr class="week-row"
-                            data-week="{{ week.num }}"
-                            data-tdid="{{ row.team_distribution_id }}"
-                            data-editable="{% if week.is_editable %}true{% else %}false{% endif %}">
-
-                        <td>
-                            <strong>Week {{ week.num }}</strong>
-                            <br>
-                            <small style="color: #718096; font-size: 12px;">
-                                {{ week.week_start}} - {{ week.week_end}}
-                            </small>
-                        </td>
-                        <td>{{ week.working_days }} days</td>
-
-                        <td>{{ week.allocated_hours }}h</td>
-                        <td class="actual-weekly-effort" data-week="{{ week.num }}">0.00</td>
-                        <td>
-                            {% for day in week.days_list %}
-                            <div style="display: inline-block; text-align: center; margin-right: 6px;">
-                                <div style="font-size: 11px; color: #718096; margin-bottom: 2px;">
-                                    {{ day.weekday }}
-                                    <span style="color: #a0aec0; font-size: 10px;">
-                                        {{ day.date }}
-                                    </span>
-                                </div>
-                                <input type="number"
-                                       class="punch-input daily-effort-input {% if leave_days and day.date in leave_days %}leave-day{% endif %}"
-                                       step="0.01"
-                                       min="0"
-                                       max="{{ day.allocated_hours|default:'0.00' }}"
-                                       value="{{ day.initial_punch_value|default:day.punched_hours|default:'0.00'|floatformat:2 }}"
-                                       data-date="{{ day.date }}"
-                                       data-week="{{ week.num }}"
-                                       data-tdid="{{ row.team_distribution_id }}"
-                                       data-project-id="{{ row.project_id }}"
-                                       data-subproject-id="{{ row.subproject_id }}"
-                                       data-month-start="{{ billing_start|date:'Y-m-d' }}"
-                                       {% if not day.is_editable %}disabled{% endif %}
-                                       style="width: 90px; text-align: right; {% if leave_days and day.date in leave_days %}background: #ffeaea;{% endif %}">
-                            </div>
-                            {% endfor %}
-                        </td>
-
-                    </tr>
-                    {% endif %}
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        {% endfor %}
-        {% endfor %}
-        {% else %}
-        <div class="allocation-card">
-            <div class="card-body">
-                <div class="empty-state">
-                    <i class="fas fa-calendar-times"></i>
-                    <h3>No Allocations Found</h3>
-                    <p>You don't have any allocations for this period. Use "Add Allocation" to create one.</p>
-                </div>
-            </div>
+      {% for week in weeks %}
+        {% if selected_week == 'all' or week.num|stringformat:"s" == selected_week|stringformat:"s" %}
+        <div class="week-block">
+          <div class="week-header">
+            <h3>Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}</h3>
+            <small>{{ week.working_days }} working days</small>
+          </div>
+          <table class="week-table">
+            <thead>
+              <tr>
+                <th style="width:5%;">Week #</th>
+                <th style="width:18%;">Project</th>
+                <th style="width:18%;">Subproject</th>
+                <th style="width:8%;">TL Allocation</th>
+                <th style="width:8%;">Act. Effort</th>
+                {% for ab in day_order %}
+                  <th style="width:6%;">{{ ab }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in week.rows %}
+                <tr class="week-row" data-week="{{ row.week_num }}" data-tdid="{{ row.team_distribution_id }}">
+                  <td><strong>W{{ row.week_num }}</strong></td>
+                  <td>{{ row.project_name }}</td>
+                  <td>{{ row.subproject_name }}</td>
+                  <td>{{ row.tl_allocation_hours }}h</td>
+                  <td class="actual-weekly-effort">{{ row.actual_effort }}</td>
+                  {% for slot in row.day_slots %}
+                    <td>
+                      {% if slot %}
+                        <div style="text-align:center;">
+                          <input type="number"
+                                 class="punch-input daily-effort-input"
+                                 step="0.01"
+                                 min="0"
+                                 max="24"
+                                 value="{{ slot.punched_hours|default:'0.00' }}"
+                                 data-date="{{ slot.date }}"
+                                 data-week="{{ row.week_num }}"
+                                 data-tdid="{{ row.team_distribution_id }}"
+                                 data-project-id="{{ row.project_id }}"
+                                 data-subproject-id="{{ row.subproject_id }}"
+                                 data-month-start="{{ billing_start|date:'Y-m-d' }}"
+                                 {% if not slot.is_editable %}disabled{% endif %}
+                                 style="width:70px;text-align:right;{% if slot.leave_hours %}background:#ffeaea;{% endif %}">
+                        </div>
+                      {% else %}
+                        <div style="height:34px;"></div>
+                      {% endif %}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+              {% if week.rows|length == 0 %}
+                <tr>
+                  <td colspan="{{ day_order|length|add:5 }}" style="text-align:center;color:#718096;">
+                    No allocations this week
+                  </td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
         </div>
         {% endif %}
+      {% endfor %}
     </div>
 </div>
 {% if leave_allocations %}
@@ -1779,18 +1760,21 @@
 
         window.changeMonthYear = changeMonthYear;
 
+        // javascript
         document.querySelectorAll('.week-row').forEach(function(row) {
-            function updateActualEffort() {
-                let sum = 0;
-                row.querySelectorAll('.daily-effort-input').forEach(function(inp) {
-                    sum += parseFloat(inp.value) || 0;
-                });
-                row.querySelector('.actual-weekly-effort').textContent = sum.toFixed(2);
-            }
-            row.querySelectorAll('.daily-effort-input').forEach(function(inp) {
-                inp.addEventListener('input', updateActualEffort);
+          function updateActualEffort() {
+            let sum = 0;
+            row.querySelectorAll('.daily-effort-input').forEach(inp => {
+              sum += parseFloat(inp.value || 0);
             });
-            updateActualEffort();
+            const cell = row.querySelector('.actual-weekly-effort');
+            if (cell) cell.textContent = sum.toFixed(2);
+          }
+          row.querySelectorAll('.daily-effort-input').forEach(inp => {
+            inp.addEventListener('input', updateActualEffort);
+            inp.addEventListener('blur', updateActualEffort);
+          });
+          updateActualEffort();
         });
     });
 
