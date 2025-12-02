@@ -1,140 +1,139 @@
 {% extends "base.html" %}
-             {% load dict_extras %}
-             {% block content %}
-             <div class="container-fluid mt-4">
-              <div class="row justify-content-center">
-                  <div class="col-lg-10 col-xl-9">
-                      <div class="card shadow-sm">
-                          <div class="card-body">
-                              <div class="d-flex justify-content-between align-items-center mb-2">
-                                  <h2 class="mb-0 font-weight-bold">Team Lead Punch Review
-                                 <button id="global-expand-btn" class="btn btn-outline-primary btn-sm d-flex align-items-center" type="button" aria-label="Expand or collapse all reportees" style="background: #0b5cff;color: #fff; box-shadow: 0 6px 18px rgba(11, 92, 255, 0.12);width:150px">
-    <span class="fa fa-plus expand-icon" aria-hidden="true"></span> Show/Hide All
-                                 </button></h2>
-                              </div>
-                              <form method="get" class="form-inline mb-4" autocomplete="off">
-                                  <label for="month" class="mr-2 font-weight-medium">Month:</label>
-                                  <input type="month" id="month" name="month" value="{{ month_str }}" class="form-control mr-2" onchange="this.form.submit()" style="max-width: 200px;" aria-label="Select month">
-                              </form>
-                              <div class="accordion" id="reporteeAccordion">
-
-                                  {% for rep in reportees %}
-                                  <div class="card mb-2 border-0 shadow-xs">
-                                      <div class="card-header bg-light d-flex justify-content-between align-items-center" id="heading-{{ rep.ldap }}">
-                                          <span>
-                                              <strong class="text-dark">{{ rep.cn }}</strong>
-                                              <small class="text-muted">&lt;{{ rep.mail }}&gt;</small>
-                                              <span class="badge badge-info ml-2">FTE: {{ fte_totals|get_item:rep.ldap|floatformat:2 }}</span>
-                                          </span>
-                                          <button class="btn btn-sm btn-outline-primary expand-btn" type="button"
-                                              data-target="#collapse-{{ rep.ldap }}"
-                                              aria-expanded="false"
-                                              aria-controls="collapse-{{ rep.ldap }}"
-                                              aria-label="Expand or collapse reportee section"
-                                          >
-                                              <span class="fa fa-plus expand-icon" aria-hidden="true"></span>
-                                          </button>
-                                      </div>
-                                      <div id="collapse-{{ rep.ldap }}" class="collapse" data-parent="#reporteeAccordion">
-                                          <div class="card-body bg-white">
-                                              {% with rep_grouped=grouped|get_item:rep.ldap %}
-                                              {% if rep_grouped %}
-                                              <div class="table-responsive">
-                                                  <table class="table table-bordered table-sm punch-table-modern mb-0">
-                                                      <!-- Inside your table -->
-                                                      <thead class="thead-light">
-                                                          <tr>
-                                                              <th>
-                                                                  <input type="checkbox" class="select-all" data-rep="{{ rep.ldap }}" aria-label="Select all rows for {{ rep.cn }}">
-                                                              </th>
-                                                              <th>Week #</th>
-                                                              <th>Project</th>
-                                                              <th>Subproject</th>
-                                                              <th>TL Allocation</th>
-                                                              <th>Act. Effort</th>
-                                                              <th>Sat</th>
-                                                              <th>Sun</th>
-                                                              <th>Mon</th>
-                                                              <th>Tue</th>
-                                                              <th>Wed</th>
-                                                              <th>Thu</th>
-                                                              <th>Fri</th>
-
-                                                          </tr>
-                                                      </thead>
-                                                      <tbody>
-                                                      {% for week_number, week_data in rep_grouped.items %}
-                                                          {% for project, project_data in week_data.items %}
-                                                              {% for subproject, punch_row in project_data.items %}
-                                                                  {% with statuses=punch_row.punch_list|map_filter:"status" %}
-                                                                      <tr class="week-row">
-                                                                          <td>
-                                                                              <input type="checkbox" class="row-select"
-                                                                                  data-rep="{{ rep.ldap }}"
-                                                                                  data-punch-id="{{ punch_row.punch_list.0.punch_id }}"
-                                                                                  aria-label="Select row for punch {{ punch_row.punch_list.0.punch_id }}">
-                                                                          </td>
-                                                                          <td>W{{ week_number }}</td>
-                                                                          <td>{{ project }}</td>
-                                                                          <td>{{ subproject }}</td>
-                                                                          <td>{{ punch_row.punch_list.0.tl_allocation|default:"0" }}</td>
-                                                                          <td>{{ punch_row.punch_list.0.act_effort|default:"0" }}</td>
-                                                                          {% for day in day_names %}
-                                                                              <td>
-                                                                                  {% with punch=punch_row.punches_by_day|get_item:day %}
-                                                                                      {% if punch %}
-                                                                                          <div class="punch-cell">
-                                                                                              <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input
-                                                                                                  {% if punch.status == 'APPROVED' %}status-approved
-                                                                                                  {% elif punch.status == 'SUBMITTED' %}status-submitted
-                                                                                                  {% elif punch.status == 'REJECTED' %}status-rejected
-                                                                                                  {% elif punch.status == 'DRAFT' %}status-draft
-                                                                                                  {% else %}status-other
-                                                                                                  {% endif %}"
-                                                                                                  value="{{ punch.punched_hours|default_if_none:'' }}"
-                                                                                                  data-punch-id="{{ punch.punch_id }}"
-                                                                                                  data-week="{{ week_number }}"
-                                                                                                  style="width:80px;"
-                                                                                                  {% if punch.status == "APPROVED" %}readonly{% endif %}
-                                                                                                  aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
-                                                                                              >
-                                                                                          </div>
-                                                                                      {% endif %}
-                                                                                  {% endwith %}
-                                                                              </td>
-                                                                          {% endfor %}
-
-                                                                      </tr>
-                                                                  {% endwith %}
-                                                              {% endfor %}
-                                                          {% endfor %}
-                                                          <tr class="week-separator" style="border-bottom: 3px solid #1F6FEB;">
-                                                              <td colspan="14"></td>
-                                                          </tr>
-                                                      {% endfor %}
-                                                      </tbody>
-                                                  </table>
-                                                  <button class="btn bulk-approve mt-4 mb-2 px-4 fw-semibold float-end d-flex align-items-center gap-2 shadow-sm"
-                                                          data-rep="{{ rep.ldap }}" type="button">
-                                                      <span class="fa fa-check-circle text-primary" style="font-size:1.2em;" aria-hidden="true"></span>
-                                                      <span class="text-dark">Approve Selected</span>
-                                                  </button>
-                                              </div>
-                                              {% else %}
-                                              <div class="text-muted py-3">No punch data for this reportee.</div>
-                                              {% endif %}
-                                              {% endwith %}
-                                          </div>
-                                      </div>
+{% load dict_extras %}
+{% block content %}
+<div class="feas-tl-review-bg">
+  <div class="feas-tl-review-container">
+    <div class="feas-tl-review-card">
+      <div class="feas-tl-review-header">
+        <h2>Team Lead Punch Review</h2>
+        <button id="global-expand-btn" class="feas-btn feas-btn-primary" type="button" aria-label="Expand or collapse all reportees">
+          <span class="fa fa-plus expand-icon" aria-hidden="true"></span> Show/Hide All
+        </button>
+      </div>
+      <form method="get" class="feas-tl-review-form" autocomplete="off">
+        <label for="month">Month:</label>
+        <input type="month" id="month" name="month" value="{{ month_str }}" onchange="this.form.submit()" aria-label="Select month">
+      </form>
+      <div class="accordion" id="reporteeAccordion">
+        {% for rep in reportees %}
+        <div class="feas-tl-review-reportee-card">
+          <div class="feas-tl-review-reportee-header" id="heading-{{ rep.ldap }}">
+            <div>
+              <span class="feas-tl-review-reportee-name">{{ rep.cn }}</span>
+              <span class="feas-tl-review-reportee-mail">&lt;{{ rep.mail }}&gt;</span>
+              <span class="feas-tl-review-fte">FTE: {{ fte_totals|get_item:rep.ldap|floatformat:2 }}</span>
+            </div>
+            <button class="feas-btn feas-btn-outline expand-btn" type="button"
+              data-target="#collapse-{{ rep.ldap }}"
+              aria-expanded="false"
+              aria-controls="collapse-{{ rep.ldap }}"
+              aria-label="Expand or collapse reportee section"
+            >
+              <span class="fa fa-plus expand-icon" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div id="collapse-{{ rep.ldap }}" class="collapse" data-parent="#reporteeAccordion" style="display: none;">
+            <div class="feas-tl-review-table-card">
+              {% with rep_grouped=grouped|get_item:rep.ldap %}
+              {% if rep_grouped %}
+              <div class="table-responsive">
+                <table class="feas-tl-review-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        <input type="checkbox" class="select-all" data-rep="{{ rep.ldap }}" aria-label="Select all rows for {{ rep.cn }}">
+                      </th>
+                      <th>Week #</th>
+                      <th>Project</th>
+                      <th>Subproject</th>
+                      <th>TL Allocation</th>
+                      <th>Act. Effort</th>
+                      <th>Sat</th>
+                      <th>Sun</th>
+                      <th>Mon</th>
+                      <th>Tue</th>
+                      <th>Wed</th>
+                      <th>Thu</th>
+                      <th>Fri</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for week_number, week_data in rep_grouped.items %}
+                      {% for project, project_data in week_data.items %}
+                        {% for subproject, punch_row in project_data.items %}
+                          {% with statuses=punch_row.punch_list|map_filter:"status" %}
+                          <tr>
+                            <td>
+                              <input type="checkbox" class="row-select"
+                                data-rep="{{ rep.ldap }}"
+                                data-punch-id="{{ punch_row.punch_list.0.punch_id }}"
+                                aria-label="Select row for punch {{ punch_row.punch_list.0.punch_id }}">
+                            </td>
+                            <td>W{{ week_number }}</td>
+                            <td>{{ project }}</td>
+                            <td>{{ subproject }}</td>
+                            <td>{{ punch_row.punch_list.0.tl_allocation|default:"0" }}</td>
+                            <td>{{ punch_row.punch_list.0.act_effort|default:"0" }}</td>
+                            {% for day in day_names %}
+                            <td>
+                              {% with punch=punch_row.punches_by_day|get_item:day %}
+                                {% if punch %}
+                                  <div class="feas-tl-review-punch-cell
+                                    {% if punch.status == 'APPROVED' %}approved
+                                    {% elif punch.status == 'SUBMITTED' %}submitted
+                                    {% elif punch.status == 'DRAFT' %}draft
+                                    {% else %}other
+                                    {% endif %}">
+                                    <input type="number" step="0.01" min="0" class="feas-tl-review-punch-input
+                                      {% if punch.status == 'APPROVED' %}status-approved
+                                      {% elif punch.status == 'SUBMITTED' %}status-submitted
+                                      {% elif punch.status == 'REJECTED' %}status-rejected
+                                      {% elif punch.status == 'DRAFT' %}status-draft
+                                      {% else %}status-other
+                                      {% endif %}"
+                                      value="{{ punch.punched_hours|default_if_none:'' }}"
+                                      data-punch-id="{{ punch.punch_id }}"
+                                      data-week="{{ week_number }}"
+                                      {% if punch.status == "APPROVED" %}readonly{% endif %}
+                                      aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
+                                    >
                                   </div>
-                                  {% endfor %}
-                              </div>
-                          </div>
-                      </div>
-                  </div>
+                                {% endif %}
+                              {% endwith %}
+                            </td>
+                            {% endfor %}
+                          </tr>
+                          {% endwith %}
+                        {% endfor %}
+                      {% endfor %}
+                      <tr class="feas-tl-review-week-separator">
+                        <td colspan="14"></td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                <div class="feas-tl-review-table-actions">
+                  <button class="feas-btn feas-btn-approve bulk-approve" data-rep="{{ rep.ldap }}" type="button">
+                    <span class="fa fa-check-circle" aria-hidden="true"></span>
+                    Approve Selected
+                  </button>
+                </div>
               </div>
-             </div>
-             {% endblock %}
+              {% else %}
+              <div class="feas-tl-review-no-data">No punch data for this reportee.</div>
+              {% endif %}
+              {% endwith %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
 
 
              {% block extra_js %}
@@ -144,7 +143,59 @@
                  document.querySelectorAll(".collapse").forEach(function(el) {
                      el.classList.remove("show");
                  });
-
+                // Expand/collapse logic
+  document.querySelectorAll(".expand-btn").forEach(function(btn) {
+    btn.addEventListener("click", function () {
+      var targetId = btn.getAttribute("data-target").replace(/^#/, "");
+      var target = document.getElementById(targetId);
+      var icon = btn.querySelector(".expand-icon");
+      if (!target) return;
+      var isOpen = target.style.display !== "none";
+      // Collapse all others
+      document.querySelectorAll(".collapse").forEach(function(el) {
+        el.style.display = "none";
+      });
+      document.querySelectorAll(".expand-btn .expand-icon").forEach(function(ic) {
+        ic.classList.remove("fa-minus");
+        ic.classList.add("fa-plus");
+      });
+      // Toggle current
+      if (!isOpen) {
+        target.style.display = "";
+        icon.classList.remove("fa-plus");
+        icon.classList.add("fa-minus");
+      } else {
+        target.style.display = "none";
+        icon.classList.remove("fa-minus");
+        icon.classList.add("fa-plus");
+      }
+    });
+  });
+  // Global expand/collapse
+  var globalBtn = document.getElementById("global-expand-btn");
+  var globalState = false;
+  globalBtn.addEventListener("click", function() {
+    globalState = !globalState;
+    var allCollapses = document.querySelectorAll(".collapse");
+    var allIcons = document.querySelectorAll(".expand-btn .expand-icon");
+    if (globalState) {
+      allCollapses.forEach(function(el) { el.style.display = ""; });
+      allIcons.forEach(function(ic) {
+        ic.classList.remove("fa-plus");
+        ic.classList.add("fa-minus");
+      });
+      globalBtn.querySelector(".expand-icon").classList.remove("fa-plus");
+      globalBtn.querySelector(".expand-icon").classList.add("fa-minus");
+    } else {
+      allCollapses.forEach(function(el) { el.style.display = "none"; });
+      allIcons.forEach(function(ic) {
+        ic.classList.remove("fa-minus");
+        ic.classList.add("fa-plus");
+      });
+      globalBtn.querySelector(".expand-icon").classList.remove("fa-minus");
+      globalBtn.querySelector(".expand-icon").classList.add("fa-plus");
+    }
+  });
                 document.querySelectorAll(".expand-btn").forEach(function (btn) {
                     btn.addEventListener("click", function () {
                         var targetId = btn.getAttribute("data-target").replace(/^#/, "");
@@ -327,274 +378,296 @@
              {% endblock %}
 
              {% block extra_css %}
-             <style>
-             body {
-              background: #f5f7fa;
-              font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-              color: #222;
-             }
-             .container-fluid {
-              margin-top: 2.5rem;
-             }
-             .card {
-              border-radius: 16px;
-              box-shadow: 0 2px 12px rgba(31, 111, 235, 0.07), 0 1.5px 4px rgba(0,0,0,0.04);
-              border: none;
-              background: #fff;
-             }
-             .card-header {
-              background: #f3f6fa;
-              border-radius: 16px 16px 0 0;
-              padding: 1.1rem 1.5rem;
-              font-size: 1.08rem;
-              font-weight: 600;
-              border-bottom: 1px solid #e3e8ee;
-             }
-             .card-body {
-              border-radius: 0 0 16px 16px;
-              padding: 2rem 1.5rem 1.5rem 1.5rem;
-             }
-             h2 {
-              font-size: 2rem;
-              font-weight: 700;
-              color: #1f6feb;
-              margin-bottom: 1.5rem;
-             }
-             .form-inline label {
-              font-size: 1.08rem;
-              font-weight: 500;
-              margin-right: 0.5rem;
-             }
-             input[type="month"] {
-              border: 1px solid #d1d9e6;
-              border-radius: 6px;
-              padding: 0.35rem 0.7rem;
-              font-size: 1.05rem;
-              background: #f8fafc;
-              transition: border 0.2s;
-              margin-right: 0.5rem;
-             }
-             input[type="month"]:focus {
-              border-color: #1f6feb;
-              outline: none;
-             }
-             .accordion .card {
-              margin-bottom: 0.7rem;
-              border-radius: 14px;
-             }
-             .accordion .card-header {
-              background: #f8fafd;
-              border-radius: 14px 14px 0 0;
-              font-size: 1.08rem;
-              font-weight: 600;
-              color: #1f2937;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              padding: 1rem 1.3rem;
-             }
-             .accordion .card-header strong {
-              font-weight: 700;
-              color: #1f6feb;
-              font-size: 1.08rem;
-              letter-spacing: 0.01em;
-             }
-             .accordion .card-header small {
-              color: #6b7280;
-              font-size: 0.98rem;
-              margin-left: 0.5rem;
-             }
-             .accordion .btn-outline-primary {
-              border: 1.5px solid #1f6feb;
-              color: #1f6feb;
-              background: #f8fafc;
-              border-radius: 6px;
-              padding: 0.25rem 0.9rem;
-              font-weight: 500;
-              transition: background 0.2s, color 0.2s;
-             }
-             .accordion .btn-outline-primary:hover, .accordion .btn-outline-primary:focus {
-              background: #1f6feb;
-              color: #fff;
-              outline: none;
-             }
-             .collapse .card-body {
-              background: #fff;
-              border-radius: 0 0 14px 14px;
-              padding: 1.2rem 1.3rem 1.1rem 1.3rem;
-             }
-             .table-responsive {
-              margin-top: 0.7rem;
-             }
-             .punch-table-modern {
-              background: #fff;
-              border-radius: 18px;
-              box-shadow: 0 2px 16px rgba(31,111,235,0.08), 0 1.5px 4px rgba(0,0,0,0.04);
-              overflow: hidden;
-              margin-bottom: 1rem;
-              font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-             }
-             .punch-table-modern th, .punch-table-modern td {
-
-              text-align: center;
-              vertical-align: middle;
-             }
-             .punch-table-modern th {
-               background: linear-gradient(90deg, #6a8dff 0%, #4f6bed 100%);
-               color: #fff;
-               font-weight: 600;
-               font-size: 0.78rem;
-               border: none;
-               padding: 0.35rem 0.4rem; /* Compact: less vertical and horizontal space */
-               letter-spacing: 0.01em;
-               line-height: 1.1;
-               vertical-align: middle;
-             }
-             .punch-table-modern td {
-              background: #fff;
-              color: #222;
-              font-size: 0.8rem;
-              border-top: 1px solid #f0f3fa;
-              padding: 0.75rem 0.7rem;
-              vertical-align: middle;
-              transition: background 0.2s;
-             }
-             .punch-table-modern tr:hover td {
-              background: #f5f8ff;
-             }
-             .punch-input {
-              width: 80px;
-              border: 1px solid #d1d9e6;
-              border-radius: 5px;
-              padding: 0.25rem 0.5rem;
-              font-size: 0.8rem;
-              background: #f8fafc;
-              transition: border 0.2s;
-             }
-             .punch-input:focus {
-              border-color: #1f6feb;
-              background: #eaf1fb;
-              outline: none;
-             }
-             .punch-input[readonly] {
-              background: #e9ecef;
-              color: #6b7280;
-              border-color: #d1d9e6;
-             }
-             .bulk-approve {
-              background: #eaf1fb;
-              color: #1f2937;
-              border: none;
-              border-radius: 24px;
-              font-size: 1.04rem;
-              letter-spacing: 0.01em;
-              box-shadow: 0 2px 8px 8px rgba(31,111,235,0.10);
-              transition: background 0.2s, box-shadow 0.2s;
-              margin-right: 0.5rem;
-              padding-top: 0.45rem;
-              padding-bottom: 0.45rem;
-             }
-             .bulk-approve:active, .bulk-approve:focus {
-              outline: none;
-              box-shadow: 0 0 0 2px #b6d4fe;
-             }
-             .approved-inactive {
-              background: #e6f4ea !important;
-              color: #198754 !important;
-              border: 1.5px solid #b6e2c6 !important;
-              font-weight: 500;
-                 font-size: 0.8rem;
-              opacity: 1 !important;
-              cursor: not-allowed;
-             }
-             .btn-primary.btn-sm.approve-btn {
-              background: #1f6feb;
-              border: none;
-              color: #fff;
-              font-weight: 500;
-              border-radius: 5px;
-              padding: 0.25rem 1.1rem;
-              font-size: 0.8rem;
-              box-shadow: 0 1px 4px rgba(31,111,235,0.08);
-              transition: background 0.2s;
-             }
-             .btn-primary.btn-sm.approve-btn:hover, .btn-primary.btn-sm.approve-btn:focus {
-              background: #155ab6;
-              outline: none;
-             }
-             .text-muted {
-              color: #6b7280 !important;
-              font-size: 1.01rem;
-             }
-             .shadow-xs {
-              box-shadow: 0 1.5px 6px rgba(31, 111, 235, 0.08);
-             }
-             @media (max-width: 991px) {
-              .container-fluid {
-                  margin-top: 1.2rem;
-              }
-              .card-body, .collapse .card-body {
-                  padding: 1.1rem 0.7rem 1rem 0.7rem;
-              }
-              .card-header {
-                  padding: 0.8rem 0.7rem;
-              }
-              h2 {
-                  font-size: 1.4rem;
-              }
-             }
-             .week-separator td {
-                 border-bottom: 3px solid #1f6feb !important;
-                 background: #f3f6fa;
-                 height: 8px;
-                 padding: 0;
-             }
-             .expand-btn .fa-plus, .expand-btn .fa-minus {
-                 font-size: 1.2em;
-             }
-
-             #global-expand-btn {
-    margin-left: 850px;
-    min-width: 36px;
-    min-height: 36px;
-    /*display: flex;*/
-    align-items: center;
-    justify-content: center;
+<style>
+body {
+  background: #f4f7fb;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  color: #232a36;
 }
-             .collapse {
-                display: none;
-            }
-            .collapse.show {
-                display: block;
-            }
-            .approve-btn[disabled] {
-              background: #ccc !important;
-              border-color: #ccc !important;
-              color: #888 !important;
-              cursor: not-allowed;
-            }
-            .week-separator {
-                border-bottom: 3px solid #1F6FEB !important;
-            }
-            .punch-cell.approved {
-                background-color: #e6f7e6; /* light green */
-                color: #1a7f37;
-                font-weight: 600;
-            }
-            .punch-cell.submitted {
-                background-color: #fff4e5; /* light orange */
-                color: #b26a00;
-                font-weight: 600;
-            }
-            .punch-cell.draft {
-                background-color: #e6eaf7; /* light blue */
-                color: #1a3a7f;
-                font-weight: 600;
-            }
-            .status-approved { background: #e6ffe6; border: 2px solid #28a745; }
-            .status-submitted { background: #fffbe6; border: 2px solid #ffc107; }
-            .status-rejected { background: #ffe6e6; border: 2px solid #dc3545; }
-            .status-draft { background: #f0f0f0; border: 2px solid #6c757d; }
-            .status-other { background: #f8f9fa; border: 2px solid #adb5bd; }
-             </style>
-             {% endblock %}
+.feas-tl-review-bg {
+  min-height: 100vh;
+  background: #f4f7fb;
+  padding: 32px 0;
+}
+.feas-tl-review-container {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 8px;
+}
+.feas-tl-review-card {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 32px rgba(31, 111, 235, 0.10), 0 1.5px 4px rgba(0,0,0,0.04);
+  padding: 2.5rem 2.2rem 2.2rem 2.2rem;
+  margin-bottom: 2.5rem;
+}
+.feas-tl-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.7rem;
+}
+.feas-tl-review-header h2 {
+  font-size: 2.1rem;
+  font-weight: 800;
+  color: #1f6feb;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+.feas-tl-review-form {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 1.5rem;
+}
+.feas-tl-review-form label {
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+.feas-tl-review-form input[type="month"] {
+  border: 1.5px solid #d1d9e6;
+  border-radius: 7px;
+  padding: 0.38rem 0.9rem;
+  font-size: 1.08rem;
+  background: #f8fafc;
+  transition: border 0.2s;
+  min-width: 170px;
+}
+.feas-tl-review-form input[type="month"]:focus {
+  border-color: #1f6feb;
+  outline: none;
+}
+.feas-tl-review-reportee-card {
+  background: #f8fafd;
+  border-radius: 14px;
+  margin-bottom: 1.2rem;
+  box-shadow: 0 1.5px 6px rgba(31, 111, 235, 0.07);
+}
+.feas-tl-review-reportee-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.5rem;
+  border-radius: 14px 14px 0 0;
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: #1f2937;
+  border-bottom: 1px solid #e3e8ee;
+  background: #f3f6fa;
+}
+.feas-tl-review-reportee-name {
+  font-weight: 700;
+  color: #1f6feb;
+  font-size: 1.08rem;
+  letter-spacing: 0.01em;
+}
+.feas-tl-review-reportee-mail {
+  color: #6b7280;
+  font-size: 0.98rem;
+  margin-left: 0.5rem;
+}
+.feas-tl-review-fte {
+  background: #eaf1fb;
+  color: #1f6feb;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 0.18rem 0.7rem;
+  font-size: 0.98rem;
+  margin-left: 0.7rem;
+}
+.feas-tl-review-table-card {
+  background: #fff;
+  border-radius: 0 0 14px 14px;
+  padding: 1.2rem 1.3rem 1.1rem 1.3rem;
+}
+.feas-tl-review-table {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 16px rgba(31,111,235,0.08), 0 1.5px 4px rgba(0,0,0,0.04);
+  margin-bottom: 1.2rem;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.feas-tl-review-table th {
+  background: linear-gradient(90deg, #6a8dff 0%, #4f6bed 100%);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.8rem;
+  border: none;
+  padding: 0.4rem 0.4rem;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  vertical-align: middle;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.feas-tl-review-table td {
+  background: #fff;
+  color: #232a36;
+  font-size: 0.8rem;
+  border-top: 1px solid #f0f3fa;
+  padding: 0.4rem 0.4rem;
+  vertical-align: middle;
+  transition: background 0.2s;
+}
+.feas-tl-review-table tr:hover td {
+  background: #f5f8ff;
+}
+.feas-tl-review-punch-cell {
+  border-radius: 7px;
+  padding: 0.1rem 0.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  min-height: 38px;
+  transition: background 0.2s;
+}
+.feas-tl-review-punch-cell.approved {
+  background: #e6f7e6;
+  color: #1a7f37;
+  font-weight: 700;
+}
+.feas-tl-review-punch-cell.submitted {
+  background: #fff4e5;
+  color: #b26a00;
+  font-weight: 700;
+}
+.feas-tl-review-punch-cell.draft {
+  background: #e6eaf7;
+  color: #1a3a7f;
+  font-weight: 700;
+}
+.feas-tl-review-punch-cell.other {
+  background: #f8f9fa;
+  color: #adb5bd;
+  font-weight: 700;
+}
+.feas-tl-review-punch-input {
+  width: 70px;
+  border: 1.5px solid #d1d9e6;
+  border-radius: 6px;
+  padding: 0.22rem 0.4rem;
+  font-size: 0.8rem;
+  background: #f8fafc;
+  transition: border 0.2s;
+  text-align: center;
+  font-weight: 600;
+}
+.feas-tl-review-punch-input:focus {
+  border-color: #1f6feb;
+  background: #eaf1fb;
+  outline: none;
+}
+.feas-tl-review-punch-input[readonly] {
+  background: #e9ecef;
+  color: #6b7280;
+  border-color: #d1d9e6;
+}
+.status-approved { background: #e6ffe6; border: 2px solid #28a745; }
+.status-submitted { background: #fffbe6; border: 2px solid #ffc107; }
+.status-rejected { background: #ffe6e6; border: 2px solid #dc3545; }
+.status-draft { background: #f0f0f0; border: 2px solid #6c757d; }
+.status-other { background: #f8f9fa; border: 2px solid #adb5bd; }
+.feas-tl-review-week-separator td {
+  border-bottom: 3px solid #1f6feb !important;
+  background: #f3f6fa;
+  height: 8px;
+  padding: 0;
+}
+.feas-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  border-radius: 7px;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.45rem 1.2rem;
+  cursor: pointer;
+  border: none;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+  box-shadow: 0 1.5px 6px rgba(31, 111, 235, 0.08);
+  outline: none;
+}
+.feas-tl-review-table-actions {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  margin-top: 1.1rem;
+  margin-bottom: 0.2rem;
+  padding-left: 0.1rem;
+}
+.feas-btn-approve {
+  float: none;
+  margin-right: 0.5rem;
+  margin-left: 0;
+}
+.feas-btn-primary {
+  background: #1f6feb;
+  color: #fff;
+  border: none;
+}
+.feas-btn-primary:hover, .feas-btn-primary:focus {
+  background: #155ab6;
+  color: #fff;
+}
+.feas-btn-outline {
+  background: #f8fafc;
+  color: #1f6feb;
+  border: 1.5px solid #1f6feb;
+}
+.feas-btn-outline:hover, .feas-btn-outline:focus {
+  background: #1f6feb;
+  color: #fff;
+}
+.feas-btn-approve {
+  background: #eaf1fb;
+  color: #1f2937;
+  border: none;
+  border-radius: 24px;
+  font-size: 1.04rem;
+  letter-spacing: 0.01em;
+  box-shadow: 0 2px 8px 8px rgba(31,111,235,0.10);
+  margin-right: 0.5rem;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  margin-top: 1.1rem;
+  float: right;
+}
+.feas-btn-approve:active, .feas-btn-approve:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px #b6d4fe;
+}
+.feas-tl-review-no-data {
+  color: #6b7280;
+  font-size: 1.08rem;
+  padding: 1.2rem 0;
+  text-align: center;
+}
+@media (max-width: 991px) {
+  .feas-tl-review-container {
+    padding: 0 4px;
+  }
+  .feas-tl-review-card {
+    padding: 1.1rem 0.7rem 1rem 0.7rem;
+  }
+  .feas-tl-review-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.1rem;
+  }
+  .feas-tl-review-header h2 {
+    font-size: 1.4rem;
+  }
+  .feas-tl-review-table th, .feas-tl-review-table td {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.2rem;
+  }
+}
+</style>
+{% endblock %}
