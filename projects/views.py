@@ -3059,7 +3059,82 @@ from decimal import Decimal, ROUND_HALF_UP
 import json
 import logging
 
+def bulk_update_week_status(request):
+    # Session validation
+    if not request.session.get("is_authenticated"):
+        return HttpResponseForbidden("Not authenticated")
+    user_email = request.session.get("ldap_username")
+    if not user_email:
+        return HttpResponseForbidden("Not authenticated")
 
+    if request.method != 'POST':
+        return HttpResponseBadRequest("Invalid method")
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except Exception:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    status = (payload.get('status') or '').upper()
+    if status not in ('DRAFT', 'SUBMITTED'):
+        return HttpResponseBadRequest("Invalid status")
+
+    selected_year = int(payload.get('year'))
+    selected_month = int(payload.get('month'))
+    week_num = int(payload.get('week_num'))
+    month_start = _to_date(payload.get('month_start'))
+    if not (selected_year and selected_month and week_num and month_start):
+        return HttpResponseBadRequest("Missing fields")
+
+    # Resolve billing period from month_start (consistent with your existing logic)
+    billing_start = month_start
+    # If you store end in payload, accept it; else compute end of selected month
+    try:
+        billing_end = _to_date(payload.get('month_end'))
+    except Exception:
+        # naive end-of-month calc; replace with your _get_billing_period_from_month if available
+        if month_start.month == 12:
+            billing_end = date(month_start.year, 12, 31)
+        else:
+            nxt = date(month_start.year, month_start.month + 1, 1)
+            billing_end = nxt - timedelta(days=1)
+
+    # Compute weeks and locate the selected week range
+    weeks = _compute_weeks_for_billing(billing_start, billing_end)
+    week_obj = next((w for w in weeks if int(w['num']) == int(week_num)), None)
+    if not week_obj:
+        return HttpResponseBadRequest("Week not found for month")
+
+    wstart, wend = week_obj['start'], week_obj['end']
+
+    # Selected rows: list of team_distribution_id, project_id, subproject_id
+    selected_rows = payload.get('rows') or []
+    if not isinstance(selected_rows, list) or not selected_rows:
+        return HttpResponseBadRequest("No rows selected")
+
+    td_ids = []
+    for r in selected_rows:
+        try:
+            tdid = int(r.get('team_distribution_id'))
+            td_ids.append(tdid)
+        except Exception:
+            continue
+    if not td_ids:
+        return HttpResponseBadRequest("Invalid team distribution ids")
+
+    # Update punch_data for the selected td_ids in the week range for this user
+    # Only affect days within [wstart, wend]
+    # Assumes table punch_data has columns: id, team_distribution_id, punched_by, punched_on_date, status
+    with connection.cursor() as cur:
+        cur.execute(f"""
+            UPDATE punch_data
+            SET status = %s
+            WHERE team_distribution_id IN ({','.join(['%s'] * len(td_ids))})
+              AND LOWER(punched_by) = LOWER(%s)
+              AND punched_on_date BETWEEN %s AND %s
+        """, [status] + td_ids + [user_email, wstart, wend])
+
+    return JsonResponse({'ok': True, 'updated_status': status, 'count': len(td_ids)})
 
 @require_http_methods(["POST"])
 def save_effort_draft(request):

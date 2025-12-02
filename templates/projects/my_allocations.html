@@ -740,6 +740,68 @@
     .week-table th { background:#667eea; color:#fff; font-weight:600; padding:8px 10px; font-size:13px; }
     .week-table td { background:#f8fafc; padding:6px 8px; font-size:13px; border-radius:6px; }
     .week-row td:first-child { font-weight:600; }
+
+      /* Footer actions (per-week) */
+      .week-footer-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-start;
+        padding: 10px 12px 14px;
+      }
+      .week-footer-actions .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border: none;
+        border-radius: 999px; /* pill */
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: none;
+        letter-spacing: 0.2px;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      }
+      .week-footer-actions .btn:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 5px rgba(0,0,0,0.08);
+      }
+      .week-footer-actions .btn i {
+        font-size: 14px;
+      }
+      .week-footer-actions .btn-save-draft {
+        background: #ffffff;
+        color: #334155;
+        border: 1px solid #e2e8f0;
+      }
+      .week-footer-actions .btn-save-draft:hover {
+        background: #f8fafc;
+        border-color: #cbd5e0;
+        transform: translateY(-1px);
+      }
+      .week-footer-actions .btn-submit-effort {
+        background: #22c55e; /* green */
+        color: #ffffff;
+      }
+      .week-footer-actions .btn-submit-effort:hover {
+        background: #16a34a;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(34,197,94,0.35);
+      }
+
+      /* Compact on small screens */
+      @media (max-width: 768px) {
+        .week-footer-actions {
+          justify-content: stretch;
+        }
+        .week-footer-actions .btn {
+          flex: 1 1 auto;
+          justify-content: center;
+        }
+      }
+
+
     /* === ANIMATIONS === */
     @keyframes fadeIn {
         from {
@@ -913,6 +975,7 @@
     </div>
 
     <!-- html -->
+    <!-- html -->
     <div class="allocations-container">
       {% for week in weeks %}
         {% if selected_week == 'all' or week.num|stringformat:"s" == selected_week|stringformat:"s" %}
@@ -921,10 +984,13 @@
             <h3>Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}</h3>
             <small>{{ week.working_days }} working days</small>
           </div>
+
           <table class="week-table">
             <thead>
               <tr>
-
+                <th style="width:4%;">
+                  <input type="checkbox" class="week-select-all" data-week="{{ week.num }}">
+                </th>
                 <th style="width:18%;">Project</th>
                 <th style="width:18%;">Subproject</th>
                 <th style="width:8%;">TL Allocation</th>
@@ -936,47 +1002,72 @@
             </thead>
             <tbody>
               {% for row in week.rows %}
-                <tr class="week-row" data-week="{{ row.week_num }}" data-tdid="{{ row.team_distribution_id }}">
+              <tr class="week-row"
+                  data-week="{{ row.week_num }}"
+                  data-tdid="{{ row.team_distribution_id }}"
+                  data-project-id="{{ row.project_id }}"
+                  data-subproject-id="{{ row.subproject_id }}">
+                <!-- Checkbox must be inside the first cell -->
+                <td style="text-align:center;">
+                  <input type="checkbox"
+                         class="week-row-select"
+                         data-week="{{ row.week_num }}"
+                         data-tdid="{{ row.team_distribution_id }}">
+                </td>
 
-                  <td>{{ row.project_name }}</td>
-                  <td>{{ row.subproject_name }}</td>
-                  <td>{{ row.tl_allocation_hours }}h</td>
-                  <td class="actual-weekly-effort">{{ row.actual_effort }}</td>
-                  {% for slot in row.day_slots %}
-                    <td>
-                      {% if slot %}
-                        <div style="text-align:center;">
-                          <input type="number"
-                                 class="punch-input daily-effort-input"
-                                 step="0.01"
-                                 min="0"
-                                 max="24"
-                                 value="{{ slot.punched_hours|default:'0.00' }}"
-                                 data-date="{{ slot.date }}"
-                                 data-week="{{ row.week_num }}"
-                                 data-tdid="{{ row.team_distribution_id }}"
-                                 data-project-id="{{ row.project_id }}"
-                                 data-subproject-id="{{ row.subproject_id }}"
-                                 data-month-start="{{ billing_start|date:'Y-m-d' }}"
-                                 {% if not slot.is_editable %}disabled{% endif %}
-                                 style="width:70px;text-align:right;{% if slot.leave_hours %}background:#ffeaea;{% endif %}">
-                        </div>
-                      {% else %}
-                        <div style="height:34px;"></div>
-                      {% endif %}
-                    </td>
-                  {% endfor %}
-                </tr>
+                <td>{{ row.project_name }}</td>
+                <td>{{ row.subproject_name }}</td>
+                <td>{{ row.tl_allocation_hours }}h</td>
+                <td class="actual-weekly-effort">{{ row.actual_effort }}</td>
+
+                {% for slot in row.day_slots %}
+                <td>
+                  {% if slot %}
+                    <div style="text-align:center;">
+                      <input type="number"
+                             class="punch-input daily-effort-input"
+                             step="0.01"
+                             min="0"
+                             max="24"
+                             value="{{ slot.punched_hours|default:'0.00' }}"
+                             data-date="{{ slot.date }}"
+                             data-week="{{ row.week_num }}"
+                             data-tdid="{{ row.team_distribution_id }}"
+                             data-project-id="{{ row.project_id }}"
+                             data-subproject-id="{{ row.subproject_id }}"
+                             data-month-start="{{ billing_start|date:'Y-m-d' }}"
+                             {% if not slot.is_editable %}disabled{% endif %}
+                             style="width:70px;text-align:right;{% if slot.leave_hours %}background:#ffeaea;{% endif %}">
+                    </div>
+                  {% else %}
+                    <div style="height:34px;"></div>
+                  {% endif %}
+                </td>
+                {% endfor %}
+              </tr>
               {% endfor %}
+
               {% if week.rows|length == 0 %}
-                <tr>
-                  <td colspan="{{ day_order|length|add:5 }}" style="text-align:center;color:#718096;">
-                    No allocations this week
-                  </td>
-                </tr>
+              <tr>
+                <td colspan="{{ day_order|length|add:5 }}" style="text-align:center;color:#718096;">
+                  No allocations this week
+                </td>
+              </tr>
               {% endif %}
             </tbody>
           </table>
+
+          <!-- Footer action buttons for this week -->
+          <div class="week-footer-actions">
+              <button class="btn btn-save-draft" data-week="{{ week.num }}">
+                <i class="fas fa-save"></i>
+                Save Draft
+              </button>
+              <button class="btn btn-submit-effort" data-week="{{ week.num }}">
+                <i class="fas fa-paper-plane"></i>
+                Submit
+              </button>
+            </div>
         </div>
         {% endif %}
       {% endfor %}
@@ -1775,6 +1866,120 @@
         });
     });
 
+    document.addEventListener('DOMContentLoaded', function () {
+      const csrfToken = (document.querySelector('input[name=csrfmiddlewaretoken]') || {}).value;
+
+      // Select-all per week
+      document.querySelectorAll('.week-select-all').forEach(chk => {
+        chk.addEventListener('change', function () {
+          const wk = this.dataset.week;
+          document.querySelectorAll(`.week-row-select[data-week="${wk}"]`).forEach(r => {
+            r.checked = chk.checked;
+          });
+        });
+      });
+
+      // Update actual weekly effort on input
+      document.querySelectorAll('.week-row').forEach(function(row) {
+        function updateActualEffort() {
+          let sum = 0;
+          row.querySelectorAll('.daily-effort-input').forEach(inp => {
+            sum += parseFloat(inp.value || 0);
+          });
+          const cell = row.querySelector('.actual-weekly-effort');
+          if (cell) cell.textContent = sum.toFixed(2);
+        }
+        row.querySelectorAll('.daily-effort-input').forEach(inp => {
+          inp.addEventListener('input', updateActualEffort);
+          inp.addEventListener('blur', updateActualEffort);
+        });
+        updateActualEffort();
+      });
+
+      async function postWeekStatus(weekNum, status) {
+        // Collect selected rows for this week
+        const selectedRows = Array.from(document.querySelectorAll(`.week-row-select[data-week="${weekNum}"]:checked`))
+          .map(chk => {
+            const tdid = parseInt(chk.dataset.tdid);
+            const tr = chk.closest('tr.week-row');
+            return {
+              team_distribution_id: tdid,
+              project_id: parseInt(tr.dataset.projectId),
+              subproject_id: parseInt(tr.dataset.subprojectId)
+            };
+          });
+
+        if (selectedRows.length === 0) {
+          showNotification('Select at least one row in the week', 'warning');
+          return;
+        }
+
+        const yearSel = document.getElementById('yearSelect');
+        const monthSel = document.getElementById('monthSelect');
+        const monthStart = document.getElementById('hiddenMonthStart').value;
+
+        const payload = {
+          status: status,
+          year: parseInt(yearSel.value),
+          month: parseInt(monthSel.value),
+          week_num: parseInt(weekNum),
+          month_start: monthStart,
+          rows: selectedRows
+        };
+
+        const btnDisable = status === 'DRAFT'
+          ? document.querySelector(`.btn.btn-save-draft[data-week="${weekNum}"]`)
+          : document.querySelector(`.btn.btn-submit-effort[data-week="${weekNum}"]`);
+        if (btnDisable) {
+          btnDisable.disabled = true;
+          btnDisable.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        }
+
+        try {
+          const res = await fetch('{% url "projects:bulk_update_week_status" %}', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': csrfToken || ''
+            },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const txt = await res.text();
+            throw new Error(txt || 'Request failed');
+          }
+          const data = await res.json();
+          showNotification(`Updated ${data.count} allocations to ${data.updated_status}`, 'success');
+
+          // Optional: visually mark row status (e.g., badge) or reload
+          // location.reload();
+
+        } catch (err) {
+          showNotification(err.message || 'Failed to update status', 'error');
+        } finally {
+          if (btnDisable) {
+            btnDisable.disabled = false;
+            btnDisable.innerHTML = (status === 'DRAFT')
+              ? '<i class="fas fa-save"></i> Save Draft'
+              : '<i class="fas fa-check-circle"></i> Submit for Approval';
+          }
+        }
+      }
+
+      // Footer buttons per week
+      document.querySelectorAll('.btn.btn-save-draft[data-week]').forEach(btn => {
+        btn.addEventListener('click', function () {
+          const wk = this.dataset.week;
+          postWeekStatus(wk, 'DRAFT');
+        });
+      });
+      document.querySelectorAll('.btn.btn-submit-effort[data-week]').forEach(btn => {
+        btn.addEventListener('click', function () {
+          const wk = this.dataset.week;
+          postWeekStatus(wk, 'SUBMITTED');
+        });
+      });
+    });
     // --- CSS Animations for notifications ---
     const style = document.createElement('style');
     style.textContent = `
