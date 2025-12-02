@@ -10,10 +10,21 @@
           <span class="fa fa-plus expand-icon" aria-hidden="true"></span> Show/Hide All
         </button>
       </div>
-      <form method="get" class="feas-tl-review-form" autocomplete="off">
-        <label for="month">Month:</label>
-        <input type="month" id="month" name="month" value="{{ month_str }}" onchange="this.form.submit()" aria-label="Select month">
-      </form>
+        <form method="get" class="feas-tl-review-form" autocomplete="off" style="display: flex; align-items: center; gap: 1.2rem;">
+          <label for="month">Month:</label>
+          <input type="month" id="month" name="month" value="{{ month_str }}" onchange="this.form.submit()" aria-label="Select month">
+          <label for="weekSelector" style="font-weight: 600; margin-left: 20px; margin-right: 8px;">Week:</label>
+          <select id="weekSelector" name="week" style="padding: 8px 16px; border-radius: 8px;">
+            <option value="all" {% if selected_week == 'all' %}selected{% endif %}>All Weeks</option>
+            {% for week in weeks_list %}
+              <option value="{{ week.num }}"
+                {% if selected_week|stringformat:"s" == week.num|stringformat:"s" %}selected{% endif %}>
+                Week {{ week.num }}: {{ week.start|date:"M d" }} - {{ week.end|date:"M d" }}
+                {% if week.num == current_week %}★{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </form>
       <div class="accordion" id="reporteeAccordion">
         {% for rep in reportees %}
         <div class="feas-tl-review-reportee-card">
@@ -421,6 +432,19 @@
                });
              });
              </script>
+<script>
+    // JavaScript (in a <script> block or static file)
+    document.addEventListener('DOMContentLoaded', function () {
+        const weekSelector = document.getElementById('weekSelector');
+        if (weekSelector) {
+            weekSelector.addEventListener('change', function () {
+                const url = new URL(window.location.href);
+                url.searchParams.set('week', this.value);
+                window.location.href = url.toString();
+            });
+        }
+    });
+</script>
              {% endblock %}
 
              {% block extra_css %}
