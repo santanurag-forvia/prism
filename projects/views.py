@@ -3121,12 +3121,7 @@ def save_effort_draft(request):
                 if row and row[0]:
                     allocated_hours = Decimal(str(row[0]))
             print(f"[save_effort_draft]   total_punched={total_punched}, allocated_hours={allocated_hours}")
-            if total_punched > allocated_hours:
-                errors.append({
-                    'team_distribution_id': tdid,
-                    'week_number': week_num,
-                    'error': f"Punched hours {total_punched} exceed allocated {allocated_hours}"
-                })
+
 
         if errors:
             print(f"[save_effort_draft] Validation errors: {errors}")
@@ -6934,10 +6929,14 @@ def get_week_start_end(year, week):
 
 def dict_keys_to_str(d):
     if isinstance(d, dict):
+        # If this is a punch object (leaf), return as-is
+        if 'punch_id' in d:
+            return d
         return {str(k): dict_keys_to_str(v) for k, v in d.items()}
     elif isinstance(d, list):
         return [dict_keys_to_str(i) for i in d]
-    return d
+    else:
+        return d
 
 @require_GET
 def tl_punch_review(request):
@@ -7097,6 +7096,7 @@ def tl_punch_review(request):
         subproject = row.get("subproject_name") or "None"
         punch = {
             "punch_id": row["id"],
+            "punch_date": row["punch_date"],
             "date": row["punch_date"],
             "day": row["punch_date"].strftime("%a"),
             "punched_hours": float(row.get("punched_hours") or 0),
@@ -7122,6 +7122,39 @@ def tl_punch_review(request):
                         punches[0]["tl_allocation"] = tl_allocation
                         punches[0]["act_effort"] = act_effort
 
+    # --- Build final grouped structure for template ---
+    day_names = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+    grouped_final = {}
+    for ldap, weeks in grouped.items():
+        grouped_final[ldap] = {}
+        for week_num, projects in weeks.items():
+            grouped_final[ldap][week_num] = {}
+            for project, subprojects in projects.items():
+                grouped_final[ldap][week_num][project] = {}
+                for subproject, punches in subprojects.items():
+                    # Build punches_by_day for this punch row
+                    punches_by_day = {day: None for day in day_names}
+                    for punch in punches:
+                        day = punch["punch_date"].strftime("%a")
+                        if day in punches_by_day:
+                            punches_by_day[day] = punch
+
+                    # Compute statuses for this punch row
+                    statuses = [p["status"] for p in punches]
+                    all_approved = bool(statuses) and all(s == "APPROVED" for s in statuses)
+                    all_draft = bool(statuses) and all(s == "DRAFT" for s in statuses)
+                    any_submitted = any(s == "SUBMITTED" for s in statuses)
+                    any_approved = any(s == "APPROVED" for s in statuses)
+
+                    grouped_final[ldap][week_num][project][subproject] = {
+                        "punch_list": punches,
+                        "punches_by_day": punches_by_day,
+                        "all_approved": all_approved,
+                        "all_draft": all_draft,
+                        "any_submitted": any_submitted,
+                        "any_approved": any_approved,
+                    }
+
     # Normalize FTE by month_limit
     for ldap in fte_totals:
         fte_totals[ldap] = round(fte_totals[ldap] / float(month_limit or 1), 2)
@@ -7129,15 +7162,17 @@ def tl_punch_review(request):
     print(f"FTE totals after normalization: {dict(fte_totals)}")
 
     for rep in reportees:
-        if rep["ldap"] not in grouped:
-            grouped[rep["ldap"]] = {}
-    print("grouped keys ", grouped.keys())  # Should include all reportee ldaps
+        if rep["ldap"] not in grouped_final:
+            grouped_final[rep["ldap"]] = {}
+    print("grouped keys ", grouped_final.keys())  # Should include all reportee ldaps
 
-    grouped_str = {k: dict_keys_to_str(v) for k, v in grouped.items()}
+    grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
+
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
         "grouped": grouped_str,
+        'day_names': day_names,
         "fte_totals": dict(fte_totals),
         "month_limit": month_limit,
     })

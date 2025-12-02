@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Team Lead Dashboard — Forvia PRISM{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'dashboard/css/tl_dashboard.css' %}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+  <h2><i class="fa-solid fa-users-gear"></i> Team Lead Dashboard</h2>
+  <div class="dashboard-filters">
+    <label>Year
+      <select id="filterYear"></select>
+    </label>
+    <label>Month
+      <select id="filterMonth"></select>
+    </label>
+    <label>Program
+      <select id="filterProgram"></select>
+    </label>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="dashboard-card">
+    <div class="card-title"><i class="fa-solid fa-chart-bar"></i> Team Capacity vs Actual Load</div>
+    <canvas id="teamCapacityChart" height="90"></canvas>
+  </div>
+  <div class="dashboard-card">
+    <div class="card-title"><i class="fa-solid fa-user-group"></i> Reportee vs Utilization</div>
+    <canvas id="reporteeUtilChart" height="180"></canvas>
+  </div>
+  <div class="dashboard-card">
+    <div class="card-title"><i class="fa-solid fa-chart-line"></i> Deviation: Planned vs Consumed Hours</div>
+    <canvas id="deviationLineChart" height="140"></canvas>
+  </div>
+  <div class="dashboard-card">
+    <div class="card-title"><i class="fa-solid fa-diagram-project"></i> FTE Utilization by Project/Subproject</div>
+    <canvas id="fteProjectChart" height="180"></canvas>
+  </div>
+  <div class="dashboard-card">
+    <div class="card-title"><i class="fa-solid fa-user-clock"></i> Your Self Allocation (FTE by Program)</div>
+    <canvas id="selfAllocChart" height="140"></canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{% static 'dashboard/js/tl_dashboard.js' %}"></script>
+{% endblock %}

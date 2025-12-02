@@ -142,8 +142,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 def login_view(request):
     print("[DEBUG] Entered login_view")
     if request.session.get('is_authenticated'):
-        print("[DEBUG] User already authenticated, redirecting to dashboard:home")
-        return redirect('dashboard:home') if 'dashboard' in settings.INSTALLED_APPS else redirect('/')
+        print("[DEBUG] User already authenticated, redirecting to dashboard:tl_dashboard")
+        return redirect('dashboard:tl_dashboard') if 'dashboard' in settings.INSTALLED_APPS else redirect('/')
 
     print(f"[DEBUG] Request method: {request.method}")
     if request.method == "POST":
@@ -171,7 +171,7 @@ def login_view(request):
                 print("[DEBUG] Superadmin session saved")
             except Exception as e:
                 print(f"[DEBUG] Error saving session for superadmin: {e}")
-            return HttpResponseRedirect(reverse('dashboard:home'))
+            return HttpResponseRedirect(reverse('dashboard:tl_dashboard'))
 
         # LDAP bind/auth
         is_auth, conn, user_entry, err = check_credentials_bind(username, password)
@@ -226,7 +226,7 @@ def login_view(request):
                 print("[DEBUG] Redirecting to validated next_url:", next_url)
                 return HttpResponseRedirect(next_url)
 
-            home_url = reverse('dashboard:home')
+            home_url = reverse('dashboard:tl_dashboard')
             print("[DEBUG] Redirecting to dashboard home:", home_url)
             return HttpResponseRedirect(home_url)
 

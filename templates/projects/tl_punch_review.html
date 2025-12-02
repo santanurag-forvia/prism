@@ -7,10 +7,10 @@
                       <div class="card shadow-sm">
                           <div class="card-body">
                               <div class="d-flex justify-content-between align-items-center mb-2">
-                                  <h2 class="mb-0 font-weight-bold">Team Lead Punch Review</h2>
-                                  <button id="global-expand-btn" class="btn btn-outline-primary btn-sm d-flex align-items-center" type="button" aria-label="Expand or collapse all reportees">
-                                      <span class="fa fa-plus expand-icon" aria-hidden="true"></span>
-                                  </button>
+                                  <h2 class="mb-0 font-weight-bold">Team Lead Punch Review
+                                 <button id="global-expand-btn" class="btn btn-outline-primary btn-sm d-flex align-items-center" type="button" aria-label="Expand or collapse all reportees" style="background: #0b5cff;color: #fff; box-shadow: 0 6px 18px rgba(11, 92, 255, 0.12);width:150px">
+    <span class="fa fa-plus expand-icon" aria-hidden="true"></span> Show/Hide All
+                                 </button></h2>
                               </div>
                               <form method="get" class="form-inline mb-4" autocomplete="off">
                                   <label for="month" class="mr-2 font-weight-medium">Month:</label>
@@ -52,68 +52,64 @@
                                                               <th>Subproject</th>
                                                               <th>TL Allocation</th>
                                                               <th>Act. Effort</th>
-                                                              <th>Date</th>
-                                                              <th>Day</th>
-                                                              <th>Punched</th>
-                                                              <th>Status</th>
-                                                              <th>Action</th>
+                                                              <th>Sat</th>
+                                                              <th>Sun</th>
+                                                              <th>Mon</th>
+                                                              <th>Tue</th>
+                                                              <th>Wed</th>
+                                                              <th>Thu</th>
+                                                              <th>Fri</th>
+
                                                           </tr>
                                                       </thead>
                                                       <tbody>
                                                       {% for week_number, week_data in rep_grouped.items %}
                                                           {% for project, project_data in week_data.items %}
-                                                              {% for subproject, punch_list in project_data.items %}
-                                                                  {% for punch in punch_list %}
-                                                                  <tr>
-                                                                      {% if forloop.first %}
-                                                                          <td rowspan="{{ punch_list|length }}">
-                                                                              <input type="checkbox" class="row-select" data-rep="{{ rep.ldap }}" data-punch-id="{{ punch.punch_id }}" aria-label="Select row for punch {{ punch.punch_id }}">
+                                                              {% for subproject, punch_row in project_data.items %}
+                                                                  {% with statuses=punch_row.punch_list|map_filter:"status" %}
+                                                                      <tr class="week-row">
+                                                                          <td>
+                                                                              <input type="checkbox" class="row-select"
+                                                                                  data-rep="{{ rep.ldap }}"
+                                                                                  data-punch-id="{{ punch_row.punch_list.0.punch_id }}"
+                                                                                  aria-label="Select row for punch {{ punch_row.punch_list.0.punch_id }}">
                                                                           </td>
-                                                                          <td rowspan="{{ punch_list|length }}">W{{ week_number }}</td>
-                                                                          <td rowspan="{{ punch_list|length }}">{{ project }}</td>
-                                                                          <td rowspan="{{ punch_list|length }}">{{ subproject }}</td>
-                                                                          <td rowspan="{{ punch_list|length }}">{{ punch_list.0.tl_allocation|default:"0" }}</td>
-                                                                          <td rowspan="{{ punch_list|length }}">{{ punch_list.0.act_effort|default:"0" }}</td>
+                                                                          <td>W{{ week_number }}</td>
+                                                                          <td>{{ project }}</td>
+                                                                          <td>{{ subproject }}</td>
+                                                                          <td>{{ punch_row.punch_list.0.tl_allocation|default:"0" }}</td>
+                                                                          <td>{{ punch_row.punch_list.0.act_effort|default:"0" }}</td>
+                                                                          {% for day in day_names %}
+                                                                              <td>
+                                                                                  {% with punch=punch_row.punches_by_day|get_item:day %}
+                                                                                      {% if punch %}
+                                                                                          <div class="punch-cell">
+                                                                                              <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input
+                                                                                                  {% if punch.status == 'APPROVED' %}status-approved
+                                                                                                  {% elif punch.status == 'SUBMITTED' %}status-submitted
+                                                                                                  {% elif punch.status == 'REJECTED' %}status-rejected
+                                                                                                  {% elif punch.status == 'DRAFT' %}status-draft
+                                                                                                  {% else %}status-other
+                                                                                                  {% endif %}"
+                                                                                                  value="{{ punch.punched_hours|default_if_none:'' }}"
+                                                                                                  data-punch-id="{{ punch.punch_id }}"
+                                                                                                  data-week="{{ week_number }}"
+                                                                                                  style="width:80px;"
+                                                                                                  {% if punch.status == "APPROVED" %}readonly{% endif %}
+                                                                                                  aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
+                                                                                              >
+                                                                                          </div>
+                                                                                      {% endif %}
+                                                                                  {% endwith %}
+                                                                              </td>
+                                                                          {% endfor %}
 
-                                                                      {% endif %}
-                                                                      <td>{{ punch.date|date:"Y-m-d" }}</td>
-                                                                      <td>{{ punch.day }}</td>
-                                                                      <td>
-                                                                          <input type="number" step="0.01" min="0" class="form-control form-control-sm punch-input"
-                                                                              value="{{ punch.punched_hours|default_if_none:'' }}"
-                                                                              data-punch-id="{{ punch.punch_id }}"
-                                                                              data-week="{{ week_number }}"
-                                                                              style="width:80px;"
-                                                                              {% if punch.status == "APPROVED" %}readonly{% endif %}
-                                                                              aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
-                                                                          >
-                                                                      </td>
-                                                                      <td>{{ punch.status|default:"" }}</td>
-                                                                      <td>
-                                                                          {% if punch.status == "APPROVED" %}
-                                                                              <button class="btn btn-light btn-sm approve-btn approved-inactive" disabled aria-disabled="true" tabindex="-1">
-                                                                                  <span class="fa fa-check-circle text-success mr-1" aria-hidden="true"></span>
-                                                                                  <strong>Approved</strong>
-                                                                              </button>
-                                                                          {% elif punch.status == "SUBMITTED" %}
-                                                                              <button class="btn btn-primary btn-sm approve-btn font-weight-bold" data-punch-id="{{ punch.punch_id }}" type="button">
-                                                                                  <span class="fa fa-check mr-1" aria-hidden="true"></span>
-                                                                                  Approve
-                                                                              </button>
-                                                                          {% elif punch.status == "DRAFT" %}
-                                                                                <button class="btn btn-secondary btn-sm approve-btn font-weight-bold" disabled aria-disabled="true" tabindex="-1">
-                                                                                    <span class="fa fa-hourglass-half mr-1" aria-hidden="true"></span>
-                                                                                    Pending Submission
-                                                                                </button>
-                                                                          {% endif %}
-                                                                      </td>
-                                                                  </tr>
-                                                                  {% endfor %}
+                                                                      </tr>
+                                                                  {% endwith %}
                                                               {% endfor %}
                                                           {% endfor %}
-                                                          <!-- Week boundary separator row -->
-                                                          <tr class="week-separator">
-                                                              <td colspan="9"></td>
+                                                          <tr class="week-separator" style="border-bottom: 3px solid #1F6FEB;">
+                                                              <td colspan="14"></td>
                                                           </tr>
                                                       {% endfor %}
                                                       </tbody>
@@ -148,34 +144,42 @@
                  document.querySelectorAll(".collapse").forEach(function(el) {
                      el.classList.remove("show");
                  });
-                 // Accordion expand/collapse per reportee
-                 document.querySelectorAll(".expand-btn").forEach(function(btn) {
-                     btn.addEventListener("click", function() {
-                         var target = document.querySelector(btn.getAttribute("data-target"));
-                         var icon = btn.querySelector(".expand-icon");
-                         var expanded = target.classList.contains("show");
-                         // Collapse all others
-                         document.querySelectorAll(".collapse.show").forEach(function(open) {
-                             if (open !== target) open.classList.remove("show");
-                         });
-                         // Update all expand icons
-                         document.querySelectorAll(".expand-btn .expand-icon").forEach(function(ic) {
-                             ic.classList.remove("fa-minus");
-                             ic.classList.add("fa-plus");
-                         });
-                         if (expanded) {
-                             target.classList.remove("show");
-                             icon.classList.remove("fa-minus");
-                             icon.classList.add("fa-plus");
-                         } else {
-                             target.classList.add("show");
-                             icon.classList.remove("fa-plus");
-                             icon.classList.add("fa-minus");
-                         }
-                     });
-                 });
 
-                 // Global expand/collapse button
+                document.querySelectorAll(".expand-btn").forEach(function (btn) {
+                    btn.addEventListener("click", function () {
+                        var targetId = btn.getAttribute("data-target").replace(/^#/, "");
+                        var target = document.getElementById(targetId);
+                        if (!target) return;
+                        var icon = btn.querySelector(".expand-icon");
+                        var expanded = target.classList.contains("show");
+                        // Collapse all others
+                        document.querySelectorAll(".collapse.show").forEach(function (open) {
+                            if (open !== target) open.classList.remove("show");
+                        });
+                        // Reset all expand icons
+                        document.querySelectorAll(".expand-btn .expand-icon").forEach(function (ic) {
+                            ic.classList.remove("fa-minus");
+                            ic.classList.add("fa-plus");
+                        });
+                        // Toggle current
+                        if (expanded) {
+                            target.classList.remove("show");
+                            btn.setAttribute("aria-expanded", "false");
+                            if (icon) {
+                                icon.classList.remove("fa-minus");
+                                icon.classList.add("fa-plus");
+                            }
+                        } else {
+                            target.classList.add("show");
+                            btn.setAttribute("aria-expanded", "true");
+                            if (icon) {
+                                icon.classList.remove("fa-plus");
+                                icon.classList.add("fa-minus");
+                            }
+                        }
+                    });
+                });
+                             // Global expand/collapse button
                  var globalBtn = document.getElementById("global-expand-btn");
                  var globalState = false; // false = collapsed, true = expanded
                  globalBtn.addEventListener("click", function() {
@@ -427,22 +431,24 @@
               border-radius: 18px;
               box-shadow: 0 2px 16px rgba(31,111,235,0.08), 0 1.5px 4px rgba(0,0,0,0.04);
               overflow: hidden;
-              margin-bottom: 1.5rem;
+              margin-bottom: 1rem;
               font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
              }
              .punch-table-modern th, .punch-table-modern td {
-              font-size: 15px;
+
               text-align: center;
               vertical-align: middle;
              }
              .punch-table-modern th {
-              background: linear-gradient(90deg, #6a8dff 0%, #4f6bed 100%);
-              color: #fff;
-              font-weight: 600;
-              font-size: 1.06rem;
-              border: none;
-              padding: 0.85rem 0.7rem;
-              letter-spacing: 0.01em;
+               background: linear-gradient(90deg, #6a8dff 0%, #4f6bed 100%);
+               color: #fff;
+               font-weight: 600;
+               font-size: 0.78rem;
+               border: none;
+               padding: 0.35rem 0.4rem; /* Compact: less vertical and horizontal space */
+               letter-spacing: 0.01em;
+               line-height: 1.1;
+               vertical-align: middle;
              }
              .punch-table-modern td {
               background: #fff;
@@ -546,13 +552,49 @@
              .expand-btn .fa-plus, .expand-btn .fa-minus {
                  font-size: 1.2em;
              }
+
              #global-expand-btn {
-                 margin-left: 0.5rem;
-                 min-width: 36px;
-                 min-height: 36px;
-                 display: flex;
-                 align-items: center;
-                 justify-content: center;
-             }
+    margin-left: 850px;
+    min-width: 36px;
+    min-height: 36px;
+    /*display: flex;*/
+    align-items: center;
+    justify-content: center;
+}
+             .collapse {
+                display: none;
+            }
+            .collapse.show {
+                display: block;
+            }
+            .approve-btn[disabled] {
+              background: #ccc !important;
+              border-color: #ccc !important;
+              color: #888 !important;
+              cursor: not-allowed;
+            }
+            .week-separator {
+                border-bottom: 3px solid #1F6FEB !important;
+            }
+            .punch-cell.approved {
+                background-color: #e6f7e6; /* light green */
+                color: #1a7f37;
+                font-weight: 600;
+            }
+            .punch-cell.submitted {
+                background-color: #fff4e5; /* light orange */
+                color: #b26a00;
+                font-weight: 600;
+            }
+            .punch-cell.draft {
+                background-color: #e6eaf7; /* light blue */
+                color: #1a3a7f;
+                font-weight: 600;
+            }
+            .status-approved { background: #e6ffe6; border: 2px solid #28a745; }
+            .status-submitted { background: #fffbe6; border: 2px solid #ffc107; }
+            .status-rejected { background: #ffe6e6; border: 2px solid #dc3545; }
+            .status-draft { background: #f0f0f0; border: 2px solid #6c757d; }
+            .status-other { background: #f8f9fa; border: 2px solid #adb5bd; }
              </style>
              {% endblock %}
