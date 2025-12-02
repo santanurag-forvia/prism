@@ -43,7 +43,7 @@
               <span class="fa fa-plus expand-icon" aria-hidden="true"></span>
             </button>
           </div>
-          <div id="collapse-{{ rep.ldap }}" class="collapse" data-parent="#reporteeAccordion" style="display: none;">
+          <div id="collapse-{{ rep.ldap }}" class="collapse{% if expand_all %} show{% endif %}" data-parent="#reporteeAccordion" {% if not expand_all %}style="display: none;"{% endif %}>
             <div class="feas-tl-review-table-card">
               {% with rep_grouped=grouped|get_item:rep.ldap %}
               {% if rep_grouped %}
@@ -511,14 +511,14 @@ body {
 .feas-tl-review-reportee-card {
   background: #f8fafd;
   border-radius: 14px;
-  margin-bottom: 1.2rem;
+  margin-bottom: 1rem;
   box-shadow: 0 1.5px 6px rgba(31, 111, 235, 0.07);
 }
 .feas-tl-review-reportee-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1.1rem 1.5rem;
+  padding: 0.8rem 0.8rem;
   border-radius: 14px 14px 0 0;
   font-size: 1.08rem;
   font-weight: 600;
@@ -527,9 +527,9 @@ body {
   background: #f3f6fa;
 }
 .feas-tl-review-reportee-name {
-  font-weight: 700;
+  font-weight: 600;
   color: #1f6feb;
-  font-size: 1.08rem;
+  font-size: 0.8rem;
   letter-spacing: 0.01em;
 }
 .feas-tl-review-reportee-mail {
@@ -543,7 +543,7 @@ body {
   font-weight: 600;
   border-radius: 6px;
   padding: 0.18rem 0.7rem;
-  font-size: 0.98rem;
+  font-size: 0.8rem;
   margin-left: 0.7rem;
 }
 .feas-tl-review-table-card {

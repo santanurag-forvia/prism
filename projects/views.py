@@ -7174,12 +7174,24 @@ def tl_punch_review(request):
             grouped_final[rep["ldap"]] = {}
     print("grouped keys ", grouped_final.keys())  # Should include all reportee ldaps
 
-    grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
 
+    if selected_week != "all":
+        selected_week_num = int(selected_week)
+        for ldap in grouped_final:
+            # Only keep the selected week for each reportee
+            grouped_final[ldap] = {
+                selected_week_num: grouped_final[ldap].get(selected_week_num, {})
+            }
+        expand_all = True
+    else:
+        expand_all = False
+
+    grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
         "grouped": grouped_str,
+        "expand_all": expand_all,
         'day_names': day_names,
         "fte_totals": dict(fte_totals),
         "month_limit": month_limit,
