@@ -65,9 +65,9 @@
                           <tr>
                             <td>
                               <input type="checkbox" class="row-select"
-                                data-rep="{{ rep.ldap }}"
-                                data-punch-id="{{ punch_row.punch_list.0.punch_id }}"
-                                aria-label="Select row for punch {{ punch_row.punch_list.0.punch_id }}">
+                                  data-rep="{{ rep.ldap }}"
+                                  data-punch-ids="{% for punch in punch_row.punch_list %}{{ punch.punch_id }}{% if not forloop.last %},{% endif %}{% endfor %}"
+                                  aria-label="Select row for all punches in this week/project/subproject">
                             </td>
                             <td>W{{ week_number }}</td>
                             <td>{{ project }}</td>
@@ -98,6 +98,8 @@
                                       aria-label="Punched hours for {{ punch.date|date:'Y-m-d' }}"
                                     >
                                   </div>
+                                {% else %}
+                                  <div class="feas-tl-review-punch-cell other"></div>
                                 {% endif %}
                               {% endwith %}
                             </td>
@@ -310,16 +312,45 @@
               });
 
               // Bulk approve
+             // When a week checkbox is checked/unchecked, check/uncheck all day checkboxes for that week and rep
+             document.querySelectorAll('.row-select').forEach(function(weekCb) {
+                 weekCb.addEventListener('change', function() {
+                     var rep = weekCb.getAttribute('data-rep');
+                     var week = weekCb.getAttribute('data-week');
+                     var dayCheckboxes = document.querySelectorAll('.row-select[data-rep="' + rep + '"][data-week="' + week + '"]');
+                     dayCheckboxes.forEach(function(cb) {
+                         cb.checked = weekCb.checked;
+                     });
+                 });
+             });
               document.querySelectorAll(".bulk-approve").forEach(function(btn) {
                   btn.addEventListener("click", function() {
                       var rep = btn.getAttribute("data-rep");
-                      var punchIds = Array.from(document.querySelectorAll('.row-select[data-rep="' + rep + '"]:checked'))
-                          .map(cb => cb.getAttribute("data-punch-id"));
+                      var weekCheckboxes = document.querySelectorAll('.week-select[data-rep="' + rep + '"]:checked');
+                      var punchIds = [];
+                      weekCheckboxes.forEach(function(weekCb) {
+                          var week = weekCb.getAttribute("data-week");
+                          var dayPunches = document.querySelectorAll('.row-select[data-rep="' + rep + '"][data-week="' + week + '"]');
+                          dayPunches.forEach(function(cb) {
+                              punchIds.push(cb.getAttribute("data-punch-id"));
+                          });
+                      });
+                      var dayChecked = document.querySelectorAll('.row-select[data-rep="' + rep + '"]:checked');
+                      dayChecked.forEach(function(cb) {
+                          var punchIdsAttr = cb.getAttribute("data-punch-ids");
+                          if (punchIdsAttr) {
+                              punchIdsAttr.split(",").forEach(function(pid) {
+                                  if (pid && !punchIds.includes(pid)) punchIds.push(pid);
+                              });
+                          }
+                      });
+
                       if (punchIds.length === 0) {
                           alert("Select at least one row to approve.");
                           return;
                       }
                       btn.disabled = true;
+                      console.log("Sending punchIds:", punchIds);
                       fetch("{% url 'projects:tl_punch_bulk_approve' %}", {
                           method: "POST",
                           headers: {
@@ -327,21 +358,36 @@
                               "Content-Type": "application/json"
                           },
                           body: JSON.stringify({ punch_ids: punchIds })
-                      }).then(resp => resp.json()).then(data => {
+                      })
+                      .then(resp => {
+                          console.log("Fetch response status:", resp.status);
+                          return resp.json();
+                      })
+                      .then(data => {
+                          console.log("Fetch JSON data:", data);
                           if (data.ok) {
                               punchIds.forEach(function(id) {
-                                  var row = document.querySelector('.row-select[data-punch-id="' + id + '"]').closest("tr");
+                                  var rowSelect = document.querySelector('.row-select[data-punch-id="' + id + '"]');
+                                  if (!rowSelect) return; // Skip if not found
+                                  var row = rowSelect.closest("tr");
+                                  if (!row) return; // Skip if row not found
                                   var approveBtn = row.querySelector(".approve-btn");
                                   if (approveBtn) approveBtn.remove();
                                   row.querySelector("td:nth-last-child(2)").textContent = "APPROVED";
                                   var input = row.querySelector(".punch-input");
                                   if (input) input.setAttribute("readonly", "readonly");
                               });
+                              // After successful approve
+
+                              location.reload();
+                              alert(data.message || "Efforts Approved for selected weeks");
                           } else {
                               alert("Error in bulk approval: " + (data.error || ""));
                           }
                           btn.disabled = false;
-                      }).catch(function() {
+                      })
+                      .catch(function(error) {
+                          console.log("Fetch error:", error);
                           alert("Network error. Please try again.");
                           btn.disabled = false;
                       });

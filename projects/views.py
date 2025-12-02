@@ -7250,3 +7250,19 @@ def tl_punch_bulk_approve(request):
         return JsonResponse({"ok": True})
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse
+import json
+
+@require_POST
+def punch_status_api(request):
+    data = json.loads(request.body)
+    punch_ids = data.get('punch_ids', [])
+    if not punch_ids:
+        return JsonResponse({'ok': False, 'error': 'No punch_ids'}, status=400)
+    with connection.cursor() as cur:
+        placeholders = ','.join(['%s'] * len(punch_ids))
+        cur.execute(f"SELECT id, status FROM punch_data WHERE id IN ({placeholders})", punch_ids)
+        statuses = [{'punch_id': row[0], 'status': row[1]} for row in cur.fetchall()]
+    return JsonResponse({'ok': True, 'statuses': statuses})
