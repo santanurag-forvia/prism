@@ -1866,8 +1866,16 @@
         });
     });
 
+    // javascript
     document.addEventListener('DOMContentLoaded', function () {
-      const csrfToken = (document.querySelector('input[name=csrfmiddlewaretoken]') || {}).value;
+      // Prefer hidden input token; fallback to csrftoken cookie
+      const csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
+      const csrfToken = csrfInput ? csrfInput.value : (function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return '';
+      })('csrftoken');
 
       // Select-all per week
       document.querySelectorAll('.week-select-all').forEach(chk => {
@@ -1898,16 +1906,17 @@
 
       async function postWeekStatus(weekNum, status) {
         // Collect selected rows for this week
-        const selectedRows = Array.from(document.querySelectorAll(`.week-row-select[data-week="${weekNum}"]:checked`))
-          .map(chk => {
-            const tdid = parseInt(chk.dataset.tdid);
-            const tr = chk.closest('tr.week-row');
-            return {
-              team_distribution_id: tdid,
-              project_id: parseInt(tr.dataset.projectId),
-              subproject_id: parseInt(tr.dataset.subprojectId)
-            };
-          });
+        const selectedRows = Array.from(
+          document.querySelectorAll(`.week-row-select[data-week="${weekNum}"]:checked`)
+        ).map(chk => {
+          const tdid = parseInt(chk.dataset.tdid);
+          const tr = chk.closest('tr.week-row');
+          return {
+            team_distribution_id: tdid,
+            project_id: parseInt(tr.dataset.projectId),
+            subproject_id: parseInt(tr.dataset.subprojectId)
+          };
+        });
 
         if (selectedRows.length === 0) {
           showNotification('Select at least one row in the week', 'warning');
@@ -1916,12 +1925,13 @@
 
         const yearSel = document.getElementById('yearSelect');
         const monthSel = document.getElementById('monthSelect');
-        const monthStart = document.getElementById('hiddenMonthStart').value;
+        const monthStartEl = document.getElementById('hiddenMonthStart');
+        const monthStart = monthStartEl ? monthStartEl.value : '';
 
         const payload = {
           status: status,
-          year: parseInt(yearSel.value),
-          month: parseInt(monthSel.value),
+          year: parseInt(yearSel?.value),
+          month: parseInt(monthSel?.value),
           week_num: parseInt(weekNum),
           month_start: monthStart,
           rows: selectedRows
@@ -1950,10 +1960,6 @@
           }
           const data = await res.json();
           showNotification(`Updated ${data.count} allocations to ${data.updated_status}`, 'success');
-
-          // Optional: visually mark row status (e.g., badge) or reload
-          // location.reload();
-
         } catch (err) {
           showNotification(err.message || 'Failed to update status', 'error');
         } finally {
@@ -1961,7 +1967,7 @@
             btnDisable.disabled = false;
             btnDisable.innerHTML = (status === 'DRAFT')
               ? '<i class="fas fa-save"></i> Save Draft'
-              : '<i class="fas fa-check-circle"></i> Submit for Approval';
+              : '<i class="fas fa-paper-plane"></i> Submit';
           }
         }
       }

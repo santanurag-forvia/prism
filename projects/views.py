@@ -2644,6 +2644,52 @@ from django.views.decorators.http import require_POST
 
 from datetime import timedelta
 
+# Python
+from datetime import date, datetime, timedelta
+from typing import List, Dict, Optional
+
+def _compute_weeks_for_billing_bulk_update(
+    billing_start: Optional[date],
+    billing_end: Optional[date],
+) -> List[Dict]:
+    """
+    Compute contiguous week blocks within the billing period \[billing_start, billing_end].
+    - Accepts date or datetime; converts to date.
+    - Returns empty list if inputs are missing or invalid ordering.
+    """
+    # Normalize None
+    if not billing_start or not billing_end:
+        return []
+
+    # Normalize types to date
+    if isinstance(billing_start, datetime):
+        billing_start = billing_start.date()
+    if isinstance(billing_end, datetime):
+        billing_end = billing_end.date()
+
+    # Validate ordering
+    if billing_start > billing_end:
+        # Swap defensively or return empty; choose empty to avoid silent mistakes
+        return []
+
+    weeks: List[Dict] = []
+    cur = billing_start
+    num = 1
+
+    while cur <= billing_end:
+        wstart = cur
+        wend = min(cur + timedelta(days=6), billing_end)
+        weeks.append({
+            'num': num,
+            'start': wstart,
+            'end': wend,
+            'working_days': (wend - wstart).days + 1
+        })
+        num += 1
+        cur = wend + timedelta(days=1)
+
+    return weeks
+
 def _compute_weeks_for_billing(billing_start, billing_end):
     """
     Build week slices starting at billing_start, each week ending on a Friday,
@@ -3051,7 +3097,13 @@ def get_days_list_for_week(start_date):
             "date": day.strftime("%Y-%m-%d")
         })
     return days
-
+def _to_date_bulk_update(val):
+    try:
+        if isinstance(val, date):
+            return val
+        return date.fromisoformat(str(val)[:10])
+    except Exception:
+        return None
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.db import connection, transaction
@@ -3059,82 +3111,140 @@ from decimal import Decimal, ROUND_HALF_UP
 import json
 import logging
 
+# Python
+import json
+import logging
+from datetime import date, timedelta
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
+from django.db import connection
+
+# python
+from datetime import date, datetime, timedelta
+
+def _month_start_end_from_ym(year: int, month: int):
+    start = date(year, month, 1)
+    # next month first day
+    if month == 12:
+        next_first = date(year + 1, 1, 1)
+    else:
+        next_first = date(year, month + 1, 1)
+    end = next_first - timedelta(days=1)
+    return start, end
+
+def _generate_weeks_for_month(billing_start: date, billing_end: date):
+    # Weeks are continuous blocks within the month_start..month_end range.
+    # Week 1 starts at billing_start; each week has 7 days.
+    weeks = []
+    num = 1
+    cur = billing_start
+    while cur <= billing_end:
+        w_start = cur
+        w_end = min(cur + timedelta(days=6), billing_end)
+        weeks.append({"num": num, "start": w_start, "end": w_end})
+        num += 1
+        cur = w_end + timedelta(days=1)
+    return weeks
+
+@require_POST
 def bulk_update_week_status(request):
-    # Session validation
+    # [DEBUG] Entry point logs already present above
     if not request.session.get("is_authenticated"):
-        return HttpResponseForbidden("Not authenticated")
-    user_email = request.session.get("ldap_username")
-    if not user_email:
-        return HttpResponseForbidden("Not authenticated")
-
-    if request.method != 'POST':
-        return HttpResponseBadRequest("Invalid method")
+        return JsonResponse({"ok": False, "error": "Unauthorized"}, status=401)
 
     try:
-        payload = json.loads(request.body.decode('utf-8'))
+        payload = json.loads(request.body.decode("utf-8"))
     except Exception:
-        return HttpResponseBadRequest("Invalid JSON")
+        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
 
-    status = (payload.get('status') or '').upper()
-    if status not in ('DRAFT', 'SUBMITTED'):
-        return HttpResponseBadRequest("Invalid status")
+    status = payload.get("status")
+    year = int(payload.get("year") or 0)
+    month = int(payload.get("month") or 0)
+    week_num = int(payload.get("week_num") or 0)
 
-    selected_year = int(payload.get('year'))
-    selected_month = int(payload.get('month'))
-    week_num = int(payload.get('week_num'))
-    month_start = _to_date(payload.get('month_start'))
-    if not (selected_year and selected_month and week_num and month_start):
-        return HttpResponseBadRequest("Missing fields")
+    # Accept either explicit month_start or compute from year/month
+    month_start_str = payload.get("month_start")
+    billing_start = None
+    billing_end = None
 
-    # Resolve billing period from month_start (consistent with your existing logic)
-    billing_start = month_start
-    # If you store end in payload, accept it; else compute end of selected month
-    try:
-        billing_end = _to_date(payload.get('month_end'))
-    except Exception:
-        # naive end-of-month calc; replace with your _get_billing_period_from_month if available
-        if month_start.month == 12:
-            billing_end = date(month_start.year, 12, 31)
-        else:
-            nxt = date(month_start.year, month_start.month + 1, 1)
-            billing_end = nxt - timedelta(days=1)
-
-    # Compute weeks and locate the selected week range
-    weeks = _compute_weeks_for_billing(billing_start, billing_end)
-    week_obj = next((w for w in weeks if int(w['num']) == int(week_num)), None)
-    if not week_obj:
-        return HttpResponseBadRequest("Week not found for month")
-
-    wstart, wend = week_obj['start'], week_obj['end']
-
-    # Selected rows: list of team_distribution_id, project_id, subproject_id
-    selected_rows = payload.get('rows') or []
-    if not isinstance(selected_rows, list) or not selected_rows:
-        return HttpResponseBadRequest("No rows selected")
-
-    td_ids = []
-    for r in selected_rows:
+    if month_start_str:
         try:
-            tdid = int(r.get('team_distribution_id'))
-            td_ids.append(tdid)
-        except Exception:
-            continue
-    if not td_ids:
-        return HttpResponseBadRequest("Invalid team distribution ids")
+            billing_start = datetime.strptime(month_start_str, "%Y-%m-%d").date()
+        except ValueError:
+            return JsonResponse({"ok": False, "error": "Invalid month_start"}, status=400)
 
-    # Update punch_data for the selected td_ids in the week range for this user
-    # Only affect days within [wstart, wend]
-    # Assumes table punch_data has columns: id, team_distribution_id, punched_by, punched_on_date, status
+        # If billing_end not provided, compute the end-of-month automatically
+        billing_end_str = payload.get("billing_end")
+        if billing_end_str:
+            try:
+                billing_end = datetime.strptime(billing_end_str, "%Y-%m-%d").date()
+            except ValueError:
+                return JsonResponse({"ok": False, "error": "Invalid billing_end"}, status=400)
+        else:
+            billing_end = _month_start_end_from_ym(billing_start.year, billing_start.month)[1]
+    else:
+        if not (year and month):
+            return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
+        billing_start, billing_end = _month_start_end_from_ym(year, month)
+
+    # Generate month weeks (7-day blocks constrained to month)
+    weeks = _generate_weeks_for_month(billing_start, billing_end)
+    if not weeks:
+        return JsonResponse({"ok": False, "error": "No weeks generated for month"}, status=400)
+
+    week_obj = next((w for w in weeks if int(w["num"]) == int(week_num)), None)
+    if not week_obj:
+        return JsonResponse({"ok": False, "error": "Week not found for month"}, status=400)
+
+    # Validate rows
+    rows = payload.get("rows") or []
+    if not rows:
+        return JsonResponse({"ok": False, "error": "No rows selected"}, status=400)
+
+    # Example raw SQL update pattern: update status for selected rows in the given week interval
+    # Adjust table/columns to your schema.
+    updated = 0
     with connection.cursor() as cur:
-        cur.execute(f"""
-            UPDATE punch_data
-            SET status = %s
-            WHERE team_distribution_id IN ({','.join(['%s'] * len(td_ids))})
-              AND LOWER(punched_by) = LOWER(%s)
-              AND punched_on_date BETWEEN %s AND %s
-        """, [status] + td_ids + [user_email, wstart, wend])
+        for r in rows:
+            tdid = int(r.get("team_distribution_id") or 0)
+            proj_id = int(r.get("project_id") or 0)
+            subproj_id = int(r.get("subproject_id") or 0)
+            if not tdid:
+                continue
 
-    return JsonResponse({'ok': True, 'updated_status': status, 'count': len(td_ids)})
+            # Python
+            # \- inside the bulk week status handler in `projects/views.py`
+            timestamp_cols = {
+                'SUBMITTED': 'submitted_at',
+                'APPROVED': 'approved_at'
+            }
+
+            set_clause = "status = %s, updated_at = NOW()"
+            # add status-specific timestamp when applicable
+            if status in timestamp_cols:
+                set_clause += f", {timestamp_cols[status]} = NOW()"
+            # clear timestamps if reverting to DRAFT/REJECTED
+            elif status in ('DRAFT', 'REJECTED'):
+                set_clause += ", submitted_at = NULL, approved_at = NULL, approved_by = NULL"
+
+            sql = f"""
+                UPDATE punch_data
+                   SET {set_clause}
+                 WHERE user_email = %s
+                   AND team_distribution_id = %s
+                   AND project_id = %s
+                   AND subproject_id = %s
+                   AND punch_date BETWEEN %s AND %s
+            """
+
+            cur.execute(sql, (
+                status,
+                request.session.get('ldap_username'),  # or the email stored in session
+                tdid, proj_id, subproj_id,
+                week_obj["start"], week_obj["end"]
+            ))
+            updated += cur.rowcount
+
+    return JsonResponse({"ok": True, "count": updated, "updated_status": status})
 
 @require_http_methods(["POST"])
 def save_effort_draft(request):
