@@ -2644,6 +2644,52 @@ from django.views.decorators.http import require_POST
 
 from datetime import timedelta
 
+# Python
+from datetime import date, datetime, timedelta
+from typing import List, Dict, Optional
+
+def _compute_weeks_for_billing_bulk_update(
+    billing_start: Optional[date],
+    billing_end: Optional[date],
+) -> List[Dict]:
+    """
+    Compute contiguous week blocks within the billing period \[billing_start, billing_end].
+    - Accepts date or datetime; converts to date.
+    - Returns empty list if inputs are missing or invalid ordering.
+    """
+    # Normalize None
+    if not billing_start or not billing_end:
+        return []
+
+    # Normalize types to date
+    if isinstance(billing_start, datetime):
+        billing_start = billing_start.date()
+    if isinstance(billing_end, datetime):
+        billing_end = billing_end.date()
+
+    # Validate ordering
+    if billing_start > billing_end:
+        # Swap defensively or return empty; choose empty to avoid silent mistakes
+        return []
+
+    weeks: List[Dict] = []
+    cur = billing_start
+    num = 1
+
+    while cur <= billing_end:
+        wstart = cur
+        wend = min(cur + timedelta(days=6), billing_end)
+        weeks.append({
+            'num': num,
+            'start': wstart,
+            'end': wend,
+            'working_days': (wend - wstart).days + 1
+        })
+        num += 1
+        cur = wend + timedelta(days=1)
+
+    return weeks
+
 def _compute_weeks_for_billing(billing_start, billing_end):
     """
     Build week slices starting at billing_start, each week ending on a Friday,
@@ -2736,6 +2782,7 @@ from datetime import date, timedelta, datetime
 from decimal import Decimal, ROUND_HALF_UP
 import json
 
+# python
 def my_allocations(request):
     if not request.session.get("is_authenticated"):
         return HttpResponseForbidden("Not authenticated")
@@ -2747,7 +2794,6 @@ def my_allocations(request):
     selected_year = int(request.GET.get('year', today.year))
     selected_month = int(request.GET.get('month', today.month))
 
-
     current_year = today.year
     years = list(range(current_year - 2, current_year + 3))
     months = [{'num': i, 'name': date(2000, i, 1).strftime('%B')} for i in range(1, 13)]
@@ -2756,13 +2802,14 @@ def my_allocations(request):
 
     monthly_max_hours = Decimal('0.00')
     with connection.cursor() as cur:
-        cur.execute("SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1", [selected_year, selected_month])
+        cur.execute(
+            "SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1",
+            [selected_year, selected_month]
+        )
         r = cur.fetchone()
         if r and r[0]:
             monthly_max_hours = Decimal(str(r[0]))
 
-    weeks = _compute_weeks_for_billing(billing_start, billing_end)
-    # Find the current week number (1-based) for today
     weeks = _compute_weeks_for_billing(billing_start, billing_end)
     current_week = None
     for w in weeks:
@@ -2770,15 +2817,18 @@ def my_allocations(request):
             current_week = w['num']
             break
     if not current_week:
-        current_week = weeks[0]['num'] if weeks else 1  # fallback to first week
+        current_week = weeks[0]['num'] if weeks else 1
 
-    # Set selected_week to current_week if not provided
     selected_week = request.GET.get('week')
-    if not selected_week :
+    if not selected_week:
         selected_week = str(current_week)
+
     # Holidays
     with connection.cursor() as cur:
-        cur.execute("SELECT holiday_date, name FROM holidays WHERE holiday_date BETWEEN %s AND %s", [billing_start, billing_end])
+        cur.execute(
+            "SELECT holiday_date, name FROM holidays WHERE holiday_date BETWEEN %s AND %s",
+            [billing_start, billing_end]
+        )
         hr = dictfetchall(cur)
     holidays_set = set()
     holidays_map = {}
@@ -2788,8 +2838,7 @@ def my_allocations(request):
             holidays_set.add(d)
             holidays_map[d.strftime("%Y-%m-%d")] = h.get('name', '')
 
-    # Leave records (per day)
-
+    # Leave daily distribution map
     leave_map = {}
     with connection.cursor() as cur:
         cur.execute("""
@@ -2804,7 +2853,6 @@ def my_allocations(request):
             hours = Decimal(str(r['leave_hours'] or '0.00'))
             if not start or not end:
                 continue
-            # Build list of working days in the range
             working_days = []
             cur_date = start
             while cur_date <= end:
@@ -2817,8 +2865,8 @@ def my_allocations(request):
             per_day = (hours / Decimal(num_days)).quantize(Decimal('0.01'))
             for d in working_days:
                 leave_map[d] = leave_map.get(d, Decimal('0.00')) + per_day
-    print(f"Leave map: {leave_map}")
-    # Team distributions (allocations)
+
+    # Team distributions (project allocations)
     with connection.cursor() as cur:
         cur.execute("""
             SELECT td.id AS team_distribution_id, td.hours AS total_hours,
@@ -2846,8 +2894,8 @@ def my_allocations(request):
             """, [user_email, billing_start, billing_end])
             td_rows = dictfetchall(cur)
 
-    # --- NEW: Fetch weekly_allocations for all team_distribution_ids ---
-    weekly_alloc_map = {}  # (team_distribution_id, week_number) -> {hours, percent, status}
+    # Weekly allocations
+    weekly_alloc_map = {}
     if td_rows:
         td_ids = [r['team_distribution_id'] for r in td_rows]
         placeholders = ','.join(['%s'] * len(td_ids))
@@ -2858,13 +2906,12 @@ def my_allocations(request):
                 WHERE team_distribution_id IN ({placeholders})
             """, td_ids)
             for row in dictfetchall(cur):
-                key = (row['team_distribution_id'], row['week_number'])
-                weekly_alloc_map[key] = row
+                weekly_alloc_map[(row['team_distribution_id'], row['week_number'])] = row
 
-    # Prepare punch_data: day-wise
-    td_ids = [r['team_distribution_id'] for r in td_rows]
+    # Punch data
     punch_data_map = {}
-    if td_ids:
+    if td_rows:
+        td_ids = [r['team_distribution_id'] for r in td_rows]
         placeholders = ','.join(['%s'] * len(td_ids))
         with connection.cursor() as cur:
             cur.execute(f"""
@@ -2875,86 +2922,83 @@ def my_allocations(request):
                   AND month_start = %s
             """, td_ids + [user_email, billing_start])
             for r in dictfetchall(cur):
-                key = (int(r['team_distribution_id']), r['punch_date'])
-                punch_data_map[key] = {
+                punch_data_map[(int(r['team_distribution_id']), r['punch_date'])] = {
                     'allocated_hours': Decimal(str(r['allocated_hours'] or '0.00')),
                     'punched_hours': Decimal(str(r['punched_hours'] or '0.00')),
                     'status': r['status'],
                     'comments': r.get('comments', '')
                 }
 
-    # Build groups structure for template
-    groups = {}
+    # Week-wise rows
+    day_order = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+    week_rows_by_num = {w['num']: [] for w in weeks}
+
     for td in td_rows:
         tdid = int(td['team_distribution_id'])
-        total_hours = Decimal(str(td.get('total_hours') or '0.00'))
-        subgroup = {
-            'team_distribution_id': tdid,
-            'project_id': td.get('project_id'),
-            'subproject_id': td.get('subproject_id'),
-            'project_name': td.get('project_name') or '',
-            'subproject_name': td.get('subproject_name') or '',
-            'total_hours': format(total_hours, '0.2f'),
-            'weeks_list': []
-        }
         for w in weeks:
             wknum = w['num']
             wk_start, wk_end = w['start'], w['end']
-            # --- NEW: Attach weekly allocation info ---
             week_alloc = weekly_alloc_map.get((tdid, wknum), {})
-            max_percent = week_alloc.get('percent', 0)
-            allocated_hours = week_alloc.get('hours', 0)
-            status = week_alloc.get('status', '')
-            # Count working days (Mon-Fri, not holidays)
+            tl_hours = Decimal(str(week_alloc.get('hours', 0) or '0'))
             working_days = 0
             cur_day = wk_start
             while cur_day <= wk_end and cur_day <= billing_end:
                 if cur_day.weekday() < 5 and cur_day not in holidays_set:
                     working_days += 1
                 cur_day += timedelta(days=1)
-            # Build days_list
+
+            # Build day records
             days_list = []
             cur_day = wk_start
             while cur_day <= wk_end and cur_day <= billing_end:
                 is_holiday = cur_day in holidays_set
                 leave_hours = leave_map.get(cur_day, Decimal('0.00'))
-                punch_key = (tdid, cur_day)
-                punch = punch_data_map.get(punch_key, None)
+                punch = punch_data_map.get((tdid, cur_day))
                 days_list.append({
                     'date': cur_day.strftime('%Y-%m-%d'),
                     'weekday': cur_day.strftime('%a'),
                     'is_holiday': is_holiday,
-                    'holiday_name': holidays_map.get(cur_day.strftime('%Y-%m-%d'), '') if is_holiday else '',
                     'leave_hours': format(leave_hours, '0.2f') if leave_hours > 0 else None,
                     'allocated_hours': format(punch['allocated_hours'], '0.2f') if punch else None,
                     'punched_hours': format(punch['punched_hours'], '0.2f') if punch else None,
                     'status': punch['status'] if punch else 'DRAFT',
-                    'comments': punch['comments'] if punch else '',
                     'is_editable': (not punch or punch['status'] in ['DRAFT', 'REJECTED']) and not is_holiday
                 })
                 cur_day += timedelta(days=1)
-            subgroup['weeks_list'].append({
-                'num': wknum,
+
+            actual_effort = sum(
+                Decimal(d['punched_hours']) for d in days_list if d.get('punched_hours')
+            )
+
+            # Ordered slots for fixed weekday columns
+            abbrev_map = {d['weekday']: d for d in days_list}
+            day_slots = []
+            for ab in day_order:
+                day_slots.append(abbrev_map.get(ab))
+
+            week_rows_by_num[wknum].append({
+                'team_distribution_id': tdid,
+                'project_id': td.get('project_id'),
+                'subproject_id': td.get('subproject_id'),
+                'project_name': td.get('project_name') or '',
+                'subproject_name': td.get('subproject_name') or '',
+                'week_num': wknum,
                 'week_start': wk_start.strftime('%Y-%m-%d'),
                 'week_end': wk_end.strftime('%Y-%m-%d'),
+                'tl_allocation_hours': format(tl_hours, '0.2f'),
                 'working_days': working_days,
-                'max_percent': max_percent,
-                'allocated_hours': allocated_hours,
-                'status': status,
-                'days_list': days_list
+                'actual_effort': format(actual_effort, '0.2f'),
+                'day_slots': day_slots  # list of dict or None
             })
-        groups.setdefault(td.get('subproject_name') or 'Unspecified', {
-            'subproject_name': td.get('subproject_name') or 'Unspecified',
-            'project_name': td.get('project_name') or '',
-            'rows': []
-        })
-        groups[td.get('subproject_name') or 'Unspecified']['rows'].append(subgroup)
 
-    # All weeks for dropdown
+    # Attach rows to week objects for easy template looping
+    for w in weeks:
+        w['rows'] = week_rows_by_num.get(w['num'], [])
+        w['day_order'] = day_order
+
+    # Weeks list for modal (unchanged)
     all_weeks_list = _compute_weeks_for_billing(billing_start, billing_end)
-    # Add days_list to each week in all_weeks_list
     for week in all_weeks_list:
-        # week['start'] is a date object, convert to string for the helper
         week['days_list'] = [
             {
                 'date': (week['start'] + timedelta(days=i)).strftime('%Y-%m-%d'),
@@ -2967,20 +3011,17 @@ def my_allocations(request):
         default=lambda obj: obj.isoformat() if isinstance(obj, datetime) else str(obj)
     )
 
-    # 1. Aggregate leave hours per week
+    # Weekly leave aggregation
     week_leave_hours = {}
     for week in weeks:
-        week_start = week['start']
-        week_end = week['end']
         total = Decimal('0.00')
-        cur = week_start
-        while cur <= week_end:
+        cur = week['start']
+        while cur <= week['end']:
             total += leave_map.get(cur, Decimal('0.00'))
             cur += timedelta(days=1)
         week_leave_hours[week['num']] = total
 
-
-    # Fetch leave records for the user for the selected month/year
+    # Leave records for listing
     with connection.cursor() as cur:
         cur.execute("""
             SELECT id, leave_start, leave_end, leave_type, description, leave_days, leave_hours
@@ -2989,6 +3030,7 @@ def my_allocations(request):
             ORDER BY leave_start
         """, [user_email, selected_year, selected_month])
         leave_rows = dictfetchall(cur)
+
     week_start = week_end = None
     if selected_week != 'all':
         for w in all_weeks_list:
@@ -3003,10 +3045,9 @@ def my_allocations(request):
     for row in leave_rows:
         start = row['leave_start']
         end = row['leave_end']
-        days = (end - start).days + 1
-        for i in range(days):
+        total_days = (end - start).days + 1
+        for i in range(total_days):
             day = start + timedelta(days=i)
-            # Filter by week if not 'all'
             if selected_week == 'all' or (week_start and week_end and week_start <= day <= week_end):
                 leave_allocations.append({
                     'sno': sno,
@@ -3022,27 +3063,27 @@ def my_allocations(request):
 
     context = {
         'weeks': weeks,
-        'all_weeks_list': all_weeks_list,
-        'all_weeks_list_json': all_weeks_list_json,
         'selected_week': selected_week,
         'current_week': current_week,
+        'selected_year': selected_year,
+        'selected_month': selected_month,
         'billing_start': billing_start,
         'billing_end': billing_end,
         'month_label': billing_start.strftime('%b %Y'),
-        'groups': groups,
-        "years": years,
-        "months": months,
-        'leave_allocations' : leave_allocations,
-        'leave_days' : [d.strftime('%Y-%m-%d') for d in leave_days],
-        "selected_year": selected_year,
-        "selected_month": selected_month,
+        'years': years,
+        'months': months,
+        'leave_allocations': leave_allocations,
+        'leave_days': [d.strftime('%Y-%m-%d') for d in leave_days],
         'holidays_map': holidays_map,
         'week_leave_hours': week_leave_hours,
         'monthly_max_hours': format(monthly_max_hours, '0.2f'),
+        'all_weeks_list': all_weeks_list,
+        'all_weeks_list_json': all_weeks_list_json,
         'save_effort_url': reverse('projects:save_effort_draft'),
         'submit_effort_url': reverse('projects:submit_effort'),
         'add_allocation_url': reverse('projects:add_self_allocation'),
         'get_projects_url': reverse('projects:get_projects_for_allocation'),
+        'day_order': day_order
     }
     return render(request, 'projects/my_allocations.html', context)
 
@@ -3056,7 +3097,13 @@ def get_days_list_for_week(start_date):
             "date": day.strftime("%Y-%m-%d")
         })
     return days
-
+def _to_date_bulk_update(val):
+    try:
+        if isinstance(val, date):
+            return val
+        return date.fromisoformat(str(val)[:10])
+    except Exception:
+        return None
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.db import connection, transaction
@@ -3064,7 +3111,140 @@ from decimal import Decimal, ROUND_HALF_UP
 import json
 import logging
 
+# Python
+import json
+import logging
+from datetime import date, timedelta
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
+from django.db import connection
 
+# python
+from datetime import date, datetime, timedelta
+
+def _month_start_end_from_ym(year: int, month: int):
+    start = date(year, month, 1)
+    # next month first day
+    if month == 12:
+        next_first = date(year + 1, 1, 1)
+    else:
+        next_first = date(year, month + 1, 1)
+    end = next_first - timedelta(days=1)
+    return start, end
+
+def _generate_weeks_for_month(billing_start: date, billing_end: date):
+    # Weeks are continuous blocks within the month_start..month_end range.
+    # Week 1 starts at billing_start; each week has 7 days.
+    weeks = []
+    num = 1
+    cur = billing_start
+    while cur <= billing_end:
+        w_start = cur
+        w_end = min(cur + timedelta(days=6), billing_end)
+        weeks.append({"num": num, "start": w_start, "end": w_end})
+        num += 1
+        cur = w_end + timedelta(days=1)
+    return weeks
+
+@require_POST
+def bulk_update_week_status(request):
+    # [DEBUG] Entry point logs already present above
+    if not request.session.get("is_authenticated"):
+        return JsonResponse({"ok": False, "error": "Unauthorized"}, status=401)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    status = payload.get("status")
+    year = int(payload.get("year") or 0)
+    month = int(payload.get("month") or 0)
+    week_num = int(payload.get("week_num") or 0)
+
+    # Accept either explicit month_start or compute from year/month
+    month_start_str = payload.get("month_start")
+    billing_start = None
+    billing_end = None
+
+    if month_start_str:
+        try:
+            billing_start = datetime.strptime(month_start_str, "%Y-%m-%d").date()
+        except ValueError:
+            return JsonResponse({"ok": False, "error": "Invalid month_start"}, status=400)
+
+        # If billing_end not provided, compute the end-of-month automatically
+        billing_end_str = payload.get("billing_end")
+        if billing_end_str:
+            try:
+                billing_end = datetime.strptime(billing_end_str, "%Y-%m-%d").date()
+            except ValueError:
+                return JsonResponse({"ok": False, "error": "Invalid billing_end"}, status=400)
+        else:
+            billing_end = _month_start_end_from_ym(billing_start.year, billing_start.month)[1]
+    else:
+        if not (year and month):
+            return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
+        billing_start, billing_end = _month_start_end_from_ym(year, month)
+
+    # Generate month weeks (7-day blocks constrained to month)
+    weeks = _generate_weeks_for_month(billing_start, billing_end)
+    if not weeks:
+        return JsonResponse({"ok": False, "error": "No weeks generated for month"}, status=400)
+
+    week_obj = next((w for w in weeks if int(w["num"]) == int(week_num)), None)
+    if not week_obj:
+        return JsonResponse({"ok": False, "error": "Week not found for month"}, status=400)
+
+    # Validate rows
+    rows = payload.get("rows") or []
+    if not rows:
+        return JsonResponse({"ok": False, "error": "No rows selected"}, status=400)
+
+    # Example raw SQL update pattern: update status for selected rows in the given week interval
+    # Adjust table/columns to your schema.
+    updated = 0
+    with connection.cursor() as cur:
+        for r in rows:
+            tdid = int(r.get("team_distribution_id") or 0)
+            proj_id = int(r.get("project_id") or 0)
+            subproj_id = int(r.get("subproject_id") or 0)
+            if not tdid:
+                continue
+
+            # Python
+            # \- inside the bulk week status handler in `projects/views.py`
+            timestamp_cols = {
+                'SUBMITTED': 'submitted_at',
+                'APPROVED': 'approved_at'
+            }
+
+            set_clause = "status = %s, updated_at = NOW()"
+            # add status-specific timestamp when applicable
+            if status in timestamp_cols:
+                set_clause += f", {timestamp_cols[status]} = NOW()"
+            # clear timestamps if reverting to DRAFT/REJECTED
+            elif status in ('DRAFT', 'REJECTED'):
+                set_clause += ", submitted_at = NULL, approved_at = NULL, approved_by = NULL"
+
+            sql = f"""
+                UPDATE punch_data
+                   SET {set_clause}
+                 WHERE user_email = %s
+                   AND team_distribution_id = %s
+                   AND project_id = %s
+                   AND subproject_id = %s
+                   AND punch_date BETWEEN %s AND %s
+            """
+
+            cur.execute(sql, (
+                status,
+                request.session.get('ldap_username'),  # or the email stored in session
+                tdid, proj_id, subproj_id,
+                week_obj["start"], week_obj["end"]
+            ))
+            updated += cur.rowcount
+
+    return JsonResponse({"ok": True, "count": updated, "updated_status": status})
 
 @require_http_methods(["POST"])
 def save_effort_draft(request):
