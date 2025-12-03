@@ -1,4 +1,6 @@
 
+
+
 {% extends "base.html" %}
 {% load static %}
 {% block content %}
@@ -8,7 +10,7 @@
 <style>
 /* Improved, compact styling for the allocation section */
 .page-card { padding:20px; background:#fff; border-radius:10px; box-shadow:0 8px 20px rgba(12,40,80,0.06); }
-.page-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+.page-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;  }
 .alloc-title { font-size:26px; margin:0; color:#0b2545; }
 
 .card { background: #fff; border-radius:8px; margin-top:18px; box-shadow:none; border:1px solid #f0f4f8; }
@@ -288,6 +290,97 @@ th.week-header {
   gap: 12px;
   align-items: center;
 }
+
+/* Enhanced Success Modal Styling */
+.alloc-success-modal {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background: rgba(34, 197, 94, 0.12); /* subtle green overlay */
+  z-index: 9999;
+  justify-content: center;
+  align-items: center;
+  animation: fadeInModal 0.3s;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.alloc-success-modal-content {
+  background: linear-gradient(135deg, #e0ffe7 0%, #f6fff9 100%);
+  padding: 40px 60px;
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(34,197,94,0.18);
+  color: #059669;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: center;
+  border: 2px solid #34d399;
+  letter-spacing: 0.5px;
+  position: relative;
+  transition: transform 0.2s;
+  animation: popIn 0.3s;
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.85); opacity: 0; }
+  80% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+.alloc-success-modal-content::before {
+  content: "✔";
+  display: block;
+  font-size: 38px;
+  color: #22c55e;
+  margin-bottom: 16px;
+  font-weight: bold;
+  animation: tickFade 0.5s;
+}
+
+@keyframes tickFade {
+  from { opacity: 0; transform: scale(0.5);}
+  to { opacity: 1; transform: scale(1);}
+}
+/* Add to static/projects/style.css or inside a <style> block in your template */
+.feas-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: right;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.feas-pagination button {
+  background: #f5f5f5;
+  border: 5px solid #d1d5db;
+  color: black;
+  padding: 6px 18px;
+  border-radius: 20px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.feas-pagination button:disabled {
+  background: #e5e7eb;
+  color: #aaa;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
+}
+
+.feas-pagination #reporteePageInfo {
+  font-size: 1rem;
+  color: #555;
+  font-weight: 500;
+  padding: 0 8px;
+}
+
+
+
 </style>
 
 <div class="page-card">
@@ -356,6 +449,11 @@ th.week-header {
           {% endif %}
         </tbody>
       </table>
+       <div class="feas-pagination">
+  <button id="prevReporteePage" class="btn btn-secondary" disabled>Prev</button>
+  <span id="reporteePageInfo"></span>
+  <button id="nextReporteePage" class="btn btn-secondary" disabled>Next</button>
+</div>
     </section>
 
     <section id="panel-two" class="feas-tab-panel" role="tabpanel" tabindex="1" hidden>
@@ -464,62 +562,14 @@ th.week-header {
   {% endwith %}
 </tbody>
 
-
-
-
-
-<!--Original code-->
-<!--<tbody id="summaryBodyprojectview">-->
-<!--  {% for row in allocations %}-->
-<!--    <tr class="alloc-row" data-ldap="{{ row.reportee_ldap }}" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">-->
-<!--      <td class="compact-project">-->
-<!--        {% for p in projects %}-->
-<!--          {% if p.project_id == row.project_id %}-->
-<!--            {{ p.bg_code }} - {{ p.name }}-->
-<!--          {% endif %}-->
-<!--        {% endfor %}-->
-<!--      </td>-->
-<!--      <td class="compact-subproject">-->
-<!--        {% for sp in subprojects %}-->
-<!--          {% if sp.id == row.subproject_id %}-->
-<!--            {{ sp.name }}-->
-<!--          {% endif %}-->
-<!--        {% endfor %}-->
-<!--      </td>-->
-<!--      <td>-->
-<!--        {% for r in reportees %}-->
-<!--          {% if r.ldap|lower == row.reportee_ldap|lower %}-->
-<!--            {% if r.cn %}-->
-<!--              {{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
-<!--            {% elif r.name %}-->
-<!--              {{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;-->
-<!--            {% else %}-->
-<!--              &lt;{{ r.mail|default:r.ldap }}&gt;-->
-<!--            {% endif %}-->
-<!--          {% endif %}-->
-<!--        {% endfor %}-->
-<!--      </td>-->
-<!--      <td class="r-hours">{{ row.hours|floatformat:2 }}</td>-->
-<!--      <td class="r-fte">-->
-<!--        {% for r in reportees %}-->
-<!--          {% if r.ldap|lower == row.reportee_ldap|lower %}-->
-<!--            {{ r.fte|default:"0.0" }}-->
-<!--          {% endif %}-->
-<!--        {% endfor %}-->
-<!--      </td>-->
-<!--      <td class="r-ptge">-->
-<!--        {% for r in reportees %}-->
-<!--          {% if r.ldap|lower == row.reportee_ldap|lower %}-->
-<!--            {{ r.ptge|default:"0.0" }}-->
-<!--          {% endif %}-->
-<!--        {% endfor %}-->
-<!--      </td>-->
-<!--    </tr>-->
-<!--  {% endfor %}-->
-<!--</tbody>-->
-            <!-- End of original code -->
-
       </table>
+<!-- Pagination controls for Project view -->
+<div class="feas-pagination" id="projectViewPagination">
+  <button id="prevProjectViewPage" class="btn btn-secondary" disabled>Prev</button>
+  <span id="projectViewPageInfo"></span>
+  <button id="nextProjectViewPage" class="btn btn-secondary" disabled>Next</button>
+</div>
+
     </section>
       <section id="panel-three" class="feas-tab-panel" role="tabpanel" tabindex="2" hidden>
       <!-- Content for Tab Two -->
@@ -538,6 +588,13 @@ th.week-header {
   <!-- Data will be loaded by JS -->
 </tbody>
       </table>
+<!-- Pagination controls for Project view -->
+<div class="feas-pagination" id="projectViewPaginationViewAllotment">
+  <button id="prevProjectViewPageViewAllotment" class="btn btn-secondary" disabled>Prev</button>
+  <span id="projectViewPageInfoViewAllotment"></span>
+  <button id="nextProjectViewPageViewAllotment" class="btn btn-secondary" disabled>Next</button>
+</div>
+
     </section>
   </div>
 </div>
@@ -559,6 +616,15 @@ th.week-header {
     <button class="feas-tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one-allocation">Allocation by Team Member</button>
     <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-two-allocation">Allocation by Project</button>
   </div>
+
+
+
+<div id="allocSuccessModal" class="alloc-success-modal">
+  <div class="alloc-success-modal-content">
+    <span id="allocSuccessModalMsg">Allocation saved successfully</span>
+  </div>
+</div>
+
 
   <!-- Tab panels -->
   <div class="alloc-table-scroll-x">
@@ -747,14 +813,12 @@ th.week-header {
 </table>
              <div class="alloc-action-bar" style="text-align:right; margin-top:14px;">
                    <button id="btnAddRow-project" class="btn btn-primary">Add Resource</button>
-          <button id="btnExportExcel-project" class="btn btn-primary" style="background:#0284c7;">Export to Excel</button>
+          <button id="btnExportExcel-project" class="btn btn-primary" >Export to Excel</button>
         <button id="btnSaveAlloc-project" class="btn btn-primary">Save Allocations</button>
       </div>
     </section>
 <!-- End of allocation by project-->
   </div>
-
-
 
   </div>
     <!--ENd of Allocation section-->
@@ -964,23 +1028,43 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
 
     inpH.addEventListener('input', function(){ updateFTE(tr); recomputeSummaryTotals(); });
 
-    tr.querySelector('.btn-remove').addEventListener('click', function(ev){
-      ev.preventDefault();
-      const tid = tr.getAttribute('data-team-dist-id');
-      if(tid){
-        // call delete endpoint to remove server row + weekly allocations via cascade
-        fetch("{% url 'projects:delete_team_distribution' %}", {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-          body: JSON.stringify({id: parseInt(tid, 10)})
-        }).then(r => r.json()).then(j => {
-          if(j && j.ok){ tr.remove(); recomputeSummaryTotals(); }
-          else { alert('Delete failed: ' + (j && j.error ? j.error : 'unknown')); }
-        }).catch(err => { console.error(err); alert('Delete request failed'); });
-      } else {
-        tr.remove(); recomputeSummaryTotals();
-      }
-    });
+
+// Delegated event handling for dynamic elements:
+
+document.addEventListener('click', function(e){
+  if(e.target && e.target.classList && e.target.classList.contains('btn-remove')){
+    const row = e.target.closest('.alloc-row');
+    if(!row) return;
+
+    const tid = row.getAttribute('data-team-dist-id');
+    if(tid){
+      // Confirm then call server delete; on success reload page
+      if(!confirm('This allocation exists in the database. Are you sure you want to delete it?')) return;
+      fetch("{% url 'projects:delete_team_distribution' %}", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({id: parseInt(tid,10)})
+      }).then(r => r.json()).then(j => {
+        if(j && j.ok){
+          location.reload(); // reload page after successful delete
+        } else {
+          alert('Delete failed: ' + (j && j.error ? j.error : 'unknown'));
+        }
+      }).catch(err => {
+        console.error('Delete error', err);
+        alert('Delete request failed — see console.');
+      });
+    } else {
+      // just remove unsaved row and reload
+      row.remove();
+      location.reload(); // reload page after removing unsaved row
+    }
+    return;
+  }
+});
+
+
+
 
     // apply prefill values if provided
     if(prefill){
@@ -1047,7 +1131,10 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
           headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
           body: JSON.stringify({id: parseInt(tid, 10)})
         }).then(r => r.json()).then(j => {
-          if(j && j.ok){ tr.remove(); recomputeSummaryTotals(); }
+          if(j && j.ok){
+              location.reload()
+              //tr.remove(); recomputeSummaryTotals();
+              }
           else { alert('Delete failed: ' + (j && j.error ? j.error : 'unknown')); }
         }).catch(err => { console.error(err); alert('Delete request failed'); });
       } else {
@@ -1055,32 +1142,7 @@ if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsF
       }
     });
 
-    // apply prefill values if provided
-    // if(prefill){
-    //   if(prefill.reportee_ldap){
-    //     const selR = tr.querySelector('.sel-resource');
-    //     for(let i=0;i<selR.options.length;i++){
-    //       if(String(selR.options[i].value).toLowerCase() === String(prefill.reportee_ldap).toLowerCase()){
-    //         selR.selectedIndex = i; break;
-    //       }
-    //     }
-    //   }
-    //   if(prefill.project_id){
-    //     selProj.value = prefill.project_id;
-    //     fillSubprojectOptions(selSub, prefill.project_id, prefill.subproject_id || null);
-    //   } else if(prefill.subproject_id){
-    //     // if only subproject known, try to set it (fillSubprojectOptions has fallback)
-    //     fillSubprojectOptions(selSub, '', prefill.subproject_id);
-    //   }
-    //   if(prefill.hours) tr.querySelector('.inp-hours').value = prefill.hours;
-    //   if(Array.isArray(prefill.week_perc)){
-    //     tr.querySelector('.wpct-1').value = prefill.week_perc[0]||0;
-    //     tr.querySelector('.wpct-2').value = prefill.week_perc[1]||0;
-    //     tr.querySelector('.wpct-3').value = prefill.week_perc[2]||0;
-    //     tr.querySelector('.wpct-4').value = prefill.week_perc[3]||0;
-    //   }
-    //   if(prefill.id) tr.setAttribute('data-team-dist-id', prefill.id);
-    //   updateFTE(tr);
+
 
 // apply prefill values if provided
 if(prefill){
@@ -1165,8 +1227,7 @@ if(prefill){
             fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(1) : '0.0');
             ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MAX_FTE_PM * 100).toFixed(1) : '0.0' );
       }
-      //if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
-       // console.log("/////JAYASHREE", fteEl, hrs, hrsEl);
+
 
     });
     //JS:
@@ -1224,36 +1285,7 @@ if(prefill){
     recomputeSummaryTotals();
   }
 
-//   function gatherAllocations(){
-//   const rows = [];
-//   document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
-//     const tid = tr.getAttribute('data-team-dist-id') || null;
-//     const reportee = tr.querySelector('.sel-resource')?.value || '';
-//     const project_id = tr.querySelector('.sel-project')?.value || null;
-//     const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
-//     const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
-//
-//     // collect all week inputs for this row, read their data-week attribute
-//     const weekInputs = Array.from(tr.querySelectorAll('input.wpct'));
-//     // produce an array of { week_number, percent } objects sorted by week_number
-//     const weeks_payload = weekInputs.map(i => {
-//       const wn = parseInt(i.getAttribute('data-week') || '0', 10) || 0;
-//       const pv = parseFloat(i.value || 0) || 0;
-//       return { week_number: wn, percent: parseFloat(pv.toFixed(2)) };
-//     }).sort((a,b) => (a.week_number - b.week_number));
-//
-//     rows.push({
-//       id: tid,
-//       reportee: reportee,
-//       project_id: project_id,
-//       subproject_id: subproject_id,
-//       hours: hours,
-//       weeks: weeks_payload
-//     });
-//   });
-//   return rows;
-// }
-//end of the gather allocations function
+
 
     function gatherAllocations(tableSelector){
   const rows = [];
@@ -1348,8 +1380,9 @@ if(prefill){
           body: JSON.stringify({id: parseInt(tid,10)})
         }).then(r => r.json()).then(j => {
           if(j && j.ok){
-            row.remove();
-            recomputeSummaryTotals();
+            //row.remove();
+            //recomputeSummaryTotals();
+            location.reload(); // reload page after successful delete
           } else {
             alert('Delete failed: ' + (j && j.error ? j.error : 'unknown'));
           }
@@ -1408,6 +1441,7 @@ if(prefill){
       });
       const data = await resp.json();
       if(data && data.ok){
+          showAllocSuccessMsg('Allocation saved successfully');
         // reload to reflect server truth (idempotent upserts on server)
         location.reload();
       } else {
@@ -1440,6 +1474,7 @@ if(prefill){
       });
       const data = await resp.json();
       if(data && data.ok){
+          showAllocSuccessMsg('Allocation saved successfully');
         // reload to reflect server truth (idempotent upserts on server)
         location.reload();
       } else {
@@ -1504,11 +1539,7 @@ document.getElementById("btnExportExcel-project").addEventListener("click", func
     // end of excel to export for both tabs
 
 //export to excel origional code (allocation by team member tab only)
-// document.getElementById("btnExportExcel").addEventListener("click", function(e){
-//   e.preventDefault();
-//   const month = document.getElementById("month")?.value || "{{ billing_month }}";
-//   window.location.href = "{% url 'projects:export_tl_allocations_excel' %}?month=" + encodeURIComponent(month);
-// });
+
 // ----- ensure this runs inside your IIFE ----- //
 const WEEKS = JSON.parse('{{ weeks_info_json|default:"[]"|escapejs }}' || '[]');
 
@@ -1698,7 +1729,6 @@ document.addEventListener('DOMContentLoaded', function(){
 //End of tab handling JS
 
 
-// Add Resource button in allocation by project tab
 document.getElementById('btnAddRow-project').addEventListener('click', function(e){
   e.preventDefault();
   const tpl = document.getElementById('tpl-alloc-row-by-project');
@@ -1733,6 +1763,7 @@ document.getElementById('btnAddRow-project').addEventListener('click', function(
   const sel = tr.querySelector('.sel-resource1');
   if(sel) sel.focus();
 });
+//end of working code
 function recomputeSummaryTotals(){
     const totals = {};
     document.querySelectorAll('#allocBodyByProject .alloc-row').forEach(tr => {
@@ -1760,32 +1791,6 @@ function recomputeSummaryTotals(){
 
   }
 
-//   function loadAllotmentView() {
-//   const month = document.getElementById("month")?.value || "{{ billing_month }}";
-//     console.log("JS: Loading Allotment View Data...",month);
-//   fetch("{% url 'projects:view_allotment' %}?month=" + encodeURIComponent(month))
-//     .then(r => r.json())
-//     .then(j => {
-//       const tbody = document.getElementById("summaryBodyallottmentview");
-//       tbody.innerHTML = "";
-//       if (j.data && j.data.length) {
-//         j.data.forEach(row => {
-//           const tr = document.createElement("tr");
-//           tr.innerHTML = `
-//             <td>${row.project || ""}</td>
-//             <td>${row.subproject || ""}</td>
-//             <td>${row.resource || ""}</td>
-//             <td>${row.allocated_hrs || "0.00"}</td>
-//             <td>${row.fte || "0.000"}</td>
-//             <td>${row.wbs || ""}</td>
-//           `;
-//           tbody.appendChild(tr);
-//         });
-//       } else {
-//         tbody.innerHTML = `<tr><td colspan="6" class="small-muted">No allotments found.</td></tr>`;
-//       }
-//     });
-// }
 
 // Load data when the tab is activated
 document.querySelector('[aria-controls="panel-three"]').addEventListener('click', loadAllotmentView);
@@ -1803,18 +1808,7 @@ document.getElementById('btnMyApproval').addEventListener('click', function(e){
   window.location.href = "{% url 'projects:tl_punch_review' %}";
 });
 
-// Sort Project View tab by Program column (first column)
-// document.addEventListener('DOMContentLoaded', function() {
-//   const tbody = document.getElementById('summaryBodyprojectview');
-//   if (!tbody) return;
-//   const rows = Array.from(tbody.querySelectorAll('tr'));
-//   rows.sort((a, b) => {
-//     const progA = (a.cells[0]?.textContent || '').toLowerCase();
-//     const progB = (b.cells[0]?.textContent || '').toLowerCase();
-//     return progA.localeCompare(progB);
-//   });
-//   rows.forEach(row => tbody.appendChild(row));
-// });
+
 
 document.addEventListener('DOMContentLoaded', function() {
   const tbody = document.getElementById('summaryBodyprojectview');
@@ -1916,32 +1910,18 @@ document.addEventListener('click', function(e){
     // Insert the new row right after the current row
     currentTr.parentNode.insertBefore(newTr, currentTr.nextSibling);
 
+    // Hide resource name in the new row
+    const resCell = newTr.querySelector('td');
+    if (resCell) resCell.style.visibility = 'hidden';
+
     // Focus on the project select for quick input
     const selProj = newTr.querySelector('.sel-project');
     if (selProj) selProj.focus();
   }
 });
 
-// Sort Allocation by Team Member tab by Resource column
-// document.addEventListener('DOMContentLoaded', function() {
-//   function sortAllocBodyByResource() {
-//     const tbody = document.getElementById('allocBody');
-//     if (!tbody) return;
-//     const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
-//     rows.sort((a, b) => {
-//       const resA = a.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
-//       const resB = b.querySelector('.sel-resource option:checked')?.textContent.trim().toLowerCase() || '';
-//       return resA.localeCompare(resB);
-//     });
-//     rows.forEach(row => tbody.appendChild(row));
-//   }
-//   sortAllocBodyByResource();
-//
-//   // Optionally, re-sort after adding a row
-//   //document.getElementById('btnAddRow').addEventListener('click', function() {
-//    // setTimeout(sortAllocBodyByResource, 100); // Delay to allow row insertion
-//   //});
-// });
+
+
 
 document.addEventListener('DOMContentLoaded', function() {
   function sortAndHideDuplicateResources() {
@@ -2019,6 +1999,11 @@ document.addEventListener('click', function(e){
     // Insert the new row right after the current row
     currentTr.parentNode.insertBefore(newTr, currentTr.nextSibling);
 
+
+    // Hide Program name cell in the new row
+    const progCell = newTr.querySelector('td.compact-project');
+    if (progCell) progCell.style.visibility = 'hidden';
+
     // Focus on the subproject select for quick input
     const selSub = newTr.querySelector('.sel-subproject');
     if (selSub) selSub.focus();
@@ -2055,8 +2040,116 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
+function showAllocSuccessMsg(msg) {
+  const modal = document.getElementById('allocSuccessModal');
+  const msgSpan = document.getElementById('allocSuccessModalMsg');
+  if (modal && msgSpan) {
+    msgSpan.textContent = msg;
+    modal.style.display = 'flex';
+    // Disable scrolling while modal is visible
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => {
+      modal.style.display = 'none';
+      document.body.style.overflow = '';
+    }, 3000);
+  } else {
+    alert(msg); // fallback
+  }
+}
 
+// --- Direct Reportees Summary Pagination ---
+(function(){
+  const PAGE_SIZE = 5; // Number of rows per page
+  let currentPage = 1;
+  let totalPages = 1;
 
+  function paginateReportees() {
+    const tbody = document.getElementById('summaryBody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr.reportee-row'));
+    totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    // Hide all rows
+    rows.forEach(row => row.style.display = 'none');
+    // Show only rows for current page
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    rows.slice(start, end).forEach(row => row.style.display = '');
+    // Update controls
+    document.getElementById('prevReporteePage').disabled = currentPage === 1;
+    document.getElementById('nextReporteePage').disabled = currentPage === totalPages;
+    document.getElementById('reporteePageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    paginateReportees();
+    document.getElementById('prevReporteePage').addEventListener('click', function() {
+      if (currentPage > 1) { currentPage--; paginateReportees(); }
+    });
+    document.getElementById('nextReporteePage').addEventListener('click', function() {
+      if (currentPage < totalPages) { currentPage++; paginateReportees(); }
+    });
+  });
+})();
+
+(function(){
+  const PAGE_SIZE = 5; // Number of rows per page
+  let currentPage = 1;
+  let totalPages = 1;
+
+  function paginateProjectView() {
+    const tbody = document.getElementById('summaryBodyprojectview');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+    totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    rows.forEach(row => row.style.display = 'none');
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    rows.slice(start, end).forEach(row => row.style.display = '');
+    document.getElementById('prevProjectViewPage').disabled = currentPage === 1;
+    document.getElementById('nextProjectViewPage').disabled = currentPage === totalPages;
+    document.getElementById('projectViewPageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    paginateProjectView();
+    document.getElementById('prevProjectViewPage').addEventListener('click', function() {
+      if (currentPage > 1) { currentPage--; paginateProjectView(); }
+    });
+    document.getElementById('nextProjectViewPage').addEventListener('click', function() {
+      if (currentPage < totalPages) { currentPage++; paginateProjectView(); }
+    });
+  });
+})();
+
+(function(){
+  const PAGE_SIZE = 5; // Number of rows per page
+  let currentPage = 1;
+  let totalPages = 1;
+
+  function paginateProjectView() {
+    const tbody = document.getElementById('summaryTable2');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+    totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    rows.forEach(row => row.style.display = 'none');
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    rows.slice(start, end).forEach(row => row.style.display = '');
+    document.getElementById('prevProjectViewPageViewAllotment').disabled = currentPage === 1;
+    document.getElementById('nextProjectViewPageViewAllotment').disabled = currentPage === totalPages;
+    document.getElementById('projectViewPageInfoViewAllotment').textContent = `Page ${currentPage} of ${totalPages}`;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    paginateProjectView();
+    document.getElementById('prevProjectViewPageViewAllotment').addEventListener('click', function() {
+      if (currentPage > 1) { currentPage--; paginateProjectView(); }
+    });
+    document.getElementById('nextProjectViewPageViewAllotment').addEventListener('click', function() {
+      if (currentPage < totalPages) { currentPage++; paginateProjectView(); }
+    });
+  });
+})();
 
 
 </script>
