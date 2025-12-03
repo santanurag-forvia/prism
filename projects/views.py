@@ -3194,19 +3194,16 @@ def bulk_update_week_status(request):
     if not rows:
         return JsonResponse({"ok": False, "error": "No rows selected"}, status=400)
 
-    # --- Validation: block if all punch hours for the week are zero ---
     zero_rows = []
     for r in rows:
-        punch_data = r.get("punch_data", [])  # List of dicts with 'punched_hours' and 'punch_date'
+        punch_data = r.get("punch_data", [])
         total_punched = sum(Decimal(str(d.get("punched_hours", 0))) for d in punch_data)
-        print("total punched:", total_punched)
         if total_punched == 0:
             zero_rows.append({
                 "team_distribution_id": r.get("team_distribution_id"),
                 "project_id": r.get("project_id"),
                 "subproject_id": r.get("subproject_id"),
             })
-    print("zero_rows:", zero_rows)
 
     if zero_rows:
         return JsonResponse({
@@ -3215,42 +3212,48 @@ def bulk_update_week_status(request):
             "zero_rows": zero_rows
         }, status=400)
 
-    # --- Proceed with update if validation passed ---
     updated = 0
     with connection.cursor() as cur:
         for r in rows:
             tdid = int(r.get("team_distribution_id") or 0)
             proj_id = int(r.get("project_id") or 0)
             subproj_id = int(r.get("subproject_id") or 0)
+            user_email = request.session.get('ldap_username')
+            punch_data = r.get("punch_data", [])
+
             if not tdid:
                 continue
 
-            timestamp_cols = {
-                'SUBMITTED': 'submitted_at',
-                'APPROVED': 'approved_at'
-            }
-            set_clause = "status = %s, updated_at = NOW()"
-            if status in timestamp_cols:
-                set_clause += f", {timestamp_cols[status]} = NOW()"
-            elif status in ('DRAFT', 'REJECTED'):
-                set_clause += ", submitted_at = NULL, approved_at = NULL, approved_by = NULL"
 
-            sql = f"""
-                UPDATE punch_data
-                   SET {set_clause}
-                 WHERE user_email = %s
-                   AND team_distribution_id = %s
-                   AND project_id = %s
-                   AND subproject_id = %s
-                   AND punch_date BETWEEN %s AND %s
-            """
-            cur.execute(sql, (
-                status,
-                request.session.get('ldap_username'),
-                tdid, proj_id, subproj_id,
-                week_obj["start"], week_obj["end"]
-            ))
-            updated += cur.rowcount
+            for pd in punch_data:
+                punch_date = pd.get("punch_date")
+                punched_hours = Decimal(str(pd.get("punched_hours", 0)))
+                if not punch_date or punched_hours == 0:
+                    continue
+
+                # Required fields
+                month_start = payload.get("month_start")
+                allocated_hours = Decimal(str(r.get("allocated_hours", 0)))  # fallback to 0 if not present
+
+                print(f"Upserting punch_data: user_email={user_email}, tdid={tdid}, proj_id={proj_id}, subproj_id={subproj_id}, month_start={month_start}, punch_date={punch_date}, allocated_hours={allocated_hours}, punched_hours={punched_hours}, status={status}")
+
+                sql = """
+                    INSERT INTO punch_data
+                        (user_email, team_distribution_id, project_id, subproject_id, month_start, punch_date,  punched_hours, status, updated_at)
+                    VALUES
+                        (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON DUPLICATE KEY UPDATE
+                        punched_hours = VALUES(punched_hours),
+                        status = VALUES(status),
+                        updated_at = NOW()
+                """
+                params = (
+                    user_email, tdid, proj_id, subproj_id, month_start, punch_date,  punched_hours, status
+                )
+                print("SQL:", sql)
+                print("Params:", params)
+                cur.execute(sql, params)
+                updated += cur.rowcount
 
     return JsonResponse({"ok": True, "count": updated, "updated_status": status})
 

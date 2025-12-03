@@ -1906,21 +1906,37 @@
       });
 
       async function postWeekStatus(weekNum, status) {
-        // Collect selected rows for this week
+        // Collect selected rows for this week, but only if they have >0 total effort
         const selectedRows = Array.from(
           document.querySelectorAll(`.week-row-select[data-week="${weekNum}"]:checked`)
         ).map(chk => {
           const tdid = parseInt(chk.dataset.tdid);
           const tr = chk.closest('tr.week-row');
+          // Build punch_data array for each day with non-zero effort
+          const punch_data = [];
+          tr.querySelectorAll('.daily-effort-input').forEach(inp => {
+            const hours = parseFloat(inp.value || 0);
+            const date = inp.dataset.date;
+            if (hours > 0 && date) {
+              punch_data.push({
+                punched_hours: hours,
+                punch_date: date
+              });
+            }
+          });
+          const totalEffort = punch_data.reduce((sum, d) => sum + d.punched_hours, 0);
           return {
             team_distribution_id: tdid,
             project_id: parseInt(tr.dataset.projectId),
-            subproject_id: parseInt(tr.dataset.subprojectId)
+            subproject_id: parseInt(tr.dataset.subprojectId),
+            punch_data: punch_data,
+            totalEffort: totalEffort
           };
-        });
+        }).filter(row => row.totalEffort > 0 && row.punch_data.length > 0)
+          .map(({totalEffort, ...rest}) => rest); // Remove totalEffort from payload
 
         if (selectedRows.length === 0) {
-          showNotification('Select at least one row in the week', 'warning');
+          showNotification('Select at least one row with non-zero effort in the week', 'warning');
           return;
         }
 
