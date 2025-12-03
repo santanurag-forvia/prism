@@ -2652,11 +2652,11 @@ def _compute_weeks_for_billing_bulk_update(
     billing_start: Optional[date],
     billing_end: Optional[date],
 ) -> List[Dict]:
-    """
-    Compute contiguous week blocks within the billing period \[billing_start, billing_end].
-    - Accepts date or datetime; converts to date.
-    - Returns empty list if inputs are missing or invalid ordering.
-    """
+    # """
+    # Compute contiguous week blocks within the billing period \[billing_start, billing_end].
+    # - Accepts date or datetime; converts to date.
+    # - Returns empty list if inputs are missing or invalid ordering.
+    # """
     # Normalize None
     if not billing_start or not billing_end:
         return []
@@ -3147,7 +3147,6 @@ def _generate_weeks_for_month(billing_start: date, billing_end: date):
 
 @require_POST
 def bulk_update_week_status(request):
-    # [DEBUG] Entry point logs already present above
     if not request.session.get("is_authenticated"):
         return JsonResponse({"ok": False, "error": "Unauthorized"}, status=401)
 
@@ -3161,7 +3160,6 @@ def bulk_update_week_status(request):
     month = int(payload.get("month") or 0)
     week_num = int(payload.get("week_num") or 0)
 
-    # Accept either explicit month_start or compute from year/month
     month_start_str = payload.get("month_start")
     billing_start = None
     billing_end = None
@@ -3171,8 +3169,6 @@ def bulk_update_week_status(request):
             billing_start = datetime.strptime(month_start_str, "%Y-%m-%d").date()
         except ValueError:
             return JsonResponse({"ok": False, "error": "Invalid month_start"}, status=400)
-
-        # If billing_end not provided, compute the end-of-month automatically
         billing_end_str = payload.get("billing_end")
         if billing_end_str:
             try:
@@ -3186,7 +3182,6 @@ def bulk_update_week_status(request):
             return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
         billing_start, billing_end = _month_start_end_from_ym(year, month)
 
-    # Generate month weeks (7-day blocks constrained to month)
     weeks = _generate_weeks_for_month(billing_start, billing_end)
     if not weeks:
         return JsonResponse({"ok": False, "error": "No weeks generated for month"}, status=400)
@@ -3195,13 +3190,32 @@ def bulk_update_week_status(request):
     if not week_obj:
         return JsonResponse({"ok": False, "error": "Week not found for month"}, status=400)
 
-    # Validate rows
     rows = payload.get("rows") or []
     if not rows:
         return JsonResponse({"ok": False, "error": "No rows selected"}, status=400)
 
-    # Example raw SQL update pattern: update status for selected rows in the given week interval
-    # Adjust table/columns to your schema.
+    # --- Validation: block if all punch hours for the week are zero ---
+    zero_rows = []
+    for r in rows:
+        punch_data = r.get("punch_data", [])  # List of dicts with 'punched_hours' and 'punch_date'
+        total_punched = sum(Decimal(str(d.get("punched_hours", 0))) for d in punch_data)
+        print("total punched:", total_punched)
+        if total_punched == 0:
+            zero_rows.append({
+                "team_distribution_id": r.get("team_distribution_id"),
+                "project_id": r.get("project_id"),
+                "subproject_id": r.get("subproject_id"),
+            })
+    print("zero_rows:", zero_rows)
+
+    if zero_rows:
+        return JsonResponse({
+            "ok": False,
+            "error": "No valid punch hours available for one or more selected rows.",
+            "zero_rows": zero_rows
+        }, status=400)
+
+    # --- Proceed with update if validation passed ---
     updated = 0
     with connection.cursor() as cur:
         for r in rows:
@@ -3211,18 +3225,13 @@ def bulk_update_week_status(request):
             if not tdid:
                 continue
 
-            # Python
-            # \- inside the bulk week status handler in `projects/views.py`
             timestamp_cols = {
                 'SUBMITTED': 'submitted_at',
                 'APPROVED': 'approved_at'
             }
-
             set_clause = "status = %s, updated_at = NOW()"
-            # add status-specific timestamp when applicable
             if status in timestamp_cols:
                 set_clause += f", {timestamp_cols[status]} = NOW()"
-            # clear timestamps if reverting to DRAFT/REJECTED
             elif status in ('DRAFT', 'REJECTED'):
                 set_clause += ", submitted_at = NULL, approved_at = NULL, approved_by = NULL"
 
@@ -3235,10 +3244,9 @@ def bulk_update_week_status(request):
                    AND subproject_id = %s
                    AND punch_date BETWEEN %s AND %s
             """
-
             cur.execute(sql, (
                 status,
-                request.session.get('ldap_username'),  # or the email stored in session
+                request.session.get('ldap_username'),
                 tdid, proj_id, subproj_id,
                 week_obj["start"], week_obj["end"]
             ))
@@ -3350,58 +3358,57 @@ def save_effort_draft(request):
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
+from collections import defaultdict
+
 @require_http_methods(["POST"])
 def submit_effort(request):
-    """
-    Submit day-wise punched hours for approval.
-    Expects JSON:
-    {
-        "billing_start": "YYYY-MM-DD",
-        "efforts": [
-            {
-                "team_distribution_id": ...,
-                "date": "YYYY-MM-DD",
-                "week_number": ...,
-                "punched_hours": ...,
-                ...
-            },
-            ...
-        ]
-    }
-    """
+    print("[submit_effort] Entry")
     user_email = request.session.get("ldap_username")
-    print(f"[submit_effort] user_email from session: {user_email}")
+    print(f"[submit_effort] user_email: {user_email}")
     if not user_email:
         print("[submit_effort] Not authenticated")
         return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
 
     try:
-        print(f"[submit_effort] Raw request.body: {request.body}")
         data = json.loads(request.body)
-        print(f"[submit_effort] Parsed JSON data: {data}")
         billing_start = data.get('billing_start')
         efforts = data.get('efforts', [])
-        print(f"[submit_effort] efforts: {efforts}")
+        print(f"[submit_effort] billing_start: {billing_start}, efforts count: {len(efforts)}")
 
         if not billing_start or not efforts:
             print("[submit_effort] Missing billing_start or efforts")
             return JsonResponse({'ok': False, 'error': 'Missing billing_start or efforts'}, status=400)
 
-        # Validation
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for effort in efforts:
+            key = (effort.get('team_distribution_id'), effort.get('week_number'))
+            grouped[key].append(effort)
+        print(f"[submit_effort] Grouped efforts: {dict(grouped)}")
+
         errors = []
+        for key, eff_list in grouped.items():
+            total_punched = sum(Decimal(str(e.get('punched_hours', 0))) for e in eff_list)
+            print(f"[submit_effort] team_distribution_id={key[0]}, week={key[1]}, total_punched={total_punched}")
+            if total_punched == 0:
+                errors.append(f"No valid punch hours available for team_distribution_id={key[0]}, week={key[1]}")
+
+        if errors:
+            print(f"[submit_effort] Validation errors: {errors}")
+            return JsonResponse({'ok': False, 'errors': errors}, status=400)
+
         with connection.cursor() as cur:
             for idx, effort in enumerate(efforts):
                 td_id = effort.get('team_distribution_id')
                 punch_date = effort.get('date')
                 week_num = effort.get('week_number')
                 punched_hours = Decimal(str(effort.get('punched_hours', 0)))
-                print(f"[submit_effort] Validating effort idx={idx}: td_id={td_id}, date={punch_date}, week_num={week_num}, punched_hours={punched_hours}")
+                print(f"[submit_effort] Checking effort idx={idx}, td_id={td_id}, punch_date={punch_date}, week_num={week_num}, punched_hours={punched_hours}")
 
                 if not td_id or not punch_date or week_num is None:
-                    errors.append(f"Effort {idx+1}: Missing required fields")
+                    print(f"[submit_effort] Skipping idx={idx} due to missing data")
                     continue
 
-                # Fetch allocated hours for this day
                 cur.execute("""
                     SELECT allocated_hours
                     FROM punch_data
@@ -3410,20 +3417,17 @@ def submit_effort(request):
                       AND user_email = %s
                       AND month_start = %s
                 """, [td_id, punch_date, user_email, billing_start])
-                row = cur.fetchone()
-                #allocated_hours = Decimal(str(row[0])) if row and row[0] is not None else Decimal('0.00')
-                #print(f"[submit_effort] Allocated hours for td_id={td_id}, date={punch_date}: {allocated_hours}")
                 allocated_hours = 8.75
+                print(f"[submit_effort] idx={idx}, allocated_hours={allocated_hours}")
                 if punched_hours > allocated_hours:
                     errors.append(
                         f"Date {punch_date}: Punched {punched_hours}h exceeds allocated {allocated_hours}h"
                     )
 
         if errors:
-            print(f"[submit_effort] Validation errors: {errors}")
+            print(f"[submit_effort] Final validation errors: {errors}")
             return JsonResponse({'ok': False, 'errors': errors}, status=400)
 
-        # Save data
         with transaction.atomic(), connection.cursor() as cur:
             for idx, effort in enumerate(efforts):
                 td_id = effort.get('team_distribution_id')
@@ -3432,8 +3436,6 @@ def submit_effort(request):
                 punched = Decimal(str(effort.get('punched_hours', 0))).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
-
-                # Fetch allocated hours, project_id, subproject_id from team_distributions
                 cur.execute(
                     "SELECT hours, project_id, subproject_id FROM team_distributions WHERE id = %s",
                     [td_id]
@@ -3448,9 +3450,8 @@ def submit_effort(request):
                     project_id = None
                     subproject_id = None
 
-                print(f"[submit_effort] Saving: td_id={td_id}, date={punch_date}, week_num={week_num}, punched={punched}, allocated={allocated}, project_id={project_id}, subproject_id={subproject_id}")
+                print(f"[submit_effort] Saving idx={idx}, td_id={td_id}, punch_date={punch_date}, allocated={allocated}, punched={punched}")
 
-                # Insert/update punch_data with project_id and subproject_id
                 sql = """
                     INSERT INTO punch_data
                     (user_email, team_distribution_id, project_id, subproject_id, month_start, punch_date,
@@ -3469,7 +3470,6 @@ def submit_effort(request):
                     str(allocated), str(punched)
                 ]
                 cur.execute(sql, params)
-                print(f"[submit_effort] Saved punch_data for td_id={td_id}, date={punch_date}")
 
         print(f"[submit_effort] Submitted {len(efforts)} day(s) successfully")
         return JsonResponse({
@@ -3481,8 +3481,7 @@ def submit_effort(request):
         print(f"[submit_effort] Invalid JSON: {e}")
         return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        print(f"[submit_effort] Error: {e}")
-        logger.exception("submit_effort error: %s", e)
+        print(f"[submit_effort] Exception: {e}")
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 @require_http_methods(["POST"])

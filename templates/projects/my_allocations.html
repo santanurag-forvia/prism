@@ -1276,6 +1276,56 @@
 
 {% block extra_js %}
 <script>
+    function showNotification(message, type) {
+            const colors = {
+                success: {bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e'},
+                error: {bg: '#fadbd8', border: '#a93226', text: '#a93226'},
+                warning: {bg: '#fef5e7', border: '#d68910', text: '#d68910'},
+                info: {bg: '#d6eaf8', border: '#1a5490', text: '#1a5490'}
+            };
+            const color = colors[type] || colors.info;
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        min-width: 300px;
+        max-width: 500px;
+        background: ${color.bg};
+        color: ${color.text};
+        border-left: 4px solid ${color.border};
+        padding: 16px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 600;
+        animation: slideInRight 0.3s ease;
+    `;
+            const icons = {
+                success: 'fas fa-check-circle',
+                error: 'fas fa-exclamation-circle',
+                warning: 'fas fa-exclamation-triangle',
+                info: 'fas fa-info-circle'
+            };
+            notification.innerHTML = `
+        <i class="${icons[type]}" style="font-size: 20px;"></i>
+        <span>${message}</span>
+        <button onclick="this.parentElement.remove()"
+                style="margin-left: auto; background: none; border: none;
+                       color: ${color.text}; font-size: 20px; cursor: pointer;
+                       opacity: 0.7; padding: 0; width: 24px; height: 24px;">
+            ×
+        </button>
+    `;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s ease';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
     document.addEventListener('DOMContentLoaded', function () {
 // === DOM ELEMENTS ===
         const weekSelector = document.getElementById('weekSelector');
@@ -1774,56 +1824,7 @@
             return efforts;
         }
 
-        function showNotification(message, type) {
-            const colors = {
-                success: {bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e'},
-                error: {bg: '#fadbd8', border: '#a93226', text: '#a93226'},
-                warning: {bg: '#fef5e7', border: '#d68910', text: '#d68910'},
-                info: {bg: '#d6eaf8', border: '#1a5490', text: '#1a5490'}
-            };
-            const color = colors[type] || colors.info;
-            const notification = document.createElement('div');
-            notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        min-width: 300px;
-        max-width: 500px;
-        background: ${color.bg};
-        color: ${color.text};
-        border-left: 4px solid ${color.border};
-        padding: 16px 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-weight: 600;
-        animation: slideInRight 0.3s ease;
-    `;
-            const icons = {
-                success: 'fas fa-check-circle',
-                error: 'fas fa-exclamation-circle',
-                warning: 'fas fa-exclamation-triangle',
-                info: 'fas fa-info-circle'
-            };
-            notification.innerHTML = `
-        <i class="${icons[type]}" style="font-size: 20px;"></i>
-        <span>${message}</span>
-        <button onclick="this.parentElement.remove()"
-                style="margin-left: auto; background: none; border: none;
-                       color: ${color.text}; font-size: 20px; cursor: pointer;
-                       opacity: 0.7; padding: 0; width: 24px; height: 24px;">
-            ×
-        </button>
-    `;
-            document.body.appendChild(notification);
-            setTimeout(() => {
-                notification.style.animation = 'slideOutRight 0.3s ease';
-                setTimeout(() => notification.remove(), 300);
-            }, 5000);
-        }
+
 
 // --- Month/Year Change ---
         function changeMonthYear() {
@@ -1946,6 +1947,7 @@
         }
 
         try {
+          console.log('Submitting payload:', payload);
           const res = await fetch('{% url "projects:bulk_update_week_status" %}', {
             method: 'POST',
             headers: {
@@ -1954,13 +1956,41 @@
             },
             body: JSON.stringify(payload)
           });
-          if (!res.ok) {
-            const txt = await res.text();
-            throw new Error(txt || 'Request failed');
+
+          console.log('Response status:', res.status, 'ok:', res.ok);
+
+          let data;
+          if (res.ok) {
+            data = await res.json();
+            console.log('Success response data:', data);
+          } else {
+            try {
+              data = await res.json();
+              console.log('Error response JSON:', data);
+              showNotification(data.error || 'Submission failed', 'error');
+            } catch (e) {
+              console.log('Error parsing JSON:', e, 'Status text:', res.statusText);
+              showNotification(res.statusText || 'Submission failed', 'error');
+            }
+            return;
           }
-          const data = await res.json();
+
+          if (!data.ok) {
+            console.log('Backend returned ok:false:', data);
+            showNotification(data.error || 'Submission failed', 'error');
+            if (Array.isArray(data.zero_rows)) {
+              data.zero_rows.forEach(row => {
+                const selector = `.week-row[data-tdid="${row.team_distribution_id}"][data-projectid="${row.project_id}"][data-subprojectid="${row.subproject_id}"]`;
+                document.querySelectorAll(selector).forEach(el => {
+                  el.style.border = '2px solid #a93226';
+                });
+              });
+            }
+            return;
+          }
           showNotification(`Updated ${data.count} allocations to ${data.updated_status}`, 'success');
         } catch (err) {
+          console.log('Fetch error:', err);
           showNotification(err.message || 'Failed to update status', 'error');
         } finally {
           if (btnDisable) {
