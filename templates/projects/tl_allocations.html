@@ -1,6 +1,5 @@
 
 
-
 {% extends "base.html" %}
 {% load static %}
 {% block content %}
@@ -26,7 +25,7 @@
 .btn { padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600; border: none; }
 .btn-primary { background:#0b5cff; color:#fff; box-shadow:0 6px 18px rgba(11,92,255,0.12); }
 .btn-danger { background:#ef4444; color:#fff; }
-.small-muted { color:#6b7280; font-size:13px; }
+.small-muted { color:white; font-size:15px; }
 
 /* compact width constraints */
 .compact-project { max-width:420px; }
@@ -45,7 +44,6 @@ th.week-header {
 }
 
 .week-top {
-  display:flex;
   justify-content:space-between;
   align-items:center;
   gap:8px;
@@ -378,15 +376,27 @@ th.week-header {
   font-weight: 500;
   padding: 0 8px;
 }
-
-
-
+ .action-bar {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px 25px;
+        border-radius: 12px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    }
+ .page-title {
+        font-size: 28px;
+        font-weight: 700;
+        color: white;
+        margin: 0;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
 </style>
 
 <div class="page-card">
+    <div class="action-bar">
   <div class="page-header">
     <div>
-      <h1 class="alloc-title">Team Lead Free Allocations — {{ billing_month }}</h1>
+      <h1 class="page-title">Team Lead Free Allocations — {{ billing_month }}</h1>
       <div class="small-muted">Month: <strong>{{ billing_month }}</strong></div>
     </div>
 
@@ -396,6 +406,8 @@ th.week-header {
       <button class="btn btn-primary" type="submit">Load</button>
     </form>
   </div>
+    </div>
+
 
   <!-- Direct reportees summary -->
   <div class="card">
@@ -409,7 +421,7 @@ th.week-header {
   <div class="feas-tabs-header" role="tablist" aria-label="Two tabs">
     <button class="feas-tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one">Direct reportees summary</button>
     <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-two">Project View</button>
-      <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-three">View Allotment</button>
+      <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-three">PDL Allotment</button>
   </div>
 
   <!-- Tab panels -->
@@ -579,7 +591,7 @@ th.week-header {
             <th style="width:120px;">Program</th>
                <th style="width:120px;">Project</th>
                <th style="width:120px;">Resource</th>
-               <th style="width:120px;">Allocation (in Hrs)</th>
+               <th style="width:120px;">PDL Allocated Hrs</th>
                <th style="width:120px;">FTE</th>
                <th style="width:120px;">WBS</th>
           </tr>
@@ -644,13 +656,13 @@ th.week-header {
                 {% for w in weeks_info %}
                   <th class="week-header">
                     <div class="week-top">
-                      <span class="week-label">W{{ w.num }}</span>
-                      <span class="max-pill">Max {{ w.max_pct }}%</span>
+                      <span class="week-label">W{{ w.num }} (%)</span>
+<!--                      <span class="max-pill">Max {{ w.max_pct }}%</span>-->
                     </div>
 
                     <div class="week-meta">
                       <span class="week-dates">
-                        {{ w.start|slice:"0:10" }} → {{ w.end|slice:"0:10" }}
+                        {{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }}
                       </span>
                       <span class="dot">•</span>
                       <span class="week-wd">{{ w.working_days }} WD</span>
@@ -704,8 +716,8 @@ th.week-header {
               {% for w in weeks_info %}
               <td>
                 <input class="input wpct" type="number" min="0" max="100"
-                       data-week="{{ w.num }}" data-max="{{ w.max_pct }}"
-                       value="{{ row.week_perc|default_if_none:''|slice:forloop.counter0|default:'0' }}">
+                       data-week="{{ w.num }}"
+                       value="">
               </td>
             {% endfor %}
 
@@ -744,12 +756,12 @@ th.week-header {
       {% for w in weeks_info %}
         <th class="week-header">
           <div class="week-top">
-            <span class="week-label">W{{ w.num }}</span>
-            <span class="max-pill">Max {{ w.max_pct }}%</span>
+            <span class="week-label">W{{ w.num }} (%)</span>
+<!--            <span class="max-pill">Max {{ w.max_pct }}%</span>-->
           </div>
           <div class="week-meta">
             <span class="week-dates">
-              {{ w.start|slice:"0:10" }} → {{ w.end|slice:"0:10" }}
+              {{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }}
             </span>
             <span class="dot">•</span>
             <span class="week-wd">{{ w.working_days }} WD</span>
@@ -796,8 +808,8 @@ th.week-header {
       {% for w in weeks_info %}
         <td>
           <input class="input wpct" type="number" min="0" max="100"
-                 data-week="{{ w.num }}" data-max="{{ w.max_pct }}"
-                 value="{{ row.week_perc|default_if_none:''|slice:forloop.counter0|default:'0' }}">
+                 data-week="{{ w.num }}" "
+                 value="">
         </td>
       {% endfor %}
       <td class="action-cell">
@@ -1198,6 +1210,7 @@ if(prefill){
 
 
     document.querySelectorAll('#summaryBody .reportee-row').forEach(rr => {
+       // console.log('Hi',monthly_hours)
       const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
       const hrs = totals[ldap] || 0;
       const hrsEl = rr.querySelector('.r-hours');
@@ -1205,7 +1218,7 @@ if(prefill){
       const ptgeEl = rr.querySelector('.r-ptge');
       if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
       if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(1) : '0.0');
-      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(1) : '0.0' );
+      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MONTHLY_LIMIT * 100).toFixed(1) : '0.0' );
       // if(ptgeEl) hrsEl.textContent = hrs.toFixed(2);
     });
 
@@ -1225,7 +1238,7 @@ if(prefill){
 
       if(hrsEl){
             fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(1) : '0.0');
-            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MAX_FTE_PM * 100).toFixed(1) : '0.0' );
+            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MONTHLY_LIMIT * 100).toFixed(1) : '0.0' );
       }
 
 
@@ -1551,14 +1564,14 @@ function mkWeekInput(weekNum, maxPct, initialValue){
   inp.step = 0.01;
   inp.className = 'input wpct';
   inp.setAttribute('data-week', String(weekNum));
-  inp.setAttribute('data-max', String(maxPct));
+  //inp.setAttribute('data-max', String(maxPct));
   inp.value = (initialValue !== undefined && initialValue !== null) ? String(initialValue) : '0.00';
   inp.addEventListener('input', function(e){
     // clamp to data-max visually; exact validation on save will run as before
-    const maxv = parseFloat(inp.getAttribute('data-max')||'100');
-    let v = parseFloat(inp.value||'0') || 0;
-    if(v > maxv){ inp.value = String(maxv.toFixed(2)); inp.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.06)'; }
-    else inp.style.boxShadow = '';
+   // const maxv = parseFloat(inp.getAttribute('data-max')||'100');
+    //let v = parseFloat(inp.value||'0') || 0;
+   // if(v > maxv){ inp.value = String(maxv.toFixed(2)); inp.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.06)'; }
+   // else inp.style.boxShadow = '';
     // recompute row totals if you have such logic:
     const r = inp.closest('tr.alloc-row'); if(r) validateTotalPctForRow(r);
   });
