@@ -2869,9 +2869,13 @@ def my_allocations(request):
     # Team distributions (project allocations)
     with connection.cursor() as cur:
         cur.execute("""
-            SELECT td.id AS team_distribution_id, td.hours AS total_hours,
-                   COALESCE(p.name,'') AS project_name, COALESCE(sp.name,'') AS subproject_name,
-                   td.project_id, td.subproject_id
+            SELECT td.id AS team_distribution_id,
+                   td.hours AS total_hours,
+                   COALESCE(p.name,'') AS project_name,
+                   COALESCE(sp.name,'') AS subproject_name,
+                   td.project_id,
+                   td.subproject_id,
+                   td.is_self_allocation
             FROM team_distributions td
             LEFT JOIN projects p ON p.id = td.project_id
             LEFT JOIN subprojects sp ON sp.id = td.subproject_id
@@ -2933,19 +2937,25 @@ def my_allocations(request):
     day_order = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
     week_rows_by_num = {w['num']: [] for w in weeks}
 
+
     for td in td_rows:
         tdid = int(td['team_distribution_id'])
+        is_self_allocation = int(td.get('is_self_allocation', 0))
+        print(f"\n[my_allocations] team_distribution_id={tdid}, is_self_allocation={is_self_allocation}")
         for w in weeks:
             wknum = w['num']
             wk_start, wk_end = w['start'], w['end']
+            print(f"  [week] num={wknum}, start={wk_start}, end={wk_end}")
             week_alloc = weekly_alloc_map.get((tdid, wknum), {})
             tl_hours = Decimal(str(week_alloc.get('hours', 0) or '0'))
+            print(f"    [week_alloc] tl_hours={tl_hours}")
             working_days = 0
             cur_day = wk_start
             while cur_day <= wk_end and cur_day <= billing_end:
                 if cur_day.weekday() < 5 and cur_day not in holidays_set:
                     working_days += 1
                 cur_day += timedelta(days=1)
+            print(f"    [working_days] {working_days}")
 
             # Build day records
             days_list = []
@@ -2954,28 +2964,37 @@ def my_allocations(request):
                 is_holiday = cur_day in holidays_set
                 leave_hours = leave_map.get(cur_day, Decimal('0.00'))
                 punch = punch_data_map.get((tdid, cur_day))
+                punched_hours_val = None
+                if punch and punch.get('punched_hours') is not None:
+                    punched_hours_val = str(punch['punched_hours'])
                 days_list.append({
                     'date': cur_day.strftime('%Y-%m-%d'),
                     'weekday': cur_day.strftime('%a'),
                     'is_holiday': is_holiday,
                     'leave_hours': format(leave_hours, '0.2f') if leave_hours > 0 else None,
                     'allocated_hours': format(punch['allocated_hours'], '0.2f') if punch else None,
-                    'punched_hours': format(punch['punched_hours'], '0.2f') if punch else None,
+                    'punched_hours': punched_hours_val,
                     'status': punch['status'] if punch else 'DRAFT',
                     'is_editable': (not punch or punch['status'] in ['DRAFT', 'REJECTED']) and not is_holiday
                 })
+                print(f"      [day] {cur_day.strftime('%Y-%m-%d')}: punched_hours={punched_hours_val}")
                 cur_day += timedelta(days=1)
 
-            actual_effort = sum(
-                Decimal(d['punched_hours']) for d in days_list if d.get('punched_hours')
-            )
+            # Only show self-allocation row if there is actual effort in this week
+            if is_self_allocation:
+                has_effort = any(
+                    d['punched_hours'] not in [None, '0', '0.00', '0.0', 0, 0.0] and Decimal(d['punched_hours']) > 0
+                    for d in days_list
+                )
+                print(f"    [self_allocation] has_effort={has_effort} for week {wknum}")
+                if not has_effort:
+                    print(f"    [SKIP] team_distribution_id={tdid} week={wknum} (no effort)")
+                    continue  # skip this week for this self-allocation row
 
-            # Ordered slots for fixed weekday columns
             abbrev_map = {d['weekday']: d for d in days_list}
-            day_slots = []
-            for ab in day_order:
-                day_slots.append(abbrev_map.get(ab))
+            day_slots = [abbrev_map.get(ab) for ab in day_order]
 
+            print(f"    [ADD ROW] team_distribution_id={tdid} week={wknum}")
             week_rows_by_num[wknum].append({
                 'team_distribution_id': tdid,
                 'project_id': td.get('project_id'),
@@ -2987,8 +3006,8 @@ def my_allocations(request):
                 'week_end': wk_end.strftime('%Y-%m-%d'),
                 'tl_allocation_hours': format(tl_hours, '0.2f'),
                 'working_days': working_days,
-                'actual_effort': format(actual_effort, '0.2f'),
-                'day_slots': day_slots  # list of dict or None
+                'actual_effort': str(sum(Decimal(d['punched_hours'] or '0') for d in days_list)),
+                'day_slots': day_slots
             })
 
     # Attach rows to week objects for easy template looping
@@ -3519,26 +3538,39 @@ def add_self_allocation(request):
             print("[add_self_allocation] No allocations provided")
             return JsonResponse({'ok': False, 'error': 'No allocations provided'}, status=400)
 
+        # Only consider weeks with actual effort
+        filtered_allocations = []
+        for alloc in allocations:
+            days = alloc.get('days', [])
+            total_punched = sum(Decimal(str(day.get('punched_hours', 0))) for day in days)
+            if total_punched > 0:
+                filtered_allocations.append(alloc)
+
+        if not filtered_allocations:
+            print("[add_self_allocation] No non-zero effort weeks")
+            return JsonResponse({'ok': False, 'error': 'No non-zero effort weeks'}, status=400)
+
         with transaction.atomic():
             # 1. Insert into team_distributions (lead_ldap = reportee_ldap = user)
-            total_hours = sum(Decimal(str(a.get('hours', 0))) for a in allocations)
+            total_hours = sum(Decimal(str(a.get('hours', 0))) for a in filtered_allocations)
             print(f"[add_self_allocation] Calculated total_hours for team_distributions: {total_hours}")
             with connection.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO team_distributions
-                        (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-                    """,
-                    [month_start, user_email, project_id, subproject_id, user_email, total_hours]
-                )
-                cur.execute("SELECT LAST_INSERT_ID()")
-                team_distribution_id = cur.fetchone()[0]
-                print(f"[add_self_allocation] Inserted team_distribution_id: {team_distribution_id}")
+                    cur.execute(
+                        """
+                        INSERT INTO team_distributions
+                            (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, is_self_allocation, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                        """,
+                        [month_start, user_email, project_id, subproject_id, user_email, total_hours, True]
+                    )
+                    cur.execute("SELECT LAST_INSERT_ID()")
+                    team_distribution_id = cur.fetchone()[0]
 
-            # 2. Insert into weekly_allocations for each week
+                    print(f"[add_self_allocation] Inserted team_distribution_id: {team_distribution_id} (is_self_allocation=True)")
+
+            # 2. Insert into weekly_allocations for each week with effort
             with connection.cursor() as cur:
-                for alloc in allocations:
+                for alloc in filtered_allocations:
                     week_number = alloc.get('week_number')
                     hours = Decimal(str(alloc.get('hours', 0)))
                     percent = Decimal(str(alloc.get('percent_effort', 0)))
@@ -3552,9 +3584,9 @@ def add_self_allocation(request):
                         [team_distribution_id, week_number, hours, percent]
                     )
 
-            # 3. Insert into punch_data for each day in each week
+            # 3. Insert into punch_data for each day in each week with effort
             with connection.cursor() as cur:
-                for alloc in allocations:
+                for alloc in filtered_allocations:
                     week_number = alloc.get('week_number')
                     days = alloc.get('days', [])
                     print(f"[add_self_allocation] Processing week_number={week_number}, days={days}")
