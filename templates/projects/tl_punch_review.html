@@ -3,14 +3,15 @@
 {% block content %}
 <div class="feas-tl-review-bg">
   <div class="feas-tl-review-container">
-    <div class="feas-tl-review-card">
-      <div class="feas-tl-review-header">
-        <h2>Team Lead Punch Review</h2>
-        <button id="global-expand-btn" class="feas-btn feas-btn-primary" type="button" aria-label="Expand or collapse all reportees">
-          <span class="fa fa-plus expand-icon" aria-hidden="true"></span> Show/Hide All
+    <div class="action-bar">
+      <div class="page-title">
+        <h2 style="color:#fff !important;">Team Lead Punch Review</h2>
+
+        <button id="global-expand-btn" class="feas-btn feas-btn-primary" type="button" aria-label="Expand or collapse all reportees" style="margin-left: 20px">
+          <span class="fa fa-plus expand-icon" aria-hidden="true" ></span> Show/Hide All
         </button>
       </div>
-        <form method="get" class="feas-tl-review-form" autocomplete="off" style="display: flex; align-items: center; gap: 1.2rem;">
+         <form method="get" class="feas-tl-review-form" autocomplete="off" style="display: flex; align-items: center; gap: 1.2rem;">
           <label for="month">Month:</label>
           <input type="month" id="month" name="month" value="{{ month_str }}" onchange="this.form.submit()" aria-label="Select month">
           <label for="weekSelector" style="font-weight: 600; margin-left: 20px; margin-right: 8px;">Week:</label>
@@ -25,6 +26,9 @@
             {% endfor %}
           </select>
         </form>
+
+      </div>
+
       <div class="accordion" id="reporteeAccordion">
         {% for rep in reportees %}
         <div class="feas-tl-review-reportee-card">
@@ -143,7 +147,7 @@
       </div>
     </div>
   </div>
-</div>
+
 {% endblock %}
 
 
@@ -456,7 +460,7 @@ body {
 }
 .feas-tl-review-bg {
   min-height: 100vh;
-  background: #f4f7fb;
+  /*background: #f4f7fb;*/
   padding: 32px 0;
 }
 .feas-tl-review-container {
@@ -488,12 +492,12 @@ body {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 .feas-tl-review-form label {
   font-size: 1.08rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #fff ;
 }
 .feas-tl-review-form input[type="month"] {
   border: 1.5px solid #d1d9e6;
@@ -739,5 +743,27 @@ body {
     padding: 0.4rem 0.2rem;
   }
 }
+.action-bar {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px 25px;
+        border-radius: 12px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    }
+.page-title {
+        font-size: 28px;
+        font-weight: 700;
+        color: #fff !important;
+        margin: 0;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    }
+ .filter-controls {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
 </style>
 {% endblock %}
