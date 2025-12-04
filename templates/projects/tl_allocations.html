@@ -1,7 +1,6 @@
-
-
 {% extends "base.html" %}
 {% load static %}
+{% load dict_extras %}
 {% block content %}
 <link rel="stylesheet" href="{% static 'projects/css/projects.css' %}">
 <link rel="stylesheet" href="{% static 'projects/css/team_allocations.css' %}">
@@ -86,27 +85,31 @@ th.week-header {
 /* ----- Week percentage input styling ----- */
 /* --- % input visibility & shading --- */
 .input.wpct {
-  width: 84px;
-  text-align: right;
-  border: 1.6px solid #d1d5db;
-  border-radius: 8px;
-  padding: 6px 10px;
-  background-color: #ffffff;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  text-align: center !important;      /* This centers the text inside the input */
+  display: block;
+  margin: 0 auto;
+  font-size: 1.15rem;
   font-weight: 600;
-  color: #0f172a;
-  transition: all 0.16s ease;
-  box-shadow: 0 1px 2px rgba(2,6,23,0.04);
+  padding: 8px 0;
+  background: #f8fafd;
+  border: 2px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: none;
+  transition: border-color 0.18s;
+}
+.input.wpct:focus {
+  border-color: #2563eb;
+  outline: none;
 }
 
 .input.wpct:hover {
   border-color: #60a5fa;
 }
 
-.input.wpct:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37,99,235,0.12);
-}
+
 
 /* filled vs zero shading */
 .input.wpct.filled {
@@ -617,9 +620,22 @@ th.week-header {
 
   <!-- Allocation section -->
   <div class="card">
-    <div class="card-header">
-      <span><span class="pill"></span>Allocate Bandwidth</span>
-<!--      <button id="btnAddRow" class="btn btn-primary">Add Resource</button>-->
+    <!-- Add this inside the card-header for Allocate Bandwidth -->
+    <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+      <span>
+        <span class="pill"></span>Allocate Bandwidth
+      </span>
+      <div>
+        <label for="weekSelector" style="margin-right: 8px;">Week:</label>
+        <select id="weekSelector" class="input" style="min-width: 120px;">
+          {% for w in weeks_info %}
+            <option value="{{ w.num }}"
+              {% if w.num == current_week_num %}selected{% endif %}>
+              W{{ w.num }} ({{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
     </div>
     <div class="card-body">
         <div class="feas-tabs" style="">
@@ -644,93 +660,84 @@ th.week-header {
     <section id="panel-one-allocation" class="feas-tab-panel" role="tabpanel" tabindex="0">
       <!-- Content for Tab One -->
         <table class="alloc-table" id="allocTable">
-        <!-- week header row (dynamic) -->
-            <thead>
-              <tr>
-                <th style="position: sticky; left: 0; z-index: 14;">Resource</th>
-                <th class="compact-project">Program</th>
-                <th class="compact-subproject">Project</th>
-                <th>Hours</th>
-                <th>FTE</th>
-
-                {% for w in weeks_info %}
-                  <th class="week-header">
-                    <div class="week-top">
-                      <span class="week-label">W{{ w.num }} (%)</span>
-<!--                      <span class="max-pill">Max {{ w.max_pct }}%</span>-->
-                    </div>
-
-                    <div class="week-meta">
-                      <span class="week-dates">
-                        {{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }}
-                      </span>
-                      <span class="dot">•</span>
-                      <span class="week-wd">{{ w.working_days }} WD</span>
-                    </div>
-                  </th>
-                {% endfor %}
-                <th class="action-cell">Action</th>
-              </tr>
-            </thead>
-
-        <tbody id="allocBody">
-          {# If server provides allocations, render rows now so Django-side values used #}
-          {% for row in allocations %}
-            <tr class="alloc-row" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
-              <td>
-                <select class="input sel-resource">
-                  <option value="">-- select --</option>
-                  {% for r in reportees %}
-                    {% comment %} robust display: prefer cn -> name -> mail -> ldap {% endcomment %}
-                    {% if r.cn %}
-                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
-                    {% elif r.name %}
-                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
-                    {% else %}
-                      <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>&lt;{{ r.mail|default:r.ldap }}&gt;</option>
-                    {% endif %}
-                  {% endfor %}
-                </select>
-              </td>
-
-              <td class="compact-project">
-                <select class="input sel-project">
-                  <option value="">-- select --</option>
-                  {% for p in projects %}
-                    {# p.project_id, bg_code, project_id } from view #}
-                    <option value="{{ p.project_id }}" data-bgcode="{{ p.bg_code|default:'' }}" {% if p.project_id == row.project_id %}selected{% endif %}>
-                      {{ p.name }}
-                    </option>
-                  {% endfor %}
-                </select>
-              </td>
-
-              <td class="compact-subproject">
-                <select class="input sel-subproject">
-                  <option value="">-- select --</option>
-                </select>
-              </td>
-
-              <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>
-              <td class="auto-fte">--</td>
+          <thead>
+            <tr>
+              <th style="position: sticky; left: 0; z-index: 14;">Resource</th>
+              <th class="compact-project">Program</th>
+              <th class="compact-subproject">Project</th>
+              <th>Hours</th>
+              <th>FTE</th>
               {% for w in weeks_info %}
-              <td>
-                <input class="input wpct" type="number" min="0" max="100"
-                       data-week="{{ w.num }}"
-                       value="">
-              </td>
-            {% endfor %}
-
-              <td class="action-cell">
+                <th class="week-header td-week-header" data-week="{{ w.num }}">
+                  <div class="week-top">
+                    <span class="week-label">W{{ w.num }} (%)</span>
+                  </div>
+                  <div class="week-meta">
+                    <span class="week-dates">
+                      {{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }}
+                    </span>
+                    <span class="dot">•</span>
+                    <span class="week-wd">{{ w.working_days }} WD</span>
+                  </div>
+                </th>
+              {% endfor %}
+              <th class="action-cell">Action</th>
+            </tr>
+          </thead>
+          <tbody id="allocBody">
+            {% for row in allocations %}
+              <tr class="alloc-row" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
+                <td>
+                  <select class="input sel-resource">
+                    <option value="">-- select --</option>
+                    {% for r in reportees %}
+                      {% if r.cn %}
+                        <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.cn }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+                      {% elif r.name %}
+                        <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>{{ r.name }} &lt;{{ r.mail|default:r.ldap }}&gt;</option>
+                      {% else %}
+                        <option value="{{ r.ldap }}" {% if r.ldap|lower == row.reportee_ldap|lower %}selected{% endif %}>&lt;{{ r.mail|default:r.ldap }}&gt;</option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                </td>
+                <td class="compact-project">
+                  <select class="input sel-project">
+                    <option value="">-- select --</option>
+                    {% for p in projects %}
+                      <option value="{{ p.project_id }}" data-bgcode="{{ p.bg_code|default:'' }}" {% if p.project_id == row.project_id %}selected{% endif %}>
+                        {{ p.name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td class="compact-subproject">
+                  <select class="input sel-subproject">
+                    <option value="">-- select --</option>
+                  </select>
+                </td>
+                <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>
+                <td class="auto-fte">--</td>
+                {% for w in weeks_info %}
+                <td class="td-week" data-week="{{ w.num }}">
+                  <input class="input wpct"
+                         type="number"
+                         min="0"
+                         max="100"
+                         data-week="{{ w.num }}"
+                         value="{{ row.week_perc|get_item:w.num|default:'0' }}">
+                </td>
+                {% endfor %}
+                <td class="action-cell">
                   <button class="btn btn-danger btn-remove">Remove</button>
-              </td>
+                </td>
                 <td>
                   <button id="btnAddProjectForResource" class="btn btn-primary btn-add-row" title="Add row for same resource">+</button>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
          <div style="text-align:right; margin-top:14px;">
              <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
 <!-- Place this next to Add Resource button in Allocation by Team Member tab -->
@@ -1578,20 +1585,30 @@ function mkWeekInput(weekNum, maxPct, initialValue){
   return inp;
 }
 
-function populateWeekInputsForRow(tr, existingValues){
-  // remove any placeholder week tds first
+// Only show input for the selected week
+function populateWeekInputsForRow(tr, existingValues) {
+  // Remove any existing week tds
   Array.from(tr.querySelectorAll('td.td-week')).forEach(td => td.remove());
-  // insert each week cell before the action cell (if exists), else append
+  // Get selected week from the dropdown
+  const weekSelector = document.getElementById('weekSelector');
+  const selectedWeek = weekSelector ? weekSelector.value : null;
+  if (!selectedWeek) return;
+  // Find week info
+  const weekInfo = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(selectedWeek));
+  if (!weekInfo) return;
+  // Create only one input for the selected week
+  const td = document.createElement('td');
+  td.className = 'td-week text-center';
+  td.setAttribute('data-week', weekInfo.num);
+  const initial = (existingValues && typeof existingValues[String(weekInfo.num)] !== 'undefined')
+    ? existingValues[String(weekInfo.num)]
+    : (weekInfo.percent || '0.00');
+  const inp = mkWeekInput(weekInfo.num, weekInfo.max_pct || 100, initial);
+  td.appendChild(inp);
+  // Insert before action cell
   const actionCell = tr.querySelector('.action-cell');
-  WEEKS.forEach(w => {
-    const td = document.createElement('td');
-    td.className = 'td-week text-center';
-    const initial = (existingValues && typeof existingValues[String(w.num)] !== 'undefined') ? existingValues[String(w.num)] : (w.percent || '0.00');
-    const inp = mkWeekInput(w.num, w.max_pct || w.max_percent || 100, initial);
-    td.appendChild(inp);
-    if(actionCell) tr.insertBefore(td, actionCell);
-    else tr.appendChild(td);
-  });
+  if (actionCell) tr.insertBefore(td, actionCell);
+  else tr.appendChild(td);
 }
 
 // expose helper globally so the add-row handler can call it
@@ -2164,7 +2181,29 @@ function showAllocSuccessMsg(msg) {
   });
 })();
 
+document.addEventListener('DOMContentLoaded', function() {
+  const weekSelector = document.getElementById('weekSelector');
+  if (!weekSelector) return;
 
+  function updateWeekColumns() {
+    const selectedWeek = weekSelector.value;
+
+    // Hide/show week headers
+    document.querySelectorAll('.td-week-header').forEach(th => {
+      th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
+    });
+
+    // Hide/show week input cells
+    document.querySelectorAll('#allocBody tr').forEach(tr => {
+      tr.querySelectorAll('td.td-week').forEach(td => {
+        td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
+      });
+    });
+  }
+
+  weekSelector.addEventListener('change', updateWeekColumns);
+  updateWeekColumns();
+});
 </script>
 
 {% endblock %}

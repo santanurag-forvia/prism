@@ -7088,6 +7088,8 @@ def save_my_allocation(request):
 from django.http import JsonResponse
 from django.db import connection
 
+
+
 def view_allotment(request):
     if not request.session.get("is_authenticated"):
         return JsonResponse({"error": "Unauthorized"}, status=401)
@@ -7095,25 +7097,32 @@ def view_allotment(request):
     month = request.GET.get("month")
     params = [month] if month else []
     sql = """
-        SELECT
-            p.name AS project,
-            sp.name AS subproject,
-            e.user_ldap AS resource,
-            e. total_hours AS allocated_hrs,
-            ROUND(e. total_hours / 183.75, 1) AS fte,
-            e.month_start,
-            w.buyer_wbs_cc  AS wbs
-        FROM monthly_allocation_entries e
-        LEFT JOIN projects p ON e.project_id = p.id
-        LEFT JOIN subprojects sp ON e.subproject_id = sp.id
-        LEFT JOIN prism_wbs w ON e.iom_id = w.iom_id
-        WHERE (%s IS NULL OR LEFT(e.month_start, 7) = %s)
-        ORDER BY p.name, sp.name, e.user_ldap
-    """
+          SELECT p.name                           AS project, 
+                 sp.name                          AS subproject, 
+                 e.user_ldap                      AS resource, 
+                 e.total_hours                    AS allocated_hrs, 
+                 ROUND(e.total_hours / 183.75, 1) AS fte, 
+                 e.month_start, 
+                 w.buyer_wbs_cc, 
+                 w.seller_wbs_cc
+          FROM monthly_allocation_entries e
+                   LEFT JOIN projects p ON e.project_id = p.id
+                   LEFT JOIN subprojects sp ON e.subproject_id = sp.id
+                   LEFT JOIN prism_wbs w ON e.iom_id = w.iom_id
+          WHERE (%s IS NULL OR LEFT (e.month_start, 7) = %s)
+          ORDER BY p.name, sp.name, e.user_ldap 
+          """
     with connection.cursor() as cursor:
         cursor.execute(sql, params * 2)
         columns = [col[0] for col in cursor.description]
-        data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        data = []
+        for row in cursor.fetchall():
+            row_dict = dict(zip(columns, row))
+            # Add combined WBS field
+            buyer = row_dict.get("buyer_wbs_cc") or ""
+            seller = row_dict.get("seller_wbs_cc") or ""
+            row_dict["wbs"] = f"{seller} / {buyer}"
+            data.append(row_dict)
     return JsonResponse({"data": data})
 
 # projects/views.py
