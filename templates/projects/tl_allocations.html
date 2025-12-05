@@ -665,7 +665,7 @@ th.week-header {
               <th style="position: sticky; left: 0; z-index: 14;">Resource</th>
               <th class="compact-project">Program</th>
               <th class="compact-subproject">Project</th>
-              <th>Hours</th>
+              <th>Avail. Weekly Hrs.</th>
               <th>FTE</th>
               {% for w in weeks_info %}
                 <th class="week-header td-week-header" data-week="{{ w.num }}">
@@ -740,8 +740,6 @@ th.week-header {
         </table>
          <div style="text-align:right; margin-top:14px;">
              <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
-<!-- Place this next to Add Resource button in Allocation by Team Member tab -->
-
 
           <button id="btnExportExcel" class="btn btn-primary" >Export to Excel</button>
         <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
@@ -1205,53 +1203,38 @@ if(prefill){
   // recompute summary table totals from allocation rows
 
 
-  function recomputeSummaryTotals(){
+  // Update summary table to show total allocated hours (sum of all week allocations)
+  function recomputeSummaryTotals() {
     const totals = {};
     document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
       const ldap = (tr.querySelector('.sel-resource')?.value || '').toLowerCase();
-      const hrs = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
-      if(!ldap) return;
-      totals[ldap] = (totals[ldap] || 0) + hrs;
+      let totalHours = 0;
+      // Sum all week allocations for this row
+      tr.querySelectorAll('input.wpct').forEach(inp => {
+        const weekNum = inp.dataset.week;
+        const weekInfo = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(weekNum));
+        if (weekInfo) {
+          // Calculate hours for this week: percent * max hours for week / 100
+          const pct = parseFloat(inp.value || 0) || 0;
+          const weekHours = +(8.75 * weekInfo.working_days * pct / 100).toFixed(2);
+          totalHours += weekHours;
+        }
+      });
+      if (!ldap) return;
+      totals[ldap] = (totals[ldap] || 0) + totalHours;
     });
 
-
-
+    // Update summary table
     document.querySelectorAll('#summaryBody .reportee-row').forEach(rr => {
-       // console.log('Hi',monthly_hours)
       const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
       const hrs = totals[ldap] || 0;
       const hrsEl = rr.querySelector('.r-hours');
       const fteEl = rr.querySelector('.r-fte');
       const ptgeEl = rr.querySelector('.r-ptge');
-      if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
-      if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(1) : '0.0');
-      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MONTHLY_LIMIT * 100).toFixed(1) : '0.0' );
-      // if(ptgeEl) hrsEl.textContent = hrs.toFixed(2);
+      if (hrsEl) hrsEl.textContent = hrs.toFixed(2);
+      if (fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(3) : '0.000');
+      if (ptgeEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000');
     });
-
-    //JS:
-    document.querySelectorAll('#summaryBodyprojectview .alloc-row').forEach(rr => {
-        //Project
-        //Resource
-        //FTE
-        //Percentage
-          const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
-      const hrs = totals[ldap] || 0;
-      const hrsEl = rr.querySelector('.r-hours');
-      const fteEl = rr.querySelector('.r-fte');
-      const ptgeEl = rr.querySelector('.r-ptge');
-
-     // fillSubprojectOptions(rr.querySelector('.sel-subproject'), projectId, subprojectSelected);
-
-      if(hrsEl){
-            fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(1) : '0.0');
-            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MONTHLY_LIMIT * 100).toFixed(1) : '0.0' );
-      }
-
-
-    });
-    //JS:
-
   }
 
   // Build initial rows from server-provided allocations
@@ -2232,7 +2215,32 @@ document.addEventListener('DOMContentLoaded', function() {
   weekSelector.addEventListener('change', updateProjectTabWeekColumns);
   updateProjectTabWeekColumns();
 });
+// Helper to get working days for a week number
+function getWorkingDaysForWeek(weekNum) {
+  const week = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(weekNum));
+  return week ? week.working_days : 0;
+}
 
+// Update max hours and value for all rows based on selected week
+function updateMaxHoursForCurrentWeek() {
+  const weekSelector = document.getElementById('weekSelector');
+  if (!weekSelector) return;
+  const selectedWeek = weekSelector.value;
+  const workingDays = getWorkingDaysForWeek(selectedWeek);
+  const maxHours = +(8.75 * workingDays).toFixed(2);
+
+  ['#allocBody', '#allocBodyByProject'].forEach(selector => {
+    document.querySelectorAll(selector + ' .alloc-row').forEach(tr => {
+      const inp = tr.querySelector('.inp-hours');
+      if (inp) {
+        inp.value = maxHours; // Always set to max for selected week
+        inp.setAttribute('max', maxHours);
+      }
+    });
+  });
+}
+document.addEventListener('DOMContentLoaded', updateMaxHoursForCurrentWeek);
+document.getElementById('weekSelector').addEventListener('change', updateMaxHoursForCurrentWeek);
 </script>
 
 {% endblock %}
