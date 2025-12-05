@@ -1722,9 +1722,6 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 //end of server-rendered week inputs population-> working code for allocation by team member tab
 
-
-
-
 //Tab handling JS for multiple tab sets
 (function(){
   document.querySelectorAll('.feas-tabs').forEach(root => {
@@ -2204,6 +2201,38 @@ document.addEventListener('DOMContentLoaded', function() {
   weekSelector.addEventListener('change', updateWeekColumns);
   updateWeekColumns();
 });
+// Show only the selected week column in Allocation by Project tab
+document.addEventListener('DOMContentLoaded', function() {
+  const weekSelector = document.getElementById('weekSelector');
+  if (!weekSelector) return;
+
+  function updateProjectTabWeekColumns() {
+    const selectedWeek = weekSelector.value;
+    // Hide/show week columns in header
+    document.querySelectorAll('#allocTableByProject th.week-header').forEach(th => {
+      th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
+    });
+    // Hide/show week input cells in each row
+    document.querySelectorAll('#allocBodyByProject tr').forEach(tr => {
+      tr.querySelectorAll('td').forEach(td => {
+        if (td.classList.contains('td-week')) {
+          td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
+        }
+      });
+      // For legacy rows, if week columns don't have td-week class, fallback:
+      tr.querySelectorAll('input.wpct').forEach(inp => {
+        const td = inp.closest('td');
+        if (td && inp.dataset.week) {
+          td.style.display = (inp.dataset.week === selectedWeek) ? '' : 'none';
+        }
+      });
+    });
+  }
+
+  weekSelector.addEventListener('change', updateProjectTabWeekColumns);
+  updateProjectTabWeekColumns();
+});
+
 </script>
 
 {% endblock %}
