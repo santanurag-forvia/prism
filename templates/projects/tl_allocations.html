@@ -393,6 +393,20 @@ th.week-header {
         margin: 0;
         text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
+
+ .feas-bordered-table {
+     border: 1px solid #d1d5db;
+     border-collapse: collapse;
+}
+.feas-bordered-table th,
+.feas-bordered-table td {
+        border: 0.5px solid #d1d5db;
+       text-align: center;;
+}
+.highlight-header {
+  background: #e0f2fe; /* Example: light blue */
+}
+
 </style>
 
 <div class="page-card">
@@ -424,7 +438,8 @@ th.week-header {
   <div class="feas-tabs-header" role="tablist" aria-label="Two tabs">
     <button class="feas-tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one">Direct reportees summary</button>
     <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-two">Project View</button>
-      <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-three">PDL Allotment</button>
+<!--     <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-three" >PDL Allotment</button>-->
+      <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-four">PDL AllotmentUpdated</button>
   </div>
 
   <!-- Tab panels -->
@@ -476,12 +491,12 @@ th.week-header {
         <table class="summary-table" id="summaryTable1">
         <thead>
           <tr>
-            <th style="">Program</th>
-              <th style="">Project</th>
-            <th style="">Resource</th>
-             <th style="">Hour</th>
-              <th style="">FTE</th>
-              <th style="">%</th>
+            <th style="width:160px">Program</th>
+              <th style="width:160px">Project</th>
+            <th style="width:160px">Resource</th>
+             <th style="width:100px">Hour</th>
+              <th style="width:100px">FTE</th>
+              <th style="width:100px">%</th>
           </tr>
         </thead>
 
@@ -586,31 +601,68 @@ th.week-header {
 </div>
 
     </section>
-      <section id="panel-three" class="feas-tab-panel" role="tabpanel" tabindex="2" hidden>
+<!--      <section id="panel-three" class="feas-tab-panel" role="tabpanel" tabindex="2" hidden>-->
+<!--      &lt;!&ndash; Content for Tab Two &ndash;&gt;-->
+<!--        <table class="summary-table" id="summaryTable2">-->
+<!--        <thead>-->
+<!--          <tr>-->
+<!--            <th style="width:120px;">Program</th>-->
+<!--               <th style="width:120px;">Project</th>-->
+<!--               <th style="width:120px;">Resource</th>-->
+<!--               <th style="width:120px;">PDL Allocated Hrs</th>-->
+<!--               <th style="width:120px;">FTE</th>-->
+<!--               <th style="width:120px;">WBS</th>-->
+<!--          </tr>-->
+<!--        </thead>-->
+<!--       <tbody id="summaryBodyallottmentview">-->
+<!--  &lt;!&ndash; Data will be loaded by JS &ndash;&gt;-->
+<!--</tbody>-->
+<!--      </table>-->
+<!--&lt;!&ndash; Pagination controls for Project view &ndash;&gt;-->
+<!--<div class="feas-pagination" id="projectViewPaginationViewAllotment">-->
+<!--  <button id="prevProjectViewPageViewAllotment" class="btn btn-secondary" disabled>Prev</button>-->
+<!--  <span id="projectViewPageInfoViewAllotment"></span>-->
+<!--  <button id="nextProjectViewPageViewAllotment" class="btn btn-secondary" disabled>Next</button>-->
+<!--</div>-->
+
+<!--    </section>-->
+       <!--- Add modified view of PDL Allotment here --->
+       <section id="panel-four" class="feas-tab-panel" role="tabpanel" tabindex="3" hidden>
       <!-- Content for Tab Two -->
-        <table class="summary-table" id="summaryTable2">
-        <thead>
-          <tr>
-            <th style="width:120px;">Program</th>
-               <th style="width:120px;">Project</th>
-               <th style="width:120px;">Resource</th>
-               <th style="width:120px;">PDL Allocated Hrs</th>
-               <th style="width:120px;">FTE</th>
-               <th style="width:120px;">WBS</th>
-          </tr>
-        </thead>
-       <tbody id="summaryBodyallottmentview">
+        <table class="summary-table feas-bordered-table" id="">
+         <thead>
+    <tr>
+      <th class="highlight-header" style="width:120px;">Program</th>
+      <th class="highlight-header" style="width:120px;">Project</th>
+      <th class="highlight-header" style="width:250px;" colspan="3">PDL Allocated Hrs</th>
+      <th class="highlight-header" style="width:150px;"colspan="2" >Allocation Live</th>
+      <th class="highlight-header" style="width:120px;">%</th>
+    </tr>
+    <tr>
+      <th class="highlight-header"></th>
+      <th class="highlight-header"></th>
+      <th class="highlight-header" style="width:180px;">WBS</th>
+      <th class="highlight-header" style="width:30px;">Hrs</th>
+      <th class="highlight-header" style="width:30px;">FTE</th>
+        <th class="highlight-header" style="width:30px;">Hrs</th>
+      <th class="highlight-header" style="width:30px;">FTE</th>
+      <th class="highlight-header"></th>
+    </tr>
+  </thead>
+       <tbody id="summaryBodyallottmentviewUpdated">
   <!-- Data will be loaded by JS -->
 </tbody>
       </table>
 <!-- Pagination controls for Project view -->
-<div class="feas-pagination" id="projectViewPaginationViewAllotment">
-  <button id="prevProjectViewPageViewAllotment" class="btn btn-secondary" disabled>Prev</button>
-  <span id="projectViewPageInfoViewAllotment"></span>
-  <button id="nextProjectViewPageViewAllotment" class="btn btn-secondary" disabled>Next</button>
+<div class="feas-pagination" id="projectViewPaginationViewAllotment1">
+  <button id="prevProjectViewPageViewAllotment1" class="btn btn-secondary" disabled>Prev</button>
+  <span id="projectViewPageInfoViewAllotment1"></span>
+  <button id="nextProjectViewPageViewAllotment1" class="btn btn-secondary" disabled>Next</button>
 </div>
 
     </section>
+
+      <!-- END-->
   </div>
 </div>
        <!--End of Start tab-->
@@ -1232,8 +1284,21 @@ if(prefill){
       const fteEl = rr.querySelector('.r-fte');
       const ptgeEl = rr.querySelector('.r-ptge');
       if (hrsEl) hrsEl.textContent = hrs.toFixed(2);
-      if (fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(3) : '0.000');
-      if (ptgeEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000');
+      if (fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(2) : '0.000');
+      if (ptgeEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(2) : '0.000');
+    });
+
+  document.querySelectorAll('#summaryBodyprojectview .alloc-row').forEach(rr => {
+      const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
+      const hrs = totals[ldap] || 0;
+      const hrsEl = rr.querySelector('.r-hours');
+      const fteEl = rr.querySelector('.r-fte');
+      const ptgeEl = rr.querySelector('.r-ptge');
+      if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
+      if(hrsEl){
+            fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(2) : '0.00');
+            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MONTHLY_LIMIT * 100).toFixed(1) : '0.00' );
+      }
     });
   }
 
@@ -1791,10 +1856,26 @@ function recomputeSummaryTotals(){
       const fteEl = rr.querySelector('.r-fte');
       const ptgeEl = rr.querySelector('.r-ptge');
       if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
-      if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(3) : '0.000');
-      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MAX_FTE_PM * 100).toFixed(3) : '0.000' );
+      if(fteEl) fteEl.textContent = (MONTHLY_LIMIT ? (hrs / MONTHLY_LIMIT).toFixed(2) : '0.00');
+      if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MONTHLY_LIMIT * 100).toFixed(2) : '0.00' );
       // if(ptgeEl) hrsEl.textContent = hrs.toFixed(2);
     });
+
+    // document.querySelectorAll('#summaryBodyprojectview .alloc-row').forEach(rr => {
+    //   const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
+    //   const hrs = totals[ldap] || 0;
+    //   const hrsEl = rr.querySelector('.r-hours');
+    //   const fteEl = rr.querySelector('.r-fte');
+    //   const ptgeEl = rr.querySelector('.r-ptge');
+    //   console.log('_____PRANIT hrsEl',hrsEl)
+    //   if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
+    //   if(hrsEl){
+    //         fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(1) : '0.0');
+    //         ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MONTHLY_LIMIT * 100).toFixed(1) : '0.0' );
+    //         console.log('_____PRANIT hrsEl',fteEl)
+    //         console.log('_____PRANIT hrsEl',ptgeEl)
+    //   }
+    // });
 
     //JS:
     //document.querySelectorAll('#summaryBodyallottmentview .reportee-row').forEach(rr => {
@@ -1803,14 +1884,14 @@ function recomputeSummaryTotals(){
 
 
 // Load data when the tab is activated
-document.querySelector('[aria-controls="panel-three"]').addEventListener('click', loadAllotmentView);
+//document.querySelector('[aria-controls="panel-three"]').addEventListener('click', loadAllotmentView);
 
 // Optionally, reload when month changes
-document.getElementById("month").addEventListener("change", function() {
+/*document.getElementById("month").addEventListener("change", function() {
   if (document.querySelector('[aria-controls="panel-three"]').classList.contains("active")) {
     loadAllotmentView();
   }
-});
+});*/
 
 
 document.getElementById('btnMyApproval').addEventListener('click', function(e){
@@ -1887,7 +1968,7 @@ function loadAllotmentView() {
             <td>${showProj ? projName : ""}</td>
             <td>${row.resource || ""}</td>
             <td>${row.allocated_hrs || "0.00"}</td>
-            <td>${row.fte || "0.000"}</td>
+            <td>${row.fte || "0.00"}</td>
             <td>${row.wbs || ""}</td>
           `;
           tbody.appendChild(tr);
@@ -2131,35 +2212,35 @@ function showAllocSuccessMsg(msg) {
   });
 })();
 
-(function(){
-  const PAGE_SIZE = 5; // Number of rows per page
-  let currentPage = 1;
-  let totalPages = 1;
-
-  function paginateProjectView() {
-    const tbody = document.getElementById('summaryTable2');
-    if (!tbody) return;
-    const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
-    totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-    rows.forEach(row => row.style.display = 'none');
-    const start = (currentPage - 1) * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    rows.slice(start, end).forEach(row => row.style.display = '');
-    document.getElementById('prevProjectViewPageViewAllotment').disabled = currentPage === 1;
-    document.getElementById('nextProjectViewPageViewAllotment').disabled = currentPage === totalPages;
-    document.getElementById('projectViewPageInfoViewAllotment').textContent = `Page ${currentPage} of ${totalPages}`;
-  }
-
-  document.addEventListener('DOMContentLoaded', function() {
-    paginateProjectView();
-    document.getElementById('prevProjectViewPageViewAllotment').addEventListener('click', function() {
-      if (currentPage > 1) { currentPage--; paginateProjectView(); }
-    });
-    document.getElementById('nextProjectViewPageViewAllotment').addEventListener('click', function() {
-      if (currentPage < totalPages) { currentPage++; paginateProjectView(); }
-    });
-  });
-})();
+// (function(){
+//   const PAGE_SIZE = 5; // Number of rows per page
+//   let currentPage = 1;
+//   let totalPages = 1;
+//
+//   function paginateProjectView() {
+//     const tbody = document.getElementById('summaryTable2');
+//     if (!tbody) return;
+//     const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
+//     totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+//     rows.forEach(row => row.style.display = 'none');
+//     const start = (currentPage - 1) * PAGE_SIZE;
+//     const end = start + PAGE_SIZE;
+//     rows.slice(start, end).forEach(row => row.style.display = '');
+//     document.getElementById('prevProjectViewPageViewAllotment').disabled = currentPage === 1;
+//     document.getElementById('nextProjectViewPageViewAllotment').disabled = currentPage === totalPages;
+//     document.getElementById('projectViewPageInfoViewAllotment').textContent = `Page ${currentPage} of ${totalPages}`;
+//   }
+//
+//   document.addEventListener('DOMContentLoaded', function() {
+//     paginateProjectView();
+//     document.getElementById('prevProjectViewPageViewAllotment').addEventListener('click', function() {
+//       if (currentPage > 1) { currentPage--; paginateProjectView(); }
+//     });
+//     document.getElementById('nextProjectViewPageViewAllotment').addEventListener('click', function() {
+//       if (currentPage < totalPages) { currentPage++; paginateProjectView(); }
+//     });
+//   });
+// })();
 
 document.addEventListener('DOMContentLoaded', function() {
   const weekSelector = document.getElementById('weekSelector');
@@ -2241,6 +2322,96 @@ function updateMaxHoursForCurrentWeek() {
 }
 document.addEventListener('DOMContentLoaded', updateMaxHoursForCurrentWeek);
 document.getElementById('weekSelector').addEventListener('change', updateMaxHoursForCurrentWeek);
+
+
+//start of new code
+// Reusable function to render allotment data into any tbody
+
+function renderAllotmentData(tbodyId, data) {
+  const tbody = document.getElementById(tbodyId);
+  tbody.innerHTML = "";
+  if (data && data.length) {
+    data.sort((a, b) => {
+      const progA = (a.project || "").toLowerCase();
+      const progB = (b.project || "").toLowerCase();
+      const projA = (a.subproject || "").toLowerCase();
+      const projB = (b.subproject || "").toLowerCase();
+      if (progA === progB) return projA.localeCompare(projB);
+      return progA.localeCompare(progB);
+    });
+    const seenPrograms = new Set();
+    const seenProjects = new Set();
+    const seenLive = new Set();
+    data.forEach(row => {
+      const progName = row.project || "";
+      const projName = row.subproject || "";
+      const liveKey = progName + "|" + projName;
+      const showProg = !seenPrograms.has(progName);
+      const showProj = !seenProjects.has(projName);
+      const showLive = !seenLive.has(liveKey);
+      seenPrograms.add(progName);
+      seenProjects.add(projName);
+      seenLive.add(liveKey);
+
+       // Calculate percent: (live_hrs / allocated_hrs) * 100
+// Fix for percent calculation in renderAllotmentData
+let percent = 0;
+const liveHrsRaw = row.live_hrs;
+const allocHrs = parseFloat(row.allocated_hrs) || 0;
+//const liveHrs = (liveHrsRaw === "" || liveHrsRaw === null) ? 0 : parseFloat(liveHrsRaw) || 0;
+const liveHrs = (liveHrsRaw === "" || liveHrsRaw === null || parseFloat(liveHrsRaw) === 0) ? "0.00" : parseFloat(liveHrsRaw).toFixed(2);
+if (allocHrs > 0 && liveHrs > 0) {
+  percent = (liveHrs / allocHrs) * 100;
+} else {
+  percent = 0;
+}
+const percentStr = percent.toFixed(2) + "%";
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${showProg ? progName : ""}</td>
+        <td>${showProj ? projName : ""}</td>
+        <td>${row.wbs || ""}</td>
+        <td>${row.allocated_hrs || "0.00"}</td>
+        <td>${row.fte || "0.000"}</td>
+        <td>${showLive ? (row.live_hrs || "") : ""}</td>
+        <td>${showLive ? (row.live_fte || "") : ""}</td>
+        <td>${percentStr}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } else {
+    tbody.innerHTML = `<tr><td colspan="8" class="small-muted">No allotments found.</td></tr>`;
+  }
+}
+
+// Modified loader to update both tabs
+function loadAllotmentViewBoth() {
+  const month = document.getElementById("month")?.value || "{{ billing_month }}";
+  fetch("{% url 'projects:view_allotment' %}?month=" + encodeURIComponent(month))
+    .then(r => r.json())
+    .then(j => {
+      //renderAllotmentData("summaryBodyallottmentview", j.data);
+      renderAllotmentData("summaryBodyallottmentviewUpdated", j.data); // <-- your new tab's tbody id
+    });
+}
+
+// Call this loader when either tab is activated
+//document.querySelector('[aria-controls="panel-three"]').addEventListener('click', loadAllotmentViewBoth);
+document.querySelector('[aria-controls="panel-four"]').addEventListener('click', loadAllotmentViewBoth);
+
+// Optionally, reload when month changes
+document.getElementById("month").addEventListener("change", function() {
+  if (
+    //document.querySelector('[aria-controls="panel-three"]').classList.contains("active") ||
+    document.querySelector('[aria-controls="panel-four"]').classList.contains("active")
+  ) {
+    loadAllotmentViewBoth();
+  }
+});
+
+//end of new code
+
 </script>
 
 {% endblock %}

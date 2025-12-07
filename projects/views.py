@@ -7097,34 +7097,45 @@ def view_allotment(request):
     month = request.GET.get("month")
     params = [month] if month else []
     sql = """
-          SELECT p.name                           AS project, 
-                 sp.name                          AS subproject, 
-                 e.user_ldap                      AS resource, 
-                 e.total_hours                    AS allocated_hrs, 
-                 ROUND(e.total_hours / 183.75, 1) AS fte, 
-                 e.month_start, 
-                 w.buyer_wbs_cc, 
-                 w.seller_wbs_cc
-          FROM monthly_allocation_entries e
-                   LEFT JOIN projects p ON e.project_id = p.id
-                   LEFT JOIN subprojects sp ON e.subproject_id = sp.id
-                   LEFT JOIN prism_wbs w ON e.iom_id = w.iom_id
-          WHERE (%s IS NULL OR LEFT (e.month_start, 7) = %s)
-          ORDER BY p.name, sp.name, e.user_ldap 
-          """
+        SELECT 
+            p.name AS project, 
+            sp.name AS subproject, 
+            w.buyer_wbs_cc, 
+            w.seller_wbs_cc,
+            SUM(e.total_hours) AS allocated_hrs, 
+            ROUND(SUM(e.total_hours) / 183.75, 1) AS fte, 
+            MAX(e.month_start) AS month_start, 
+            COALESCE(live.live_hrs, 0) AS live_hrs,
+            COALESCE(ROUND(live.live_hrs / 183.75, 1), 0) AS live_fte
+        FROM monthly_allocation_entries e
+            LEFT JOIN projects p ON e.project_id = p.id
+            LEFT JOIN subprojects sp ON e.subproject_id = sp.id
+            LEFT JOIN prism_wbs w ON e.iom_id = w.iom_id
+            LEFT JOIN (
+                SELECT 
+                    td.subproject_id,
+                    SUM(wa.hours) AS live_hrs
+                FROM team_distributions td
+                    JOIN weekly_allocations wa ON wa.team_distribution_id = td.id
+                WHERE (%s IS NULL OR LEFT(td.month_start, 7) = %s)
+                GROUP BY td.subproject_id
+            ) live ON live.subproject_id = e.subproject_id
+        WHERE (%s IS NULL OR LEFT(e.month_start, 7) = %s)
+        GROUP BY p.name, sp.name, w.buyer_wbs_cc, w.seller_wbs_cc, live.live_hrs
+        ORDER BY p.name, sp.name
+    """
+
     with connection.cursor() as cursor:
-        cursor.execute(sql, params * 2)
+        cursor.execute(sql, params * 4)
         columns = [col[0] for col in cursor.description]
         data = []
         for row in cursor.fetchall():
             row_dict = dict(zip(columns, row))
-            # Add combined WBS field
             buyer = row_dict.get("buyer_wbs_cc") or ""
             seller = row_dict.get("seller_wbs_cc") or ""
             row_dict["wbs"] = f"{seller} / {buyer}"
             data.append(row_dict)
     return JsonResponse({"data": data})
-
 # projects/views.py
 from django.views.decorators.http import require_GET, require_POST
 from django.shortcuts import render, redirect
