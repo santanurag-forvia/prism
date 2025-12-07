@@ -725,9 +725,33 @@
     .leave-allocation-card .card-header {
         background: linear-gradient(135deg, #e57373 0%, #ffb199 100%);
     }
-    .punch-input.leave-day {
-        background: #ffeaea !important;
-        border-color: #e57373 !important;
+    .punch-input,
+    .daily-effort-input {
+        width: 90px;
+        padding: 8px 12px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px; /* Rounded corners */
+        font-size: 14px;
+        font-weight: 600;
+        text-align: right;
+        background: #f8fafc;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07); /* Subtle shadow */
+        transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .punch-input:focus,
+    .daily-effort-input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        background: #fff;
+        outline: none;
+    }
+
+    .punch-input:disabled,
+    .daily-effort-input:disabled {
+        background-color: #f1f5f9;
+        color: #a0aec0;
+        cursor: not-allowed;
     }
     .leave-allocation-card .allocation-table th,
     .leave-allocation-card .allocation-table td {
@@ -740,6 +764,15 @@
     .week-table th { background:#667eea; color:#fff; font-weight:600; padding:8px 10px; font-size:13px; }
     .week-table td { background:#f8fafc; padding:6px 8px; font-size:13px; border-radius:6px; }
     .week-row td:first-child { font-weight:600; }
+    .week-table th:nth-child(2),
+    .week-table td:nth-child(2), /* Project */
+    .week-table th:nth-child(3),
+    .week-table td:nth-child(3), /* TL Allocation */
+    .week-table th:nth-child(4),
+    .week-table td:nth-child(4)  /* Act. Effort */
+    {
+        text-align: center;
+    }
 
       /* Footer actions (per-week) */
       .week-footer-actions {
@@ -991,12 +1024,14 @@
                 <th style="width:4%;">
                   <input type="checkbox" class="week-select-all" data-week="{{ week.num }}">
                 </th>
+                <th style="width:18%;">Program</th>
                 <th style="width:18%;">Project</th>
-                <th style="width:18%;">Subproject</th>
                 <th style="width:8%;">TL Allocation</th>
                 <th style="width:8%;">Act. Effort</th>
                 {% for ab in day_order %}
-                  <th style="width:6%;">{{ ab }}</th>
+                  <th style="width:6%;">
+                    {{ ab }}{% if is_eu_user %} %{% endif %}
+                  </th>
                 {% endfor %}
               </tr>
             </thead>
@@ -1017,27 +1052,34 @@
 
                 <td>{{ row.project_name }}</td>
                 <td>{{ row.subproject_name }}</td>
-                <td>{{ row.tl_allocation_hours }}h</td>
-                <td class="actual-weekly-effort">{{ row.actual_effort }}</td>
+                <td class="tl-allocation">{{ row.tl_allocation_hours }}h</td>
+                <td class="actual-weekly-effort">
+                  {% if is_eu_user %}
+                    0.00
+                  {% else %}
+                    {{ row.actual_effort }}
+                  {% endif %}
+                </td>
 
                 {% for slot in row.day_slots %}
                 <td>
                   {% if slot %}
                     <div style="text-align:center;">
                       <input type="number"
-                             class="punch-input daily-effort-input"
-                             step="0.01"
-                             min="0"
-                             max="24"
-                             value="{{ slot.punched_hours|default:'0.00' }}"
-                             data-date="{{ slot.date }}"
-                             data-week="{{ row.week_num }}"
-                             data-tdid="{{ row.team_distribution_id }}"
-                             data-project-id="{{ row.project_id }}"
-                             data-subproject-id="{{ row.subproject_id }}"
-                             data-month-start="{{ billing_start|date:'Y-m-d' }}"
-                             {% if not slot.is_editable %}disabled{% endif %}
-                             style="width:70px;text-align:right;{% if slot.leave_hours %}background:#ffeaea;{% endif %}">
+                               class="punch-input daily-effort-input"
+                               step="0.01"
+                               min="0"
+                               max="{% if is_eu_user %}100{% else %}24{% endif %}"
+                               value="{% if is_eu_user %}{{ slot.punched_percent|default:'0.00' }}{% else %}{{ slot.punched_hours|default:'0.00' }}{% endif %}"
+                               data-date="{{ slot.date }}"
+                               data-week="{{ row.week_num }}"
+                               data-tdid="{{ row.team_distribution_id }}"
+                               data-project-id="{{ row.project_id }}"
+                               data-subproject-id="{{ row.subproject_id }}"
+                               data-month-start="{{ billing_start|date:'Y-m-d' }}"
+                               data-tl-allocation="{{ row.tl_allocation_hours }}"
+                               {% if not slot.is_editable %}disabled{% endif %}
+                               style="width:70px;text-align:right;{% if slot.leave_hours %}background:#ffeaea;{% endif %}">
                     </div>
                   {% else %}
                     <div style="height:34px;"></div>
@@ -1798,30 +1840,32 @@
         }
 
         function collectEffortData() {
-            const efforts = [];
-            document.querySelectorAll('.punch-input:not([disabled])').forEach(input => {
-                const punchedHours = parseFloat(input.value) || 0;
-                const date = input.dataset.date;
-                const weekNum = parseInt(input.dataset.week);
-                const tdid = parseInt(input.dataset.tdid);
-                const projectId = parseInt(input.dataset.projectId);
-                const subprojectId = parseInt(input.dataset.subprojectId);
-                const monthStart = input.dataset.monthStart;
-                if (!date || isNaN(weekNum) || isNaN(tdid)) {
-                    showNotification('Invalid data: missing date, week, or allocation ID', 'error');
-                    return;
-                }
-                efforts.push({
-                    team_distribution_id: tdid,
-                    week_number: weekNum,
-                    date: date,
-                    punched_hours: punchedHours,
-                    project_id: projectId,
-                    subproject_id: subprojectId,
-                    month_start: monthStart
-                });
+          const efforts = [];
+          const isEuUser = {{ is_eu_user|yesno:"true,false" }};
+          document.querySelectorAll('.punch-input:not([disabled])').forEach(input => {
+            let punchedHours = parseFloat(input.value) || 0;
+            const tlAllocation = parseFloat(input.dataset.tlAllocation || 0);
+            if (isEuUser) {
+              punchedHours = tlAllocation * (punchedHours / 100);
+            }
+            const date = input.dataset.date;
+            const weekNum = parseInt(input.dataset.week);
+            const tdid = parseInt(input.dataset.tdid);
+            const projectId = parseInt(input.dataset.projectId);
+            const subprojectId = parseInt(input.dataset.subprojectId);
+            const monthStart = input.dataset.monthStart;
+            efforts.push({
+              team_distribution_id: tdid,
+              week_number: weekNum,
+              date: date,
+              punched_hours: punchedHours,
+              project_id: projectId,
+              subproject_id: subprojectId,
+              month_start: monthStart,
+              punched_percent: isEuUser ? parseFloat(input.value) : null
             });
-            return efforts;
+          });
+          return efforts;
         }
 
 
@@ -1849,15 +1893,27 @@
 
         window.changeMonthYear = changeMonthYear;
 
-        // javascript
+        // JavaScript
         document.querySelectorAll('.week-row').forEach(function(row) {
           function updateActualEffort() {
             let sum = 0;
+            const isEuUser = {{ is_eu_user|yesno:"true,false" }};
+            const tlAllocationCell = row.querySelector('.tl-allocation');
+            let tlAllocation = 0;
+            if (tlAllocationCell) {
+              // Remove "h" and whitespace, then parse
+              tlAllocation = parseFloat(tlAllocationCell.textContent.replace(/[^\d.]/g, ''));
+            }
             row.querySelectorAll('.daily-effort-input').forEach(inp => {
-              sum += parseFloat(inp.value || 0);
+              let val = parseFloat(inp.value || 0);
+              if (isEuUser) {
+                val = (val * 8.75) / 100;
+              }
+              sum += val;
             });
+            const percent = tlAllocation > 0 ? (sum / tlAllocation) * 100 : 0;
             const cell = row.querySelector('.actual-weekly-effort');
-            if (cell) cell.textContent = sum.toFixed(2);
+            if (cell) cell.textContent = `${sum.toFixed(2)}h (${percent.toFixed(2)}%)`;
           }
           row.querySelectorAll('.daily-effort-input').forEach(inp => {
             inp.addEventListener('input', updateActualEffort);
@@ -1888,15 +1944,33 @@
         });
       });
 
-      // Update actual weekly effort on input
       document.querySelectorAll('.week-row').forEach(function(row) {
         function updateActualEffort() {
           let sum = 0;
+          const isEuUser = {{ is_eu_user|yesno:"true,false" }};
+          const tlAllocationCell = row.querySelector('.tl-allocation');
+          console.log("TL Allocation Cell:", tlAllocationCell);
+          let tlAllocation = 0;
+          if (tlAllocationCell) {
+            // Remove "h" and whitespace, then parse
+            tlAllocation = parseFloat(tlAllocationCell.textContent.replace(/[^\d.]/g, ''));
+          }
+          console.log("Calculating actual effort for row:", row, "TL Allocation:", tlAllocation);
           row.querySelectorAll('.daily-effort-input').forEach(inp => {
-            sum += parseFloat(inp.value || 0);
+            let val = parseFloat(inp.value || 0);
+            if (isEuUser) {
+              val = (val * 8.75) / 100;
+            }
+            sum += val;
           });
+          const percent = tlAllocation > 0 ? (sum / tlAllocation) * 100 : 0;
+          console.log("Total sum:", sum, "Percent:", percent);
           const cell = row.querySelector('.actual-weekly-effort');
-          if (cell) cell.textContent = sum.toFixed(2);
+         if (cell) {
+            cell.textContent = isEuUser
+              ? `${sum.toFixed(2)}h (${percent.toFixed(2)}%)`
+              : `${sum.toFixed(2)}h`;
+          }
         }
         row.querySelectorAll('.daily-effort-input').forEach(inp => {
           inp.addEventListener('input', updateActualEffort);

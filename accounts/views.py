@@ -117,8 +117,8 @@ def check_credentials_bind(username: str, password: str):
                     "msExchUsageLocation"].value if "msExchUsageLocation" in user_entry else None,
                 "Site Code": user_entry["extensionAttribute5"].value if "extensionAttribute5" in user_entry else None
             }
-            for key, val in location_info.items():
-                print(f"{key}: {val}")
+            # for key, val in location_info.items():
+            #     print(f"{key}: {val}")
 
         return True, conn, user_entry, None
 
@@ -127,12 +127,20 @@ def check_credentials_bind(username: str, password: str):
         return False, None, None, "LDAP connection error"
 
 
-# accounts/views.py
+EU_COUNTRY_CODES = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+    "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+    "SI", "ES", "SE"
+}
 
-
-# Import your LDAP helpers
-# from .ldap_helpers import check_credentials_bind, get_user_entry_by_username, get_reportees_for_user_dn, map_role_from_ldap_attrs
-# from .initializers import initialize_database
+def is_eu_country(country_code):
+    """
+    Returns True if the given country code is in the EU, else False.
+    Accepts ISO 3166-1 alpha-2 codes (e.g., 'DE', 'FR').
+    """
+    if not country_code:
+        return False
+    return country_code.upper() in EU_COUNTRY_CODES
 
 from django.http import HttpResponseRedirect
 from django.urls import reverse
@@ -185,6 +193,28 @@ def login_view(request):
         if is_auth and conn:
             print("[DEBUG] LDAP authentication successful")
             # set session values
+            #user_entry location entries
+            print("\n--- User Location Details ---")
+            print("City:", user_entry["l"].value if "l" in user_entry else None)
+            print("Office:", user_entry["physicalDeliveryOfficeName"].value if "physicalDeliveryOfficeName" in user_entry else None)
+            print("Street:", user_entry["streetAddress"].value if "streetAddress" in user_entry else None)
+            print("Postal Code:", user_entry["postalCode"].value if "postalCode" in user_entry else None)
+            print("Country:", user_entry["co"].value if "co" in user_entry else None)
+            print("Country Code:", user_entry["c"].value if "c" in user_entry else None)
+            print("Usage Location:", user_entry["msExchUsageLocation"].value if "msExchUsageLocation" in user_entry else None)
+            print("Site Code:", user_entry["extensionAttribute5"].value if "extensionAttribute5" in user_entry else None)
+            print("-----------------------------\n")
+
+            # Store user location details in session variables
+            request.session['city'] = user_entry["l"].value if "l" in user_entry else None
+            request.session['office'] = user_entry["physicalDeliveryOfficeName"].value if "physicalDeliveryOfficeName" in user_entry else None
+            request.session['street'] = user_entry["streetAddress"].value if "streetAddress" in user_entry else None
+            request.session['postal_code'] = user_entry["postalCode"].value if "postalCode" in user_entry else None
+            request.session['country'] = user_entry["co"].value if "co" in user_entry else None
+            request.session['country_code'] = user_entry["c"].value if "c" in user_entry else None
+            request.session['usage_location'] = user_entry["msExchUsageLocation"].value if "msExchUsageLocation" in user_entry else None
+            request.session['site_code'] = user_entry["extensionAttribute5"].value if "extensionAttribute5" in user_entry else None
+
             request.session['is_authenticated'] = True
             request.session['ldap_username'] = username
             request.session['ldap_password'] = password
