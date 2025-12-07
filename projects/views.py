@@ -241,6 +241,20 @@ HOURS_AVAILABLE_PER_MONTH = float(getattr(settings, "HOURS_AVAILABLE_PER_MONTH",
 # -------------------------
 # DB helpers
 # -------------------------
+EU_COUNTRY_CODES = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+    "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+    "SI", "ES", "SE"
+}
+
+def is_eu_country(country_code):
+    """
+    Returns True if the given country code is in the EU, else False.
+    Accepts ISO 3166-1 alpha-2 codes (e.g., 'DE', 'FR').
+    """
+    if not country_code:
+        return False
+    return country_code.upper() in EU_COUNTRY_CODES
 
 def get_wbs_options_for_iom(iom_id):
     """Build UI-ready WBS options (seller/buyer) for a given IOM.
@@ -3080,6 +3094,10 @@ def my_allocations(request):
                 leave_days.add(day)
                 sno += 1
 
+    # Get country code from session and check EU status
+    country_code = request.session.get('country_code')
+    is_eu_user = is_eu_country(country_code)
+    print("[my_allocations] country_code:", country_code, "is_eu_user:", is_eu_user)
     context = {
         'weeks': weeks,
         'selected_week': selected_week,
@@ -3102,7 +3120,8 @@ def my_allocations(request):
         'submit_effort_url': reverse('projects:submit_effort'),
         'add_allocation_url': reverse('projects:add_self_allocation'),
         'get_projects_url': reverse('projects:get_projects_for_allocation'),
-        'day_order': day_order
+        'day_order': day_order,
+        'is_eu_user': is_eu_user,  # <-- Add this line
     }
     return render(request, 'projects/my_allocations.html', context)
 
@@ -6179,71 +6198,53 @@ def tl_allocations_view(request):
         "monthly_hours": monthly_hours,
     })
 
-
-
-
 from django.views.decorators.http import require_POST
+import json
+import logging
+import calendar
+from datetime import date
+from django.http import JsonResponse
+from django.db import connection, transaction
 
 @require_POST
 def save_tl_allocations(request):
     """
     Save free-hand TL allocations (no restrictions).
-
-    - Accepts payload.month (YYYY-MM) and payload.allocations (array).
-    - Each allocation may contain:
-        {
-          "id": <existing_team_distribution_id|null>,
-          "reportee": "user@domain",
-          "project_id": 46,
-          "subproject_id": 221,
-          "hours": 175,
-          "weeks": [ {"week_number":1,"percent":25}, ... ]   OR   [25,25,25,25] (plain list -> mapped to 1..N)
-        }
-    - For each team_distribution: upsert the row, upsert provided weekly_allocations,
-      and delete any weekly_allocations for that team_distribution not present in the provided week set.
+    Each weekly_allocations row gets its own calculated hours.
+    team_distributions.hours is the sum of all week hours.
     """
-    # local imports so this function remains drop-in
-    import json
-    import logging
-    import calendar
-    from datetime import date
-    from django.http import JsonResponse
-    from django.db import connection, transaction
-
     logger = logging.getLogger(__name__)
 
-    # parse JSON payload
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
     except Exception as e:
+        print("Invalid JSON payload:", e)
         return JsonResponse({"ok": False, "error": "Invalid JSON payload"}, status=400)
 
-    # auth check
     session_ldap = request.session.get("ldap_username")
     if not session_ldap:
+        print("Not authenticated")
         return JsonResponse({"ok": False, "error": "Not authenticated"}, status=403)
 
     month = payload.get("month")  # expected "YYYY-MM"
     allocations = payload.get("allocations", [])
     if not month:
+        print("Missing month in payload")
         return JsonResponse({"ok": False, "error": "Missing month"}, status=400)
 
-    # parse month into canonical billing_start / billing_end
     try:
         yy, mm = map(int, month.split("-"))
     except Exception:
+        print("Invalid month format:", month)
         return JsonResponse({"ok": False, "error": "Invalid month format (expected YYYY-MM)"}, status=400)
 
-    # Try to use helper get_billing_period if available; otherwise fallback to first/last day of month
     try:
         billing_start, billing_end = get_billing_period(yy, mm)
     except Exception:
-        # fallback: use first and last day of month
         billing_start = date(yy, mm, 1)
         last_day = calendar.monthrange(yy, mm)[1]
         billing_end = date(yy, mm, last_day)
 
-    # Normalize session_ldap to string
     session_ldap = str(session_ldap)
 
     try:
@@ -6253,23 +6254,74 @@ def save_tl_allocations(request):
                 for a in allocations or []:
                     reportee = (a.get("reportee") or "").strip()
                     if not reportee:
-                        # skip empty/invalid row
+                        print("Skipping allocation with empty reportee")
                         continue
 
                     project_id = a.get("project_id") or None
                     subproject_id = a.get("subproject_id") or None
                     try:
-                        hours = float(a.get("hours") or 0)
+                        base_hours = float(a.get("hours") or 0)
                     except Exception:
-                        hours = 0.0
+                        base_hours = 0.0
 
                     weeks = a.get("weeks") or []
-                    # coerce scalar to list
                     if not isinstance(weeks, (list, tuple)):
                         weeks = [weeks]
 
-                    # 1) find existing team_distributions row (match canonical billing_start window)
-                    # Use month_start BETWEEN billing_start AND billing_end to be robust if month_start values vary.
+                    # Normalize weeks: list of (week_number, percent)
+                    normalized_weeks = []
+                    if isinstance(weeks, (list, tuple)) and len(weeks) > 0 and isinstance(weeks[0], dict):
+                        for item in weeks:
+                            try:
+                                wn = int(item.get("week_number"))
+                                pv = float(item.get("percent") or 0)
+                                avail_hours = float(item.get("avail_hours") or base_hours)
+                                week_hours = round((pv / 100.0) * avail_hours, 2)
+                                normalized_weeks.append((wn, pv, avail_hours, week_hours))
+                            except Exception:
+                                print("Error normalizing week dict:", item)
+                                continue
+                    elif isinstance(weeks, (list, tuple)):
+                        for idx, item in enumerate(weeks):
+                            try:
+                                pv = float(item or 0)
+                            except Exception:
+                                pv = 0.0
+                            normalized_weeks.append((idx + 1, pv))
+                    else:
+                        try:
+                            pv = float(weeks)
+                            normalized_weeks.append((1, pv))
+                        except Exception:
+                            normalized_weeks = []
+
+                    # Calculate week hours and sum for team_distributions
+                    week_hours_map = {}
+                    total_hours = 0.0
+                    provided_week_numbers = []
+                    print(f"\nAllocating for reportee: {reportee}, base_hours: {base_hours}")
+                    for (wk_num, pct_val, avail_hours, week_hours) in normalized_weeks:
+                        try:
+                            wk_n = int(wk_num)
+                        except Exception:
+                            print("Invalid week number:", wk_num)
+                            continue
+                        try:
+                            pct_val = float(pct_val or 0)
+                        except Exception:
+                            pct_val = 0.0
+                        if pct_val < 0: pct_val = 0.0
+                        if pct_val > 100: pct_val = 100.0
+
+                        week_hours = round((pct_val / 100.0) * avail_hours, 2)
+                        week_hours_map[wk_n] = (week_hours, pct_val)
+                        total_hours += week_hours
+                        provided_week_numbers.append(wk_n)
+                        print(f"  Week {wk_n}: percent={pct_val}, hours={week_hours}")
+
+                    print(f"Total hours for team_distribution: {total_hours}")
+
+                    # Upsert team_distributions with total_hours
                     cur.execute("""
                         SELECT id
                         FROM team_distributions
@@ -6286,7 +6338,6 @@ def save_tl_allocations(request):
 
                     if found and found[0]:
                         tdid = int(found[0])
-                        # update the existing row
                         cur.execute("""
                             UPDATE team_distributions
                             SET project_id = %s,
@@ -6294,19 +6345,17 @@ def save_tl_allocations(request):
                                 hours = %s,
                                 updated_at = NOW()
                             WHERE id = %s
-                        """, [project_id, subproject_id, hours, tdid])
+                        """, [project_id, subproject_id, total_hours, tdid])
+                        print(f"Updated team_distribution id={tdid}")
                     else:
-                        # insert a new team_distributions row using canonical month_start
                         cur.execute("""
                             INSERT INTO team_distributions
                                 (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, created_at, updated_at)
                             VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-                        """, [billing_start, session_ldap, project_id, subproject_id, reportee, hours])
-                        # get inserted id
+                        """, [billing_start, session_ldap, project_id, subproject_id, reportee, total_hours])
                         try:
                             tdid = int(cur.lastrowid)
                         except Exception:
-                            # fallback: query the most recent matching row
                             cur.execute("""
                                 SELECT id FROM team_distributions
                                 WHERE LOWER(lead_ldap)=LOWER(%s) AND month_start BETWEEN %s AND %s
@@ -6317,55 +6366,14 @@ def save_tl_allocations(request):
                             """, [session_ldap, billing_start, billing_end, reportee, subproject_id, subproject_id])
                             r2 = cur.fetchone()
                             if not r2:
+                                print("Failed to determine team_distributions id after insert")
                                 raise RuntimeError("Failed to determine team_distributions id after insert")
                             tdid = int(r2[0])
+                        print(f"Inserted team_distribution id={tdid}")
 
-                    # 2) Normalize incoming weeks into (week_number, percent) tuples
-                    normalized_weeks = []
-                    if isinstance(weeks, (list, tuple)) and len(weeks) > 0 and isinstance(weeks[0], dict):
-                        # list of objects expected: {"week_number": 1, "percent": 25}
-                        for item in weeks:
-                            try:
-                                wn = int(item.get("week_number"))
-                                pv = float(item.get("percent") or 0)
-                                normalized_weeks.append((wn, pv))
-                            except Exception:
-                                continue
-                    elif isinstance(weeks, (list, tuple)):
-                        # plain list - treat as percentages mapped to week 1..N
-                        for idx, item in enumerate(weeks):
-                            try:
-                                pv = float(item or 0)
-                            except Exception:
-                                pv = 0.0
-                            normalized_weeks.append((idx + 1, pv))
-                    else:
-                        # scalar
-                        try:
-                            pv = float(weeks)
-                            normalized_weeks.append((1, pv))
-                        except Exception:
-                            normalized_weeks = []
-
-                    # 3) Upsert each provided week; collect provided week numbers
-                    provided_week_numbers = []
-                    for (wk_num, pct_val) in normalized_weeks:
-                        try:
-                            wk_n = int(wk_num)
-                        except Exception:
-                            continue
-                        try:
-                            pct_val = float(pct_val or 0)
-                        except Exception:
-                            pct_val = 0.0
-                        # clamp percent
-                        if pct_val < 0: pct_val = 0.0
-                        if pct_val > 100: pct_val = 100.0
-
-                        provided_week_numbers.append(wk_n)
-                        week_hours = round((pct_val / 100.0) * hours, 2)
-
-                        # Upsert into weekly_allocations by unique (team_distribution_id, week_number)
+                    # Upsert weekly_allocations for each week
+                    for wk_n, (week_hours, pct_val) in week_hours_map.items():
+                        print(f"  Saving weekly_allocation: week_number={wk_n}, hours={week_hours}, percent={pct_val}")
                         cur.execute("""
                             INSERT INTO weekly_allocations
                                 (team_distribution_id, week_number, hours, percent, status, created_at, updated_at)
@@ -6377,7 +6385,7 @@ def save_tl_allocations(request):
                                 updated_at = NOW()
                         """, [tdid, wk_n, week_hours, pct_val, 'PENDING'])
 
-                    # 4) Remove any weekly_allocations rows for this tdid not present in provided_week_numbers
+                    # Remove any weekly_allocations not in provided weeks
                     if provided_week_numbers:
                         placeholders = ",".join(["%s"] * len(provided_week_numbers))
                         delete_sql = f"""
@@ -6385,19 +6393,22 @@ def save_tl_allocations(request):
                             WHERE team_distribution_id = %s
                               AND week_number NOT IN ({placeholders})
                         """
+                        print(f"  Deleting weekly_allocations not in weeks: {provided_week_numbers}")
                         cur.execute(delete_sql, [tdid] + provided_week_numbers)
                     else:
-                        # none provided -> delete existing weekly allocations for this tdid
+                        print("  Deleting all weekly_allocations for team_distribution:", tdid)
                         cur.execute("DELETE FROM weekly_allocations WHERE team_distribution_id = %s", [tdid])
 
                     saved_rows += 1
 
+        print(f"\nTotal allocations saved: {saved_rows}")
         return JsonResponse({"ok": True, "saved": saved_rows})
     except Exception as ex:
         try:
             logger.exception("save_tl_allocations failed: %s", ex)
         except Exception:
             pass
+        print("Exception in save_tl_allocations:", ex)
         return JsonResponse({"ok": False, "error": str(ex)}, status=500)
 
 

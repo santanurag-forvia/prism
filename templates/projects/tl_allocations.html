@@ -439,7 +439,7 @@ th.week-header {
     <button class="feas-tab-btn active" role="tab" aria-selected="true" aria-controls="panel-one">Direct reportees summary</button>
     <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-two">Project View</button>
 <!--     <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-three" >PDL Allotment</button>-->
-      <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-four">PDL AllotmentUpdated</button>
+      <button class="feas-tab-btn" role="tab" aria-selected="false" aria-controls="panel-four">PDL Allotment</button>
   </div>
 
   <!-- Tab panels -->
@@ -1356,30 +1356,43 @@ if(prefill){
 
 
     function gatherAllocations(tableSelector){
-  const rows = [];
-  document.querySelectorAll(tableSelector + ' .alloc-row').forEach(tr => {
-    const tid = tr.getAttribute('data-team-dist-id') || null;
-    const reportee = tr.querySelector('.sel-resource, .sel-resource1')?.value || '';
-    const project_id = tr.querySelector('.sel-project')?.value || null;
-    const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
-    const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
-    const weekInputs = Array.from(tr.querySelectorAll('input.wpct'));
-    const weeks_payload = weekInputs.map(i => {
-      const wn = parseInt(i.getAttribute('data-week') || '0', 10) || 0;
-      const pv = parseFloat(i.value || 0) || 0;
-      return { week_number: wn, percent: parseFloat(pv.toFixed(2)) };
-    }).sort((a,b) => (a.week_number - b.week_number));
-    rows.push({
-      id: tid,
-      reportee: reportee,
-      project_id: project_id,
-      subproject_id: subproject_id,
-      hours: hours,
-      weeks: weeks_payload
-    });
-  });
-  return rows;
-}
+      const rows = [];
+      document.querySelectorAll(tableSelector + ' .alloc-row').forEach(tr => {
+        const tid = tr.getAttribute('data-team-dist-id') || null;
+        const reportee = tr.querySelector('.sel-resource, .sel-resource1')?.value || '';
+        const project_id = tr.querySelector('.sel-project')?.value || null;
+        const subproject_id = tr.querySelector('.sel-subproject')?.value || null;
+        const hours = parseFloat(tr.querySelector('.inp-hours')?.value || 0) || 0;
+        const weekInputs = Array.from(tr.querySelectorAll('input.wpct'));
+        const weeks_payload = weekInputs.map(i => {
+          const wn = parseInt(i.getAttribute('data-week') || '0', 10) || 0;
+          const pv = parseFloat(i.value || 0) || 0;
+          // Find the Avail. Weekly Hrs. input for this week
+          const availHrsInput = tr.querySelector(`.avail-weekly-hrs[data-week="${wn}"]`);
+          // If not found, fallback to max hours calculation
+          let avail_hours = 0;
+          if (availHrsInput) {
+            avail_hours = parseFloat(availHrsInput.value || availHrsInput.textContent || 0) || 0;
+          } else {
+            // Fallback: calculate max hours using working days for the week
+            const weekInfo = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(wn));
+            avail_hours = weekInfo ? +(8.75 * weekInfo.working_days).toFixed(2) : 0;
+          }
+          return { week_number: wn, percent: parseFloat(pv.toFixed(2)), avail_hours: avail_hours };
+        }).sort((a,b) => (a.week_number - b.week_number));
+        const week_perc = weeks_payload.map(w => w.percent);
+        rows.push({
+          id: tid,
+          reportee: reportee,
+          project_id: project_id,
+          subproject_id: subproject_id,
+          hours: hours,
+          weeks: weeks_payload,
+          week_perc: week_perc
+        });
+      });
+      return rows;
+    }
 
 
   // Validate monthly limit across all allocations before save.
@@ -1511,7 +1524,7 @@ if(prefill){
       if(data && data.ok){
           showAllocSuccessMsg('Allocation saved successfully');
         // reload to reflect server truth (idempotent upserts on server)
-        location.reload();
+        // location.reload(); -  Anurag commented this line to avoid page reload on save
       } else {
         alert('Save failed: ' + (data && data.error ? data.error : 'Unknown error'));
       }
