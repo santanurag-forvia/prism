@@ -5882,15 +5882,11 @@ def delete_team_distribution(request):
         print(f"delete_team_distribution failed: {e}")
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
-from django.views.decorators.http import require_GET, require_POST
 from django.shortcuts import render, redirect
-from django.http import JsonResponse
-from django.db import connection, transaction
-import json, logging
+from django.db import connection
+from datetime import date
+import json
 
-logger = logging.getLogger(__name__)
-
-@require_GET
 def tl_allocations_view(request):
     """
     Team Lead Free Allocations View
@@ -5898,87 +5894,113 @@ def tl_allocations_view(request):
     Shows all direct reportees (from LDAP) and any existing team distributions
     for the selected month_start, including weekly allocation splits.
     """
-    from datetime import date
-    import json
-
     session_ldap = request.session.get("ldap_username")
     session_pwd = request.session.get("ldap_password")
     if not request.session.get("is_authenticated") or not session_ldap:
         return redirect("accounts:login")
     creds = (session_ldap, session_pwd)
 
-    # -----------------------------------------------------------
     # Determine Billing Month / Period
-    # -----------------------------------------------------------
     month_str = request.GET.get("month")
     if not month_str:
         month_str = date.today().strftime("%Y-%m")
-
     try:
         y, m = map(int, month_str.split("-"))
         month_start = date(y, m, 1)
     except Exception:
         month_start = date.today().replace(day=1)
 
-    # -----------------------------------------------------------
+    def _get_billing_period_from_month(year, month):
+        """
+        Returns (billing_start, billing_end) for FEAS rules:
+        - Billing starts from the last Saturday before/on the 1st of the month (may be in previous month).
+        - Billing ends on the last Friday on/before the last day of the month.
+        - If the last day(s) of the month are Saturday/Sunday, they are NOT included in this month.
+        """
+        # Start: last Saturday before/on 1st of month
+        first = date(year, month, 1)
+        billing_start = first
+        while billing_start.weekday() != 5:  # 5 = Saturday
+            billing_start -= timedelta(days=1)
+
+        # End: last Friday on/before last day of month
+        if month == 12:
+            next_month = date(year + 1, 1, 1)
+        else:
+            next_month = date(year, month + 1, 1)
+        last = next_month - timedelta(days=1)
+        billing_end = last
+        while billing_end.weekday() != 4:  # 4 = Friday
+            billing_end -= timedelta(days=1)
+
+        return billing_start, billing_end
+
+    def _compute_weeks_for_billing(billing_start, billing_end):
+        """
+        Returns list of weeks (dicts with num, start, end) for the billing period.
+        Each week: Saturday to Friday, within billing_start to billing_end.
+        """
+        weeks = []
+        cur = billing_start
+        num = 1
+        while cur <= billing_end:
+            week_start = cur
+            week_end = min(cur + timedelta(days=6), billing_end)
+            weeks.append({
+                "num": num,
+                "start": week_start,
+                "end": week_end,
+            })
+            cur = week_end + timedelta(days=1)
+            num += 1
+        return weeks
+
+    # Helper: count working days (Mon-Fri, excluding holidays)
+    def _count_working_days(start_date, end_date, holidays_set):
+        wd = 0
+        cur = start_date
+        while cur <= end_date:
+            if cur.weekday() < 5 and cur.strftime("%Y-%m-%d") not in holidays_set:
+                wd += 1
+            cur += timedelta(days=1)
+        return wd
+
     # LDAP: Get Direct Reportees
-    # -----------------------------------------------------------
     reportees_entries = []
     try:
-        print("Importing LDAP utilities...")
         from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
-        print(f"Calling get_user_entry_by_username for: {session_ldap}")
         user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
-        print(f"user_entry: {user_entry}")
         entry_dn = getattr(user_entry, "entry_dn", None)
-        print(f"entry_dn: {entry_dn}")
-        print("Calling get_reportees_for_user_dn...")
-        reportees_entries = get_reportees_for_user_dn(
-            entry_dn,
-            username_password_for_conn=creds
-        ) or []
-        print(f"Fetched reportees_entries: {reportees_entries}")
-    except Exception as e:
-        print(f"LDAP fetch failed: {e}")
+        reportees_entries = get_reportees_for_user_dn(entry_dn, username_password_for_conn=creds) or []
+    except Exception:
         reportees_entries = []
 
-    # Normalize LDAP reportees into consistent dicts (handles dict or object from helper)
+    # Normalize LDAP reportees
     reportees_map = {}
     reportees_list = []
     for ent in reportees_entries:
-        mail = None;
-        cn = None;
-        sam = None
+        mail = None; cn = None; sam = None
         try:
             if isinstance(ent, dict):
                 mail = ent.get("mail") or ent.get("email") or ent.get("userPrincipalName")
                 cn = ent.get("cn") or ent.get("displayName")
                 sam = ent.get("sAMAccountName") or ent.get("sAMAccountName".lower())
             else:
-                mail = getattr(ent, "mail", None) or getattr(ent, "email", None) or getattr(ent, "userPrincipalName",
-                                                                                            None)
+                mail = getattr(ent, "mail", None) or getattr(ent, "email", None) or getattr(ent, "userPrincipalName", None)
                 cn = getattr(ent, "cn", None) or getattr(ent, "displayName", None)
                 sam = getattr(ent, "sAMAccountName", None)
         except Exception:
-            # be defensive — skip broken entries
             continue
-
         identifier = (mail or sam or "").strip()
         if not identifier:
-            # fall back to dn-based identity if present
             try:
-                if isinstance(ent, dict):
-                    dn = ent.get("dn")
-                else:
-                    dn = getattr(ent, "dn", None)
+                dn = ent.get("dn") if isinstance(ent, dict) else getattr(ent, "dn", None)
                 if dn:
                     identifier = dn.split(",")[0].replace("CN=", "").strip()
             except Exception:
                 identifier = None
-
         if not identifier:
             continue
-
         lid = identifier.lower()
         if lid not in reportees_map:
             reportees_map[lid] = {
@@ -5990,45 +6012,17 @@ def tl_allocations_view(request):
             }
             reportees_list.append(reportees_map[lid])
 
-    # -------------------------------
-    # NEW: determine if logged-in user is a PDL and build logged-in identity
-    # -------------------------------
-    # determine logged in ldap/email and display name
-    logged_ldap = None
-    logged_cn = None
-    # prefer session values (your app sets these)
-    if request.session.get("ldap_username"):
-        logged_ldap = request.session.get("ldap_username")
-        logged_cn = request.session.get("cn") or request.session.get("display_name") or logged_ldap
-    # fallback to Django user
-    if not logged_ldap and getattr(request, "user", None) and request.user.is_authenticated:
-        logged_ldap = getattr(request.user, "email", None) or getattr(request.user, "username", None)
-        try:
-            logged_cn = request.user.get_full_name() or logged_ldap
-        except Exception:
-            logged_cn = logged_ldap
-
-    # -------------------------------
-    # NEW (simpler): determine if logged-in user is a PDL using session['role']
-    # -------------------------------
+    # Determine if logged-in user is a PDL
+    logged_ldap = request.session.get("ldap_username")
+    logged_cn = request.session.get("cn") or request.session.get("display_name") or logged_ldap
     is_pdl = False
     try:
         role_val = (request.session.get('role') or "").strip()
-        # common cases: "PDL", "pdl", or compound roles like "PDL,MANAGER"
-        if role_val:
-            # normalize and check membership
-            role_norm = role_val.upper()
-            if role_norm == "PDL" or ",PDL" in "," + role_norm or "PDL," in role_norm or " PD L " in role_norm:
-                is_pdl = True
-            # also accept exact match or string that contains 'PDL'
-            elif "PDL" in role_norm:
-                is_pdl = True
+        role_norm = role_val.upper()
+        if role_norm == "PDL" or ",PDL" in "," + role_norm or "PDL," in role_norm or " PD L " in role_norm or "PDL" in role_norm:
+            is_pdl = True
     except Exception:
-        # defensive fallback — if anything goes wrong, assume not PDL
         is_pdl = False
-
-    print("is_pdl : ", is_pdl)
-    # If PDL, ensure logged-in user appears in reportees list (so PDL can allocate to self)
     if is_pdl and logged_ldap:
         lkey = (logged_ldap or "").lower()
         if lkey not in reportees_map:
@@ -6039,38 +6033,33 @@ def tl_allocations_view(request):
                 "total_hours": 0.0,
                 "fte": 0.0
             }
-            # insert at beginning so it's easy to find in dropdown
             reportees_list.insert(0, reportees_map[lkey])
-    # -------------------------------
-    # end NEW block
-    # -------------------------------
-
-    # remove self (lead) if present — only when NOT a PDL (PDL should be able to see themselves)
     session_ldap_l = (session_ldap or "").lower()
     if not is_pdl and session_ldap_l in reportees_map:
         reportees_list = [r for r in reportees_list if r["ldap"].lower() != session_ldap_l]
         reportees_map.pop(session_ldap_l, None)
 
-    # --- compute weeks info for template (WD and max%) -----------------------
-    # weeks list from existing helper: list of dicts {'num','start','end'}
-    pdate = _to_date(month_start)
-    yy = pdate.year;
-    mm = pdate.month
-    billing_start, billing_end = _get_billing_period_from_month(yy, mm)
+    # Compute weeks info for template
+    billing_start, billing_end = _get_billing_period_from_month(month_start.year, month_start.month)
     weeks = _compute_weeks_for_billing(billing_start, billing_end)
-    print("Billing start and end  : ", (billing_start, billing_end))
 
-    # fetch holidays between billing start/end
+    # Determine default week (current week if in billing period, else week 1)
+    today = date.today()
+    default_week_num = 1
+    for w in weeks:
+        if w["start"] <= today <= w["end"]:
+            default_week_num = w["num"]
+            break
+
+    # Fetch holidays
     with connection.cursor() as cur:
         cur.execute(
             "SELECT holiday_date FROM holidays WHERE holiday_date BETWEEN %s AND %s",
             [billing_start, billing_end]
         )
         holidays_rows = cur.fetchall() or []
-
     holidays_set = set()
     for hr in holidays_rows:
-        # hr may be tuple(date,) depending on cursor; handle defensively
         try:
             d = hr[0]
         except Exception:
@@ -6078,15 +6067,10 @@ def tl_allocations_view(request):
         if d:
             holidays_set.add(d.strftime("%Y-%m-%d"))
 
-    # total working days in billing (exclude holidays and weekends)
-    total_working_days = 0
-    for w in weeks:
-        wd = _count_working_days(w['start'], w['end'], holidays_set)
-        total_working_days += wd
-    if total_working_days == 0:
-        total_working_days = 1
+    # Total working days in billing
+    total_working_days = sum(_count_working_days(w['start'], w['end'], holidays_set) for w in weeks) or 1
 
-    # Build weeks_info array for template: week num, start/end strings, working_days, max_pct
+    # Build weeks_info array for template
     weeks_info = []
     for w in weeks:
         wd = _count_working_days(w['start'], w['end'], holidays_set)
@@ -6098,17 +6082,9 @@ def tl_allocations_view(request):
             "working_days": int(wd),
             "max_pct": float(max_pct)
         })
-
-    # pass JSON string to template
-    import json
     weeks_info_json = json.dumps(weeks_info)
 
-    # --- Add to template context later when calling render(...) ---
-    # example: context.update({"weeks_info": weeks_info, "weeks_info_json": weeks_info_json})
-
-    # -----------------------------------------------------------
     # Fetch Projects and Subprojects
-    # -----------------------------------------------------------
     with connection.cursor() as cur:
         cur.execute("""
             SELECT MIN(id) AS id,
@@ -6124,7 +6100,6 @@ def tl_allocations_view(request):
             {"id": r["id"], "name": r["name"], "bg_code": r["bg_code"], "project_id": r["project_id"]}
             for r in dictfetchall(cur)
         ]
-
         cur.execute("""
             SELECT id, project_id, name,
                    COALESCE(mdm_code, '') AS mdm_code,
@@ -6134,9 +6109,7 @@ def tl_allocations_view(request):
         """)
         subprojects = dictfetchall(cur)
 
-    # -----------------------------------------------------------
     # Monthly Team Distributions (core data for allocations)
-    # -----------------------------------------------------------
     with connection.cursor() as cur:
         cur.execute("""
             SELECT id, project_id, subproject_id, reportee_ldap, hours
@@ -6145,8 +6118,6 @@ def tl_allocations_view(request):
         """, [session_ldap, month_start])
         td_rows = dictfetchall(cur)
         td_ids = [r["id"] for r in td_rows if r.get("id")]
-
-        # Weekly splits
         weekly_map = {}
         if td_ids:
             placeholders = ",".join(["%s"] * len(td_ids))
@@ -6158,8 +6129,6 @@ def tl_allocations_view(request):
             for w in dictfetchall(cur):
                 tid = int(w["team_distribution_id"])
                 weekly_map.setdefault(tid, {})[int(w["week_number"])] = float(w["percent"] or 0)
-
-        # Monthly hours limit (for FTE calculation)
         cur.execute("""
             SELECT max_hours FROM monthly_hours_limit
             WHERE %s BETWEEN start_date AND end_date
@@ -6168,15 +6137,12 @@ def tl_allocations_view(request):
         mh = cur.fetchone()
         monthly_hours = float(mh[0]) if mh and mh[0] else 183.75
 
-    # -----------------------------------------------------------
     # Compute Totals & FTEs
-    # -----------------------------------------------------------
     for v in reportees_map.values():
         v["fte"] = round((v["total_hours"] / monthly_hours), 3) if monthly_hours else 0.0
-
     reportees_for_template = sorted(reportees_map.values(), key=lambda x: x["cn"].lower())
-    # --- Fetch existing TL allocations from DB (team_distributions + weekly_allocations) ---
-    # --- Fetch existing TL allocations from DB (team_distributions + weekly_allocations) ---
+
+    # Fetch existing TL allocations from DB (team_distributions + weekly_allocations)
     allocations = []
     with connection.cursor() as cur:
         cur.execute("""
@@ -6190,18 +6156,13 @@ def tl_allocations_view(request):
           ORDER BY td.id ASC
         """, [logged_ldap, billing_start, billing_end])
         rows = cur.fetchall() or []
-        print("Rows fetched : ",rows)
-    # rows are tuples (id, reportee_ldap, project_id, subproject_id, hours, week_data)
     for r in rows:
-        # defensive unpack
         tid = r[0]
         reportee_ldap = r[1]
         project_id = r[2]
         subproject_id = r[3]
         hours = float(r[4] or 0)
         week_data = r[5] or ""
-
-        # build week map {week_number: percent}
         week_map = {}
         if week_data:
             for pair in week_data.split(','):
@@ -6210,25 +6171,17 @@ def tl_allocations_view(request):
                     wkn = int(wk)
                     week_map[wkn] = float(val or 0)
                 except Exception:
-                    # skip malformed pair
                     continue
-
         allocations.append({
             "id": tid,
             "reportee_ldap": reportee_ldap,
             "project_id": project_id,
             "subproject_id": subproject_id,
             "hours": hours,
-            # keep order same as weeks_info so template inputs align
             "week_perc": [week_map.get(w["num"], 0.0) for w in weeks_info],
         })
-    print("Allocations : ", allocations)
-    # also pass JSON-encoded version for safe client-side use (template expects a JS array)
     allocations_json = json.dumps(allocations)
 
-    # -----------------------------------------------------------
-    # Render Page
-    # -----------------------------------------------------------
     return render(request, "projects/tl_allocations.html", {
         "billing_month": month_str,
         "reportees": reportees_for_template,
@@ -6240,6 +6193,7 @@ def tl_allocations_view(request):
         "allocations": allocations,
         "allocations_json": allocations_json,
         "monthly_hours": monthly_hours,
+        "default_week_num": default_week_num,
     })
 
 from django.views.decorators.http import require_POST
