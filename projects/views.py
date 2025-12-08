@@ -2766,6 +2766,46 @@ def _compute_weeks_for_billing(billing_start, billing_end):
     print(f"END: _compute_weeks_for_billing | total weeks={len(weeks)}")
     return weeks
 
+def compute_weeks_for_tl_punch_review(billing_start, billing_end):
+    """
+    Returns a list of dicts {num, start, end} for weeks starting Saturday, ending Friday,
+    covering the billing period [billing_start, billing_end].
+    If previous month's last day is Saturday/Sunday, start week 1 from that Saturday.
+    """
+    from datetime import date, timedelta, datetime
+
+    # Normalize to date if datetime
+    if isinstance(billing_start, datetime):
+        billing_start = billing_start.date()
+    if isinstance(billing_end, datetime):
+        billing_end = billing_end.date()
+
+    # Find previous month's last day
+    prev_month = billing_start.replace(day=1) - timedelta(days=1)
+    # If prev_month is Saturday or Sunday, find the last Saturday
+    if prev_month.weekday() in (5, 6):  # 5=Sat, 6=Sun
+        # Go back to Saturday if it's Sunday
+        start_sat = prev_month - timedelta(days=(prev_month.weekday() - 5))
+        cur_start = start_sat
+    else:
+        # Find first Saturday on or after billing_start
+        cur_start = billing_start
+        if cur_start.weekday() != 5:
+            cur_start += timedelta(days=(5 - cur_start.weekday()) % 7)
+
+    weeks = []
+    wknum = 1
+    MAX_WEEKS = 100
+
+    while cur_start <= billing_end and wknum <= MAX_WEEKS:
+        wk_end = cur_start + timedelta(days=6)
+        if wk_end > billing_end:
+            wk_end = billing_end  # truncate last week if billing ends before Friday
+        weeks.append({'num': wknum, 'start': cur_start, 'end': wk_end})
+        cur_start = cur_start + timedelta(days=7)
+        wknum += 1
+
+    return weeks
 
 def _get_billing_period_from_month(year, month):
     """
@@ -7211,14 +7251,19 @@ def tl_punch_review(request):
         print(f"Error getting billing period: {e}")
         billing_start, billing_end = month_start, None
 
-    weeks_list = get_weeks_for_month(billing_start, billing_end)
-    selected_week = request.GET.get("week", "all")
+    weeks_list = compute_weeks_for_tl_punch_review(billing_start, billing_end)
+    selected_week = request.GET.get("week")
     today = date.today()
     current_week = None
     for week in weeks_list:
         if week['start'] <= today <= week['end']:
             current_week = week['num']
             break
+
+    # Default to current week if not selected
+    if not selected_week or selected_week == "all":
+        selected_week = str(current_week) if current_week else "all"
+
     # Get reportees (reuse LDAP utility)
     from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
     creds = (session_ldap, request.session.get("ldap_password"))
@@ -7419,19 +7464,18 @@ def tl_punch_review(request):
             grouped_final[rep["ldap"]] = {}
     print("grouped keys ", grouped_final.keys())  # Should include all reportee ldaps
 
-
+    # Filter grouped_final to only show selected week
+    expand_all = False
     if selected_week != "all":
         selected_week_num = int(selected_week)
         for ldap in grouped_final:
-            # Only keep the selected week for each reportee
             grouped_final[ldap] = {
                 selected_week_num: grouped_final[ldap].get(selected_week_num, {})
             }
         expand_all = True
-    else:
-        expand_all = False
 
     grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
+
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,

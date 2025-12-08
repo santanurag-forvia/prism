@@ -15,29 +15,29 @@ MENU_TREE = [
         "roles": ["ADMIN", "PDL", "TEAM_LEAD", "COE_LEADER", "EMPLOYEE"],
     },
 
-    {
-        "key": "projects",
-        "title": "Projects",
-        "icon": "diagram-project",
-        "url": reverse_lazy("projects:list"),
-        "roles": ["ADMIN", "PDL", "COE_LEADER", "TEAM_LEAD"],
-        "submenus": [
-            {
-                "key": "projects_list",
-                "title": "Projects List",
-                "icon": "list",
-                "url": reverse_lazy("projects:list"),
-                "roles": ["ADMIN", "PDL"],
-            },
-            {
-                "key": "create_project",
-                "title": "Edit Project",
-                "icon": "pen-to-square",
-                "url": reverse_lazy("projects:edit_default"),
-                "roles": ["ADMIN", "PDL"],
-            },
-        ],
-    },
+    # {
+    #     "key": "projects",
+    #     "title": "Projects",
+    #     "icon": "diagram-project",
+    #     "url": reverse_lazy("projects:list"),
+    #     "roles": ["ADMIN", "PDL", "COE_LEADER", "TEAM_LEAD"],
+    #     "submenus": [
+    #         {
+    #             "key": "projects_list",
+    #             "title": "Projects List",
+    #             "icon": "list",
+    #             "url": reverse_lazy("projects:list"),
+    #             "roles": ["ADMIN", "PDL"],
+    #         },
+    #         {
+    #             "key": "create_project",
+    #             "title": "Edit Project",
+    #             "icon": "pen-to-square",
+    #             "url": reverse_lazy("projects:edit_default"),
+    #             "roles": ["ADMIN", "PDL"],
+    #         },
+    #     ],
+    # },
     {
         "key": "resources",
         "title": "Resource Management",
