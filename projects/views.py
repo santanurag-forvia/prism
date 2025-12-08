@@ -450,10 +450,10 @@ def get_billing_period(year: int, month: int):
     """
     Fetch billing cycle start_date and end_date from monthly_hours_limit.
     Fallback to calendar month start/end when DB values are missing.
+    FEAS rule: If the first day of the month is not Saturday, include the last Saturday and Sunday of the previous month as the billing period start.
     Returns: (billing_start: date, billing_end: date)
     """
     billing_start = date(year, month, 1)
-    # compute last day of month
     next_month = (billing_start.replace(day=28) + timedelta(days=4)).replace(day=1)
     billing_end = next_month - timedelta(days=1)
 
@@ -471,20 +471,24 @@ def get_billing_period(year: int, month: int):
             if row:
                 db_start = _to_date(row[0])
                 db_end = _to_date(row[1])
-
-                # Use DB values where present, otherwise fallback to calendar values
                 if db_start:
                     billing_start = db_start
                 if db_end:
                     billing_end = db_end
-
                 print("Using billing period from monthly_hours_limit: ", billing_start, billing_end)
-                return billing_start, billing_end
-
     except Exception:
         logger.exception("Error reading billing period from monthly_hours_limit; using calendar fallback")
 
-    logger.info("Fallback billing period (calendar month): %s -> %s", billing_start, billing_end)
+    # FEAS adjustment: ensure billing_start is the last Saturday before or on the 1st of the month
+    # If billing_start is not Saturday, go back to previous Saturday
+    if billing_start.weekday() != 5:  # 5 = Saturday
+        # Go back to previous Saturday
+        billing_start = billing_start - timedelta(days=(billing_start.weekday() + 2) % 7)
+    # If billing_start is Sunday, include Saturday as well
+    elif billing_start.weekday() == 6:  # 6 = Sunday
+        billing_start = billing_start - timedelta(days=1)
+
+    logger.info("Adjusted billing period (FEAS): %s -> %s", billing_start, billing_end)
     return billing_start, billing_end
 
 
@@ -7423,27 +7427,33 @@ def tl_punch_review(request):
     # --- Build final grouped structure for template ---
     day_names = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
     grouped_final = {}
+
+    def get_week_obj(week_num):
+        for idx, w in enumerate(weeks_list, 1):
+            if idx == week_num:
+                return w
+        return None
+
     for ldap, weeks in grouped.items():
         grouped_final[ldap] = {}
         for week_num, projects in weeks.items():
+            week_obj = get_week_obj(week_num)
+            if not week_obj:
+                continue
+            week_dates = [week_obj['start'] + timedelta(days=i) for i in range(7)]
             grouped_final[ldap][week_num] = {}
             for project, subprojects in projects.items():
                 grouped_final[ldap][week_num][project] = {}
                 for subproject, punches in subprojects.items():
-                    # Build punches_by_day for this punch row
-                    punches_by_day = {day: None for day in day_names}
-                    for punch in punches:
-                        day = punch["punch_date"].strftime("%a")
-                        if day in punches_by_day:
-                            punches_by_day[day] = punch
-
-                    # Compute statuses for this punch row
+                    punches_by_day = {}
+                    for d in week_dates:
+                        punch = next((p for p in punches if p['punch_date'] == d), None)
+                        punches_by_day[d.strftime("%a")] = punch
                     statuses = [p["status"] for p in punches]
                     all_approved = bool(statuses) and all(s == "APPROVED" for s in statuses)
                     all_draft = bool(statuses) and all(s == "DRAFT" for s in statuses)
                     any_submitted = any(s == "SUBMITTED" for s in statuses)
                     any_approved = any(s == "APPROVED" for s in statuses)
-
                     grouped_final[ldap][week_num][project][subproject] = {
                         "punch_list": punches,
                         "punches_by_day": punches_by_day,
