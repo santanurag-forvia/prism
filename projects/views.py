@@ -2813,21 +2813,35 @@ def compute_weeks_for_tl_punch_review(billing_start, billing_end):
 
 def _get_billing_period_from_month(year, month):
     """
-    Try to read monthly_hours_limit or fallback to calendar month boundaries.
-    Returns (start_date, end_date) as date objects.
+    Returns canonical billing period (start_date, end_date) for a given year/month.
+    Uses FEAS logic: DB override from monthly_hours_limit, then adjusts start date
+    to include last Saturday/Sunday of previous month if needed.
     """
+    from datetime import timedelta
+
+    # Try DB override first
     with connection.cursor() as cur:
-        cur.execute("SELECT start_date, end_date FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1", [year, month])
+        cur.execute(
+            "SELECT start_date, end_date FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1",
+            [year, month]
+        )
         r = cur.fetchone()
         if r and r[0] and r[1]:
-            return _to_date(r[0]), _to_date(r[1])
-    # fallback
-    start = date(year, month, 1)
-    if month == 12:
-        end = date(year + 1, 1, 1) - timedelta(days=1)
-    else:
-        end = date(year, month + 1, 1) - timedelta(days=1)
-    return start, end
+            start = _to_date(r[0])
+            end = _to_date(r[1])
+
+            # FEAS adjustment: if start is not Saturday, check previous month's last day
+            if start.weekday() != 5:  # 5 = Saturday
+                prev_month_last = start.replace(day=1) - timedelta(days=1)
+                if prev_month_last.weekday() in (5, 6):  # Saturday or Sunday
+                    # Go back to Saturday if it's Sunday
+                    sat = prev_month_last - timedelta(days=(prev_month_last.weekday() - 5))
+                    start = sat
+            return start, end
+
+    # Fallback: use FEAS canonical logic
+    billing_start, billing_end = get_billing_period(year, month)
+    return billing_start, billing_end
 
 # -------------------------
 # my_allocations view
@@ -3227,6 +3241,19 @@ def _generate_weeks_for_month(billing_start: date, billing_end: date):
         cur = w_end + timedelta(days=1)
     return weeks
 
+from datetime import datetime
+from decimal import Decimal
+from django.http import JsonResponse
+from django.db import connection, transaction
+
+def _extract_year_month(payload):
+    # Helper to extract year/month from payload or month_start string
+    month_start_str = payload.get("month_start")
+    if month_start_str:
+        dt = datetime.strptime(month_start_str, "%Y-%m-%d").date()
+        return dt.year, dt.month
+    return int(payload.get("year") or 0), int(payload.get("month") or 0)
+
 @require_POST
 def bulk_update_week_status(request):
     if not request.session.get("is_authenticated"):
@@ -3238,43 +3265,19 @@ def bulk_update_week_status(request):
         return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
 
     status = payload.get("status")
-    year = int(payload.get("year") or 0)
-    month = int(payload.get("month") or 0)
     week_num = int(payload.get("week_num") or 0)
-
-    month_start_str = payload.get("month_start")
-    billing_start = None
-    billing_end = None
-
-    if month_start_str:
-        try:
-            billing_start = datetime.strptime(month_start_str, "%Y-%m-%d").date()
-        except ValueError:
-            return JsonResponse({"ok": False, "error": "Invalid month_start"}, status=400)
-        billing_end_str = payload.get("billing_end")
-        if billing_end_str:
-            try:
-                billing_end = datetime.strptime(billing_end_str, "%Y-%m-%d").date()
-            except ValueError:
-                return JsonResponse({"ok": False, "error": "Invalid billing_end"}, status=400)
-        else:
-            billing_end = _month_start_end_from_ym(billing_start.year, billing_start.month)[1]
-    else:
-        if not (year and month):
-            return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
-        billing_start, billing_end = _month_start_end_from_ym(year, month)
-
-    weeks = _generate_weeks_for_month(billing_start, billing_end)
-    if not weeks:
-        return JsonResponse({"ok": False, "error": "No weeks generated for month"}, status=400)
-
-    week_obj = next((w for w in weeks if int(w["num"]) == int(week_num)), None)
-    if not week_obj:
-        return JsonResponse({"ok": False, "error": "Week not found for month"}, status=400)
-
     rows = payload.get("rows") or []
     if not rows:
         return JsonResponse({"ok": False, "error": "No rows selected"}, status=400)
+
+    # Canonical billing period
+    year, month = _extract_year_month(payload)
+    if not (year and month):
+        return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
+    billing_start, billing_end = _get_billing_period_from_month(year, month)
+
+    # Use canonical billing_start as month_start for all upserts
+    month_start = billing_start.isoformat()
 
     zero_rows = []
     for r in rows:
@@ -3302,26 +3305,17 @@ def bulk_update_week_status(request):
             subproj_id = int(r.get("subproject_id") or 0)
             user_email = request.session.get('ldap_username')
             punch_data = r.get("punch_data", [])
-
             if not tdid:
                 continue
-
-
             for pd in punch_data:
                 punch_date = pd.get("punch_date")
                 punched_hours = Decimal(str(pd.get("punched_hours", 0)))
                 if not punch_date or punched_hours == 0:
                     continue
-
-                # Required fields
-                month_start = payload.get("month_start")
-                allocated_hours = Decimal(str(r.get("allocated_hours", 0)))  # fallback to 0 if not present
-
-                print(f"Upserting punch_data: user_email={user_email}, tdid={tdid}, proj_id={proj_id}, subproj_id={subproj_id}, month_start={month_start}, punch_date={punch_date}, allocated_hours={allocated_hours}, punched_hours={punched_hours}, status={status}")
-
+                allocated_hours = Decimal(str(r.get("allocated_hours", 0)))
                 sql = """
                     INSERT INTO punch_data
-                        (user_email, team_distribution_id, project_id, subproject_id, month_start, punch_date,  punched_hours, status, updated_at)
+                        (user_email, team_distribution_id, project_id, subproject_id, month_start, punch_date, punched_hours, status, updated_at)
                     VALUES
                         (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON DUPLICATE KEY UPDATE
@@ -3330,10 +3324,8 @@ def bulk_update_week_status(request):
                         updated_at = NOW()
                 """
                 params = (
-                    user_email, tdid, proj_id, subproj_id, month_start, punch_date,  punched_hours, status
+                    user_email, tdid, proj_id, subproj_id, month_start, punch_date, punched_hours, status
                 )
-                print("SQL:", sql)
-                print("Params:", params)
                 cur.execute(sql, params)
                 updated += cur.rowcount
 
@@ -3341,64 +3333,24 @@ def bulk_update_week_status(request):
 
 @require_http_methods(["POST"])
 def save_effort_draft(request):
-    """
-    Save draft effort data with validation against allocated hours (day-wise).
-    Expects JSON:
-    {
-        "efforts": [
-            ...
-        ]
-    }
-    """
     user_email = request.session.get("ldap_username")
-    print(f"[save_effort_draft] user_email from session: {user_email}")
     if not user_email:
-        print("[save_effort_draft] Not authenticated")
         return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
 
     try:
-        print(f"[save_effort_draft] Raw request.body: {request.body}")
         data = json.loads(request.body)
-        print(f"[save_effort_draft] Parsed JSON data: {data}")
         efforts = data.get('efforts', [])
-        print(f"[save_effort_draft] efforts: {efforts}")
         if not efforts:
-            print("[save_effort_draft] No efforts provided in request")
             return JsonResponse({'ok': False, 'error': 'No efforts provided'}, status=400)
 
-        errors = []
-        # Validation: For each week, sum daily punches and compare to allocated hours
-        for effort in efforts:
-            print(f"[save_effort_draft] Processing effort: {effort}")
-            tdid = int(effort.get('team_distribution_id', 0))
-            week_num = int(effort.get('week_number', 0))
-            days = effort.get('days', [])
-            print(f"[save_effort_draft] tdid={tdid}, week_num={week_num}, days={days}")
-            total_punched = Decimal('0.00')
-            for day in days:
-                print(f"[save_effort_draft]   Day: {day}")
-                try:
-                    punched = Decimal(str(day.get('punched_hours', '0.00')))
-                except Exception as ex:
-                    print(f"[save_effort_draft]   Error parsing punched_hours: {ex}")
-                    punched = Decimal('0.00')
-                total_punched += punched
-            # Get allocated hours for this week
-            allocated_hours = Decimal('0.00')
-            with connection.cursor() as cur:
-                cur.execute("""
-                    SELECT hours FROM weekly_allocations
-                    WHERE team_distribution_id=%s AND week_number=%s
-                """, [tdid, week_num])
-                row = cur.fetchone()
-                if row and row[0]:
-                    allocated_hours = Decimal(str(row[0]))
-            print(f"[save_effort_draft]   total_punched={total_punched}, allocated_hours={allocated_hours}")
-
-
-        if errors:
-            print(f"[save_effort_draft] Validation errors: {errors}")
-            return JsonResponse({'ok': False, 'error': 'Validation failed', 'details': errors}, status=400)
+        # Canonical billing period
+        # Assume all efforts are for the same month
+        first_effort = efforts[0] if efforts else {}
+        year, month = _extract_year_month(first_effort)
+        if not (year and month):
+            return JsonResponse({'ok': False, 'error': 'Missing year/month or month_start'}, status=400)
+        billing_start, billing_end = _get_billing_period_from_month(year, month)
+        month_start = billing_start.isoformat()
 
         # Save: upsert punch_data row for each day
         with transaction.atomic():
@@ -3407,15 +3359,12 @@ def save_effort_draft(request):
                 week_num = int(effort.get('week_number', 0))
                 project_id = effort.get('project_id')
                 subproject_id = effort.get('subproject_id')
-                month_start = effort.get('month_start')
                 days = effort.get('days', [])
-                print(f"[save_effort_draft] Saving effort: tdid={tdid}, week_num={week_num}, project_id={project_id}, subproject_id={subproject_id}, month_start={month_start}")
                 for day in days:
                     punch_date = day.get('punch_date')
                     punched_hours = Decimal(str(day.get('punched_hours', '0.00')))
                     allocated_hours = Decimal(str(day.get('allocated_hours', '0.00')))
                     percent_effort = day.get('percent_effort')
-                    print(f"[save_effort_draft]   Upserting punch_data: punch_date={punch_date}, punched_hours={punched_hours}, allocated_hours={allocated_hours}, percent_effort={percent_effort}")
                     with connection.cursor() as cur:
                         cur.execute("""
                             INSERT INTO punch_data
@@ -3431,14 +3380,11 @@ def save_effort_draft(request):
                             user_email, tdid, project_id, subproject_id, month_start, punch_date,
                             allocated_hours, punched_hours, percent_effort
                         ])
-        print("[save_effort_draft] Draft saved successfully")
         return JsonResponse({'ok': True, 'message': 'Draft saved successfully'})
 
     except json.JSONDecodeError:
-        print("[save_effort_draft] Invalid JSON")
         return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        print(f"[save_effort_draft] Error: {e}")
         logger.error(f"Error saving draft: {e}", exc_info=True)
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
@@ -6238,6 +6184,7 @@ def save_tl_allocations(request):
 
     try:
         billing_start, billing_end = get_billing_period(yy, mm)
+
     except Exception:
         billing_start = date(yy, mm, 1)
         last_day = calendar.monthrange(yy, mm)[1]
@@ -7181,6 +7128,12 @@ def dict_keys_to_str(d):
     else:
         return d
 
+from datetime import date, timedelta
+from django.shortcuts import render, redirect
+from django.db import connection
+from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
+from collections import defaultdict
+
 @require_GET
 def tl_punch_review(request):
     print("==> tl_punch_review called")
@@ -7202,12 +7155,14 @@ def tl_punch_review(request):
         month_start = date.today().replace(day=1)
         month_str = month_start.strftime("%Y-%m")
 
-    # Get billing period (FEAS logic: Saturday–Friday weeks)
+    # Use canonical FEAS billing period logic
     try:
-        billing_start, billing_end = get_billing_period(month_start.year, month_start.month)
+        billing_start, billing_end = _get_billing_period_from_month(month_start.year, month_start.month)
     except Exception as e:
         print(f"Error getting billing period: {e}")
         billing_start, billing_end = month_start, None
+
+    canonical_month_start = billing_start
 
     weeks_list = compute_weeks_for_tl_punch_review(billing_start, billing_end)
     selected_week = request.GET.get("week")
@@ -7218,12 +7173,10 @@ def tl_punch_review(request):
             current_week = week['num']
             break
 
-    # Default to current week if not selected
     if not selected_week or selected_week == "all":
         selected_week = str(current_week) if current_week else "all"
 
     # Get reportees (reuse LDAP utility)
-    from accounts.ldap_utils import get_user_entry_by_username, get_reportees_for_user_dn
     creds = (session_ldap, request.session.get("ldap_password"))
     try:
         user_entry = get_user_entry_by_username(session_ldap, username_password_for_conn=creds)
@@ -7264,25 +7217,25 @@ def tl_punch_review(request):
 
     print(f"Final reportees list: {[r['ldap'] for r in reportees]}")
 
-    # Get month limit for FTE calculation
+    # Get month limit for FTE calculation (use canonical month_start)
     with connection.cursor() as cur:
         cur.execute(
             "SELECT max_hours FROM monthly_hours_limit WHERE year=%s AND month=%s",
-            [month_start.year, month_start.month]
+            [canonical_month_start.year, canonical_month_start.month]
         )
         row = cur.fetchone()
         month_limit = float(row[0]) if row and row[0] else 173.0
     print(f"Month limit for FTE: {month_limit}")
 
-    # Fetch all punch data for reportees for the month
+    # Fetch all punch data for reportees for the canonical billing period
     reportee_ldaps = [r["ldap"].lower() for r in reportees]
     print(f"Reportee ldaps for punch fetch: {reportee_ldaps}")
-    print("Month start for punch fetch:", month_start)
+    print("Month start for punch fetch:", canonical_month_start)
     punch_records = []
     if reportee_ldaps:
         placeholders = ",".join(["%s"] * len(reportee_ldaps))
         with connection.cursor() as cur:
-            print(f"Running punch_data query for month_start={month_start} and reportees={reportee_ldaps}")
+            print(f"Running punch_data query for month_start={canonical_month_start} and reportees={reportee_ldaps}")
             cur.execute(f"""
                 SELECT pd.id, pd.user_email, pd.project_id, pd.subproject_id, pd.punch_date,
                        pd.allocated_hours, pd.punched_hours, pd.status, pd.comments,
@@ -7292,7 +7245,7 @@ def tl_punch_review(request):
                 LEFT JOIN subprojects sp ON pd.subproject_id = sp.id
                 WHERE pd.month_start = %s AND LOWER(pd.user_email) IN ({placeholders})
                 ORDER BY pd.user_email, pd.punch_date, pd.project_id, pd.subproject_id
-            """, [month_start] + reportee_ldaps)
+            """, [canonical_month_start] + reportee_ldaps)
             columns = [col[0] for col in cur.description]
             punch_records = [dict(zip(columns, row)) for row in cur.fetchall()]
     print(f"Fetched {len(punch_records)} punch records")
@@ -7308,7 +7261,7 @@ def tl_punch_review(request):
                 FROM team_distributions td
                 JOIN weekly_allocations wa ON wa.team_distribution_id = td.id
                 WHERE td.month_start = %s AND LOWER(td.reportee_ldap) IN ({placeholders})
-            """, [month_start] + reportee_ldaps)
+            """, [canonical_month_start] + reportee_ldaps)
             for row in cur.fetchall():
                 key = (
                     (row[0] or "").lower(),
@@ -7319,16 +7272,12 @@ def tl_punch_review(request):
                 tl_alloc_map[key] = float(row[4] or 0)
 
     # --- Group and attach TL allocation and Act. Effort ---
-    from collections import defaultdict
-
     grouped = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))))
     fte_totals = defaultdict(float)
 
-    # Helper: get week number for a date
     def get_week_num(punch_date):
         return month_day_to_week_number_for_period(punch_date, billing_start, billing_end)
 
-    # Build grouping and sum for act_effort
     act_effort_map = defaultdict(float)
     for row in punch_records:
         ldap = row["user_email"].lower()
@@ -7338,11 +7287,9 @@ def tl_punch_review(request):
         project = row.get("project_name") or "None"
         subproject = row.get("subproject_name") or "None"
         punched_hours = float(row.get("punched_hours") or 0)
-        # Sum for act_effort
         act_effort_key = (ldap, project_id, subproject_id, week_number)
         act_effort_map[act_effort_key] += punched_hours
 
-    # Now build grouped and attach tl_allocation/act_effort to first punch in each group
     for row in punch_records:
         ldap = row["user_email"].lower()
         week_number = get_week_num(row["punch_date"])
@@ -7364,7 +7311,6 @@ def tl_punch_review(request):
         grouped[ldap][week_number][project][subproject].append(punch)
         fte_totals[ldap] += float(row.get("punched_hours") or 0)
 
-    # Attach tl_allocation and act_effort to the first punch in each group
     for ldap, weeks in grouped.items():
         for week_num, projects in weeks.items():
             for project, subprojects in projects.items():
@@ -7378,7 +7324,6 @@ def tl_punch_review(request):
                         punches[0]["tl_allocation"] = tl_allocation
                         punches[0]["act_effort"] = act_effort
 
-    # --- Build final grouped structure for template ---
     day_names = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
     grouped_final = {}
 
@@ -7417,7 +7362,6 @@ def tl_punch_review(request):
                         "any_approved": any_approved,
                     }
 
-    # Normalize FTE by month_limit
     for ldap in fte_totals:
         fte_totals[ldap] = round(fte_totals[ldap] / float(month_limit or 1), 2)
 
@@ -7426,9 +7370,8 @@ def tl_punch_review(request):
     for rep in reportees:
         if rep["ldap"] not in grouped_final:
             grouped_final[rep["ldap"]] = {}
-    print("grouped keys ", grouped_final.keys())  # Should include all reportee ldaps
+    print("grouped keys ", grouped_final.keys())
 
-    # Filter grouped_final to only show selected week
     expand_all = False
     if selected_week != "all":
         selected_week_num = int(selected_week)
@@ -7437,6 +7380,16 @@ def tl_punch_review(request):
                 selected_week_num: grouped_final[ldap].get(selected_week_num, {})
             }
         expand_all = True
+
+    def dict_keys_to_str(d):
+        if isinstance(d, dict):
+            if 'punch_id' in d:
+                return d
+            return {str(k): dict_keys_to_str(v) for k, v in d.items()}
+        elif isinstance(d, list):
+            return [dict_keys_to_str(i) for i in d]
+        else:
+            return d
 
     grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
 
