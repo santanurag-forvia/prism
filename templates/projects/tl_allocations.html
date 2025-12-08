@@ -682,7 +682,7 @@ th.week-header {
         <select id="weekSelector" class="input" style="min-width: 120px;">
           {% for w in weeks_info %}
             <option value="{{ w.num }}"
-              {% if w.num == current_week_num %}selected{% endif %}>
+              {% if w.num == default_week_num %}selected{% endif %}>
               W{{ w.num }} ({{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }})
             </option>
           {% endfor %}
