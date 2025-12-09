@@ -3179,7 +3179,7 @@ def my_allocations(request):
         'add_allocation_url': reverse('projects:add_self_allocation'),
         'get_projects_url': reverse('projects:get_projects_for_allocation'),
         'day_order': day_order,
-        'is_eu_user': is_eu_user,  # <-- Add this line
+        'is_eu_user': True #is_eu_user,  # <-- Add this line
     }
     return render(request, 'projects/my_allocations.html', context)
 

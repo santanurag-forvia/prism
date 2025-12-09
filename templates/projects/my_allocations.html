@@ -1026,8 +1026,10 @@
                 </th>
                 <th style="width:18%;">Program</th>
                 <th style="width:18%;">Project</th>
-                <th style="width:8%;">TL Allocation</th>
-                <th style="width:8%;">Act. Effort</th>
+                {% if not is_eu_user %}
+                    <th style="width:8%;">TL Allocation</th>
+                    <th style="width:8%;">Act. Effort</th>
+                {% endif %}
                 {% for ab in day_order %}
                   <th style="width:6%;">
                     {{ ab }}{% if is_eu_user %} %{% endif %}
@@ -1052,14 +1054,10 @@
 
                 <td>{{ row.project_name }}</td>
                 <td>{{ row.subproject_name }}</td>
-                <td class="tl-allocation">{{ row.tl_allocation_hours }}h</td>
-                <td class="actual-weekly-effort">
-                  {% if is_eu_user %}
-                    0.00
-                  {% else %}
-                    {{ row.actual_effort }}
-                  {% endif %}
-                </td>
+                {% if not is_eu_user %}
+                    <td class="tl-allocation">{{ row.tl_allocation_hours }}h</td>
+                    <td class="actual-weekly-effort">{{ row.actual_effort }}</td>
+                {% endif %}
 
                 {% for slot in row.day_slots %}
                 <td>
