@@ -61,15 +61,19 @@
                       <th>Week #</th>
                       <th>Project</th>
                       <th>Subproject</th>
-                      <th>TL Allocation</th>
-                      <th>Act. Effort</th>
-                      <th>Sat</th>
-                      <th>Sun</th>
-                      <th>Mon</th>
-                      <th>Tue</th>
-                      <th>Wed</th>
-                      <th>Thu</th>
-                      <th>Fri</th>
+                      {% if not is_eu_user %}
+                        <th>TL Allocation</th>
+                        <th>Act. Effort</th>
+                      {% endif %}
+                      {% for day in day_names %}
+                        <th>
+                          {% if is_eu_user %}
+                            {{ day }}%
+                          {% else %}
+                            {{ day }}
+                          {% endif %}
+                        </th>
+                      {% endfor %}
                     </tr>
                   </thead>
                   <tbody>
@@ -87,8 +91,10 @@
                             <td>W{{ week_number }}</td>
                             <td>{{ project }}</td>
                             <td>{{ subproject }}</td>
-                            <td>{{ punch_row.punch_list.0.tl_allocation|default:"0" }}</td>
-                            <td>{{ punch_row.punch_list.0.act_effort|default:"0" }}</td>
+                            {% if not is_eu_user %}
+                              <td>{{ punch_row.punch_list.0.tl_allocation|default:"0" }}</td>
+                              <td>{{ punch_row.punch_list.0.act_effort|default:"0" }}</td>
+                            {% endif %}
                             {% for day in day_names %}
                             <td>
                               {% with punch=punch_row.punches_by_day|get_item:day %}
@@ -272,7 +278,25 @@
                          globalBtn.querySelector(".expand-icon").classList.add("fa-plus");
                      }
                  });
-
+                // --- Calculate and update Act. Effort for each row ---
+                document.querySelectorAll(".week-row").forEach(function(row) {
+                    function updateActualEffort() {
+                        let sum = 0;
+                        const tlAllocationCell = row.querySelector(".tl-allocation");
+                        let tlAllocation = tlAllocationCell ? parseFloat(tlAllocationCell.textContent) : 0;
+                        row.querySelectorAll(".punch-input").forEach(function(input) {
+                            sum += parseFloat(input.value) || 0;
+                        });
+                        const percent = tlAllocation > 0 ? (sum / tlAllocation) * 100 : 0;
+                        const cell = row.querySelector(".actual-weekly-effort");
+                        if (cell) cell.textContent = `${sum.toFixed(2)} (${percent.toFixed(2)}%)`;
+                    }
+                    row.querySelectorAll(".punch-input").forEach(function(input) {
+                        input.addEventListener("input", updateActualEffort);
+                        input.addEventListener("blur", updateActualEffort);
+                    });
+                    updateActualEffort();
+                });
               // Approve button handler
               document.querySelectorAll(".approve-btn").forEach(function(btn) {
                   btn.addEventListener("click", function(e) {
@@ -445,6 +469,28 @@
                 const url = new URL(window.location.href);
                 url.searchParams.set('week', this.value);
                 window.location.href = url.toString();
+            });
+        }
+    });
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const isEuUser = {{ is_eu_user|yesno:"true,false" }};
+        const HOURS_PER_DAY = 8.75;
+        if (isEuUser) {
+            document.querySelectorAll('.feas-tl-review-punch-input').forEach(function(input) {
+                // Convert hours to percent for display
+                if (input.value !== '') {
+                    let hours = parseFloat(input.value);
+                    let percent = hours > 0 ? (hours / HOURS_PER_DAY) * 100 : 0;
+                    input.value = percent ? percent.toFixed(2) : '';
+                }
+                // On blur, keep two decimals
+                input.addEventListener('blur', function () {
+                    if (this.value !== '') {
+                        this.value = parseFloat(this.value).toFixed(2);
+                    }
+                });
             });
         }
     });
@@ -766,4 +812,5 @@ body {
         gap: 20px;
     }
 </style>
+
 {% endblock %}

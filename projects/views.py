@@ -3256,35 +3256,42 @@ def _extract_year_month(payload):
 
 @require_POST
 def bulk_update_week_status(request):
+    print("=== bulk_update_week_status called ===")
     if not request.session.get("is_authenticated"):
+        print("User not authenticated")
         return JsonResponse({"ok": False, "error": "Unauthorized"}, status=401)
 
     try:
         payload = json.loads(request.body.decode("utf-8"))
-    except Exception:
+        print("Received payload from frontend:", payload)
+    except Exception as e:
+        print("Error decoding JSON:", e)
         return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
 
     status = payload.get("status")
     week_num = int(payload.get("week_num") or 0)
     rows = payload.get("rows") or []
+    print(f"Status: {status}, Week Num: {week_num}, Rows count: {len(rows)}")
     if not rows:
+        print("No rows selected in payload")
         return JsonResponse({"ok": False, "error": "No rows selected"}, status=400)
 
-    # Canonical billing period
     year, month = _extract_year_month(payload)
-    print("[bulk_update_week_status] year:", year, "month:", month)
+    print(f"Extracted year: {year}, month: {month}")
     if not (year and month):
+        print("Missing year/month or month_start in payload")
         return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
     billing_start, billing_end = _get_billing_period_from_month(year, month)
-    print("[bulk_update_week_status] billing_start:", billing_start, "billing_end:", billing_end)
+    print(f"Billing period: start={billing_start}, end={billing_end}")
 
-    # Use canonical billing_start as month_start for all upserts
     month_start = billing_start.isoformat()
+    print(f"Using month_start for upserts: {month_start}")
 
     zero_rows = []
     for r in rows:
         punch_data = r.get("punch_data", [])
         total_punched = sum(Decimal(str(d.get("punched_hours", 0))) for d in punch_data)
+        print(f"Row {r.get('team_distribution_id')}: total_punched={total_punched}, punch_data={punch_data}")
         if total_punched == 0:
             zero_rows.append({
                 "team_distribution_id": r.get("team_distribution_id"),
@@ -3293,6 +3300,7 @@ def bulk_update_week_status(request):
             })
 
     if zero_rows:
+        print("Zero rows found (no valid punch hours):", zero_rows)
         return JsonResponse({
             "ok": False,
             "error": "No valid punch hours available for one or more selected rows.",
@@ -3307,12 +3315,16 @@ def bulk_update_week_status(request):
             subproj_id = int(r.get("subproject_id") or 0)
             user_email = request.session.get('ldap_username')
             punch_data = r.get("punch_data", [])
+            print(f"Processing row: tdid={tdid}, proj_id={proj_id}, subproj_id={subproj_id}, user_email={user_email}")
             if not tdid:
+                print("Skipping row with missing team_distribution_id")
                 continue
             for pd in punch_data:
                 punch_date = pd.get("punch_date")
                 punched_hours = Decimal(str(pd.get("punched_hours", 0)))
+                print(f"  Attempting upsert: punch_date={punch_date}, punched_hours={punched_hours}, status={status}")
                 if not punch_date or punched_hours == 0:
+                    print("  Skipping punch_data with missing date or zero hours")
                     continue
                 allocated_hours = Decimal(str(r.get("allocated_hours", 0)))
                 sql = """
@@ -3328,9 +3340,11 @@ def bulk_update_week_status(request):
                 params = (
                     user_email, tdid, proj_id, subproj_id, month_start, punch_date, punched_hours, status
                 )
+                print("  Executing SQL with params:", params)
                 cur.execute(sql, params)
                 updated += cur.rowcount
 
+    print(f"Total rows updated/inserted: {updated}")
     return JsonResponse({"ok": True, "count": updated, "updated_status": status})
 
 @require_http_methods(["POST"])
@@ -7394,7 +7408,10 @@ def tl_punch_review(request):
             return d
 
     grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
-
+    # Get country code from session and check EU status
+    country_code = request.session.get('country_code')
+    is_eu_user = is_eu_country(country_code)
+    print("[my_allocations] country_code:", country_code, "is_eu_user:", is_eu_user)
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
@@ -7406,6 +7423,7 @@ def tl_punch_review(request):
         "weeks_list": weeks_list,
         "selected_week": selected_week,
         "current_week": current_week,
+        "is_eu_user": True #is_eu_user,
     })
 
 
