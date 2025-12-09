@@ -3272,9 +3272,11 @@ def bulk_update_week_status(request):
 
     # Canonical billing period
     year, month = _extract_year_month(payload)
+    print("[bulk_update_week_status] year:", year, "month:", month)
     if not (year and month):
         return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
     billing_start, billing_end = _get_billing_period_from_month(year, month)
+    print("[bulk_update_week_status] billing_start:", billing_start, "billing_end:", billing_end)
 
     # Use canonical billing_start as month_start for all upserts
     month_start = billing_start.isoformat()

@@ -2014,17 +2014,29 @@
           return;
         }
 
-        const yearSel = document.getElementById('yearSelect');
-        const monthSel = document.getElementById('monthSelect');
-        const monthStartEl = document.getElementById('hiddenMonthStart');
-        const monthStart = monthStartEl ? monthStartEl.value : '';
+        // Get year/month from first punch date in the first selected row
+        const firstPunchDate = selectedRows[0].punch_data[0]?.punch_date;
+        let year, month, month_start;
+        if (firstPunchDate) {
+          const dt = new Date(firstPunchDate);
+          year = dt.getFullYear();
+          month = dt.getMonth() + 1; // JS months are 0-based
+          month_start = `${year}-${String(month).padStart(2, '0')}-01`;
+        } else {
+          // fallback to global selectors
+          const yearSel = document.getElementById('yearSelect');
+          const monthSel = document.getElementById('monthSelect');
+          year = parseInt(yearSel?.value);
+          month = parseInt(monthSel?.value);
+          month_start = document.getElementById('hiddenMonthStart')?.value || '';
+        }
 
         const payload = {
           status: status,
-          year: parseInt(yearSel?.value),
-          month: parseInt(monthSel?.value),
+          year: year,
+          month: month,
           week_num: parseInt(weekNum),
-          month_start: monthStart,
+          month_start: month_start,
           rows: selectedRows
         };
 
@@ -2037,7 +2049,6 @@
         }
 
         try {
-          console.log('Submitting payload:', payload);
           const res = await fetch('{% url "projects:bulk_update_week_status" %}', {
             method: 'POST',
             headers: {
@@ -2047,26 +2058,20 @@
             body: JSON.stringify(payload)
           });
 
-          console.log('Response status:', res.status, 'ok:', res.ok);
-
           let data;
           if (res.ok) {
             data = await res.json();
-            console.log('Success response data:', data);
           } else {
             try {
               data = await res.json();
-              console.log('Error response JSON:', data);
               showNotification(data.error || 'Submission failed', 'error');
             } catch (e) {
-              console.log('Error parsing JSON:', e, 'Status text:', res.statusText);
               showNotification(res.statusText || 'Submission failed', 'error');
             }
             return;
           }
 
           if (!data.ok) {
-            console.log('Backend returned ok:false:', data);
             showNotification(data.error || 'Submission failed', 'error');
             if (Array.isArray(data.zero_rows)) {
               data.zero_rows.forEach(row => {
@@ -2080,7 +2085,6 @@
           }
           showNotification(`Updated ${data.count} allocations to ${data.updated_status}`, 'success');
         } catch (err) {
-          console.log('Fetch error:', err);
           showNotification(err.message || 'Failed to update status', 'error');
         } finally {
           if (btnDisable) {
