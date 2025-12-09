@@ -2811,36 +2811,30 @@ def compute_weeks_for_tl_punch_review(billing_start, billing_end):
 
     return weeks
 
+
 def _get_billing_period_from_month(year, month):
     """
-    Returns canonical billing period (start_date, end_date) for a given year/month.
-    Uses FEAS logic: DB override from monthly_hours_limit, then adjusts start date
-    to include last Saturday/Sunday of previous month if needed.
+    Returns (billing_start, billing_end) for FEAS rules:
+    - Billing starts from the last Saturday before/on the 1st of the month (may be in previous month).
+    - Billing ends on the last Friday on/before the last day of the month.
+    - If the last day(s) of the month are Saturday/Sunday, they are NOT included in this month.
     """
-    from datetime import timedelta
+    # Start: last Saturday before/on 1st of month
+    first = date(year, month, 1)
+    billing_start = first
+    while billing_start.weekday() != 5:  # 5 = Saturday
+        billing_start -= timedelta(days=1)
 
-    # Try DB override first
-    with connection.cursor() as cur:
-        cur.execute(
-            "SELECT start_date, end_date FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1",
-            [year, month]
-        )
-        r = cur.fetchone()
-        if r and r[0] and r[1]:
-            start = _to_date(r[0])
-            end = _to_date(r[1])
+    # End: last Friday on/before last day of month
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    last = next_month - timedelta(days=1)
+    billing_end = last
+    while billing_end.weekday() != 4:  # 4 = Friday
+        billing_end -= timedelta(days=1)
 
-            # FEAS adjustment: if start is not Saturday, check previous month's last day
-            if start.weekday() != 5:  # 5 = Saturday
-                prev_month_last = start.replace(day=1) - timedelta(days=1)
-                if prev_month_last.weekday() in (5, 6):  # Saturday or Sunday
-                    # Go back to Saturday if it's Sunday
-                    sat = prev_month_last - timedelta(days=(prev_month_last.weekday() - 5))
-                    start = sat
-            return start, end
-
-    # Fallback: use FEAS canonical logic
-    billing_start, billing_end = get_billing_period(year, month)
     return billing_start, billing_end
 
 # -------------------------
@@ -5872,31 +5866,6 @@ def tl_allocations_view(request):
     except Exception:
         month_start = date.today().replace(day=1)
 
-    def _get_billing_period_from_month(year, month):
-        """
-        Returns (billing_start, billing_end) for FEAS rules:
-        - Billing starts from the last Saturday before/on the 1st of the month (may be in previous month).
-        - Billing ends on the last Friday on/before the last day of the month.
-        - If the last day(s) of the month are Saturday/Sunday, they are NOT included in this month.
-        """
-        # Start: last Saturday before/on 1st of month
-        first = date(year, month, 1)
-        billing_start = first
-        while billing_start.weekday() != 5:  # 5 = Saturday
-            billing_start -= timedelta(days=1)
-
-        # End: last Friday on/before last day of month
-        if month == 12:
-            next_month = date(year + 1, 1, 1)
-        else:
-            next_month = date(year, month + 1, 1)
-        last = next_month - timedelta(days=1)
-        billing_end = last
-        while billing_end.weekday() != 4:  # 4 = Friday
-            billing_end -= timedelta(days=1)
-
-        return billing_start, billing_end
-
     def _compute_weeks_for_billing(billing_start, billing_end):
         """
         Returns list of weeks (dicts with num, start, end) for the billing period.
@@ -7423,7 +7392,7 @@ def tl_punch_review(request):
         "weeks_list": weeks_list,
         "selected_week": selected_week,
         "current_week": current_week,
-        "is_eu_user": True #is_eu_user,
+        "is_eu_user": is_eu_user,
     })
 
 
