@@ -3174,12 +3174,12 @@ def my_allocations(request):
         'monthly_max_hours': format(monthly_max_hours, '0.2f'),
         'all_weeks_list': all_weeks_list,
         'all_weeks_list_json': all_weeks_list_json,
-        'save_effort_url': reverse('projects:save_effort_draft'),
-        'submit_effort_url': reverse('projects:submit_effort'),
+        # 'save_effort_url': reverse('projects:save_effort_draft'),
+        # 'submit_effort_url': reverse('projects:submit_effort'),
         'add_allocation_url': reverse('projects:add_self_allocation'),
         'get_projects_url': reverse('projects:get_projects_for_allocation'),
         'day_order': day_order,
-        'is_eu_user': True #is_eu_user,  # <-- Add this line
+        'is_eu_user': is_eu_user,  # <-- Add this line
     }
     return render(request, 'projects/my_allocations.html', context)
 
