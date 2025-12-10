@@ -228,7 +228,7 @@ def login_view(request):
                 if user_entry:
                     user_details['department'] = getattr(user_entry, 'department', None).value if hasattr(user_entry, 'department') and getattr(user_entry, 'department', None) else ""
                     user_details['title'] = getattr(user_entry, 'title', None).value if hasattr(user_entry, 'title') and getattr(user_entry, 'title', None) else ""
-                role = map_role_from_ldap_attrs(user_entry, user_details)
+                role = map_role_at_login(request)
                 print("Role mapped to:", role)
                 request.session['role'] = role or "EMPLOYEE"
             except Exception as e:
@@ -323,3 +323,148 @@ def map_role_from_ldap_attrs(user_entry, user_details):
         return "TEAM_LEAD"
     # default
     return "EMPLOYEE"
+
+# accounts/ldap_utils.py
+
+from ldap3 import Server, Connection, ALL
+from django.conf import settings
+
+
+from ldap3 import Server, Connection, ALL, SUBTREE
+from django.conf import settings
+
+def map_role_at_login(request):
+    """
+    Connects to LDAP using session credentials, fetches reportee count,
+    and returns 'TEAM_LEAD' if reportees exist, else 'EMPLOYEE'.
+    """
+    print("[map_role_at_login] Called")
+    ldap_server = getattr(settings, "LDAP_SERVER", None)
+    ldap_base_dn = getattr(settings, "LDAP_BASE_DN", None)
+    username = request.session.get('ldap_username')  # may be UPN (email-like) or sAMAccountName
+    password = request.session.get('ldap_password')
+
+    print(f"[map_role_at_login] ldap_server: {ldap_server}")
+    print(f"[map_role_at_login] ldap_base_dn: {ldap_base_dn}")
+    print(f"[map_role_at_login] username: {username}")
+    print(f"[map_role_at_login] password: {'***' if password else None}")
+
+    if not ldap_server or not ldap_base_dn:
+        print("[map_role_at_login] LDAP settings missing, returning EMPLOYEE")
+        return "EMPLOYEE"
+
+    if not username or not password:
+        print("[map_role_at_login] Username or password missing, returning EMPLOYEE")
+        return "EMPLOYEE"
+
+    # Prepare server and connection
+    server = Server(ldap_server, get_info=ALL)
+    conn = None
+
+    try:
+        print("[map_role_at_login] Attempting LDAP connection...")
+        # Bind: For AD, user can be UPN (email-like) or DOMAIN\\sAMAccountName depending on config
+        conn = Connection(server, user=username, password=password, auto_bind=True)
+        print("[map_role_at_login] LDAP connection established")
+
+        # Derive sAMAccountName from username if it's an email/UPN
+        # e.g., 'john.doe@example.com' -> 'john.doe'
+        if '@' in username:
+            sam = username.split('@')[0]
+        else:
+            sam = username
+        print(f"[map_role_at_login] Derived sAMAccountName for search: {sam}")
+
+        # 1) Resolve the actual DN for the logged-in user
+        # Prefer sAMAccountName search, but also try userPrincipalName if needed.
+        # Note: In some ADs, sAMAccountName may differ; UPN is more stable.
+        # Try sAMAccountName first:
+        found_user_dn = None
+        print("[map_role_at_login] Searching for user DN by sAMAccountName...")
+        conn.search(
+            search_base=ldap_base_dn,
+            search_filter=f"(sAMAccountName={sam})",
+            search_scope=SUBTREE,
+            attributes=['distinguishedName', 'userPrincipalName', 'cn']
+        )
+        if conn.entries:
+            found_user_dn = conn.entries[0].distinguishedName.value
+            print(f"[map_role_at_login] Found user DN via sAMAccountName: {found_user_dn}")
+        else:
+            print("[map_role_at_login] sAMAccountName search returned no entries, trying UPN...")
+            # Try UPN
+            conn.search(
+                search_base=ldap_base_dn,
+                search_filter=f"(userPrincipalName={username})",
+                search_scope=SUBTREE,
+                attributes=['distinguishedName', 'userPrincipalName', 'cn']
+            )
+            if conn.entries:
+                found_user_dn = conn.entries[0].distinguishedName.value
+                print(f"[map_role_at_login] Found user DN via userPrincipalName: {found_user_dn}")
+            else:
+                print("[map_role_at_login] Could not resolve user DN via sAMAccountName or UPN")
+                return "EMPLOYEE"
+
+        user_dn = found_user_dn
+        print(f"[map_role_at_login] Using user_dn: {user_dn}")
+
+        # 2) Try reading the user's directReports attribute (if populated)
+        print("[map_role_at_login] Reading 'directReports' from user entry...")
+        conn.search(
+            search_base=user_dn,  # direct DN
+            search_filter="(objectClass=user)",
+            search_scope=SUBTREE,
+            attributes=['directReports']
+        )
+        direct_reports_from_user = []
+        if conn.entries:
+            entry = conn.entries[0]
+            if 'directReports' in entry and entry.directReports:
+                # directReports is a list of DNs of direct reportees
+                direct_reports_from_user = list(entry.directReports)
+                print(f"[map_role_at_login] directReports attribute present, count: {len(direct_reports_from_user)}")
+            else:
+                print("[map_role_at_login] directReports attribute not present or empty")
+        else:
+            print("[map_role_at_login] Could not read user entry at DN")
+
+        # 3) Also search for objects where manager=<user_dn>
+        # This is the most reliable way to count direct reports in AD
+        search_filter = f"(&(objectClass=user)(manager={user_dn}))"
+        print(f"[map_role_at_login] Searching reportees with filter: {search_filter}")
+        # Attributes list can be tuned if needed, keep minimal for performance
+        attributes = getattr(settings, "LDAP_ATTRIBUTES", [
+            'cn', 'sAMAccountName', 'userPrincipalName', 'mail', 'department',
+            'title', 'manager'
+        ])
+
+        conn.search(
+            search_base=ldap_base_dn,
+            search_filter=search_filter,
+            search_scope=SUBTREE,
+            attributes=attributes
+        )
+
+        reportees_by_manager_filter = conn.entries or []
+        print(f"[map_role_at_login] Found {len(reportees_by_manager_filter)} entries via manager DN filter")
+
+        # 4) Consolidate counts (some environments only populate one of these)
+        reportee_count = max(len(direct_reports_from_user), len(reportees_by_manager_filter))
+        print(f"[map_role_at_login] Final reportee_count: {reportee_count}")
+
+        role = "TEAM_LEAD" if reportee_count > 0 else "EMPLOYEE"
+        print(f"[map_role_at_login] Returning role: {role}")
+        return role
+
+    except Exception as e:
+        print(f"[map_role_at_login] Exception occurred: {e}")
+        return "EMPLOYEE"
+
+    finally:
+        if conn:
+            try:
+                print("[map_role_at_login] Unbinding LDAP connection")
+                conn.unbind()
+            except Exception as unbind_err:
+                print(f"[map_role_at_login] Unbind error: {unbind_err}")

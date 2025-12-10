@@ -987,14 +987,14 @@
                 </select>
             </div>
             <div class="action-buttons">
-                <button class="btn btn-save-draft" id="btnSaveDraft">
-                    <i class="fas fa-save"></i>
-                    Save Draft
-                </button>
-                <button class="btn btn-submit-effort" id="btnSubmit">
-                    <i class="fas fa-check-circle"></i>
-                    Submit Efforts
-                </button>
+<!--                <button class="btn btn-save-draft" id="btnSaveDraft">-->
+<!--                    <i class="fas fa-save"></i>-->
+<!--                    Save Draft-->
+<!--                </button>-->
+<!--                <button class="btn btn-submit-effort" id="btnSubmit">-->
+<!--                    <i class="fas fa-check-circle"></i>-->
+<!--                    Submit Efforts-->
+<!--                </button>-->
                 <button class="btn btn-add-allocation" id="btnAddAllocation">
                     <i class="fas fa-plus-circle"></i>
                     Add Allocation
@@ -1026,8 +1026,11 @@
                 </th>
                 <th style="width:18%;">Program</th>
                 <th style="width:18%;">Project</th>
-                <th style="width:8%;">TL Allocation</th>
-                <th style="width:8%;">Act. Effort</th>
+
+                {% if not is_eu_user %}
+                    <th style="width:8%;">TL Allocation</th>
+                    <th style="width:8%;">Act. Effort</th>
+                {% endif %}
                 {% for ab in day_order %}
                   <th style="width:6%;">
                     {{ ab }}{% if is_eu_user %} %{% endif %}
@@ -1052,34 +1055,31 @@
 
                 <td>{{ row.project_name }}</td>
                 <td>{{ row.subproject_name }}</td>
-                <td class="tl-allocation">{{ row.tl_allocation_hours }}h</td>
-                <td class="actual-weekly-effort">
-                  {% if is_eu_user %}
-                    0.00
-                  {% else %}
-                    {{ row.actual_effort }}
-                  {% endif %}
-                </td>
+                {% comment %} Always render TL Allocation cell for JS, hide for non-EU users {% endcomment %}
+                {% if not is_eu_user %}
+                  <td class="tl-allocation">{{ row.tl_allocation_hours }}</td>
+                  <td class="actual-weekly-effort">{{ row.actual_effort }}</td>
+                {% endif %}
 
                 {% for slot in row.day_slots %}
                 <td>
                   {% if slot %}
                     <div style="text-align:center;">
                       <input type="number"
-                               class="punch-input daily-effort-input"
-                               step="0.01"
-                               min="0"
-                               max="{% if is_eu_user %}100{% else %}24{% endif %}"
-                               value="{% if is_eu_user %}{{ slot.punched_percent|default:'0.00' }}{% else %}{{ slot.punched_hours|default:'0.00' }}{% endif %}"
-                               data-date="{{ slot.date }}"
-                               data-week="{{ row.week_num }}"
-                               data-tdid="{{ row.team_distribution_id }}"
-                               data-project-id="{{ row.project_id }}"
-                               data-subproject-id="{{ row.subproject_id }}"
-                               data-month-start="{{ billing_start|date:'Y-m-d' }}"
-                               data-tl-allocation="{{ row.tl_allocation_hours }}"
-                               {% if not slot.is_editable %}disabled{% endif %}
-                               style="width:70px;text-align:right;{% if slot.leave_hours %}background:#ffeaea;{% endif %}">
+                                 class="punch-input daily-effort-input"
+                                 step="0.01"
+                                 min="0"
+                                 max="{% if is_eu_user %}100{% else %}24{% endif %}"
+                                 value="{{ slot.punched_hours|default:'0.00' }}"
+                                 data-date="{{ slot.date }}"
+                                 data-week="{{ row.week_num }}"
+                                 data-tdid="{{ row.team_distribution_id }}"
+                                 data-project-id="{{ row.project_id }}"
+                                 data-subproject-id="{{ row.subproject_id }}"
+                                 data-month-start="{{ billing_start|date:'Y-m-d' }}"
+                                 data-tl-allocation="{{ row.tl_allocation_hours }}"
+                                 {% if not slot.is_editable %}disabled{% endif %}
+                                 style="width:70px;text-align:right;{% if slot.leave_hours %}background:#ffeaea;{% endif %}">
                     </div>
                   {% else %}
                     <div style="height:34px;"></div>
@@ -1407,13 +1407,24 @@
 
 
         // --- Main page event listeners ---
+        // --- EU/Non-EU punch input display fix ---
         document.querySelectorAll('.punch-input').forEach(input => {
+            const isEuUser = {{ is_eu_user|yesno:"true,false" }};
+            const HOURS_PER_DAY = 8.75;
+            if (isEuUser && input.value !== '') {
+                let hours = parseFloat(input.value);
+                let percent = hours > 0 ? (hours / HOURS_PER_DAY) * 100 : 0;
+                input.value = percent ? percent.toFixed(2) : '';
+                console.log(`Converted hours to percent: ${hours} -> ${input.value}`);
+            }
             input.addEventListener('blur', function () {
                 if (this.value !== '') {
                     this.value = parseFloat(this.value).toFixed(2);
                 }
             });
         });
+
+
 
         [yearSelect, monthSelect].forEach(select => {
             if (select) {
@@ -1980,25 +1991,36 @@
       });
 
       async function postWeekStatus(weekNum, status) {
-        // Collect selected rows for this week, but only if they have >0 total effort
+        const isEuUser = {{ is_eu_user|yesno:"true,false" }};
         const selectedRows = Array.from(
           document.querySelectorAll(`.week-row-select[data-week="${weekNum}"]:checked`)
         ).map(chk => {
           const tdid = parseInt(chk.dataset.tdid);
           const tr = chk.closest('tr.week-row');
-          // Build punch_data array for each day with non-zero effort
+          const tlAllocationCell = tr.querySelector('.tl-allocation');
+          let tlAllocation = 0;
+          if (tlAllocationCell) {
+            tlAllocation = parseFloat(tlAllocationCell.textContent.replace(/[^\d.]/g, '')) || 0;
+            console.log("Missing or zero TL Allocation for row", tr);
+          }
           const punch_data = [];
           tr.querySelectorAll('.daily-effort-input').forEach(inp => {
-            const hours = parseFloat(inp.value || 0);
+            let value = parseFloat(inp.value || 0);
             const date = inp.dataset.date;
-            if (hours > 0 && date) {
+            if (isEuUser) {
+              // Convert percent to hours for EU case (each day max is 8.75h)
+              value = (value * 8.75) / 100;
+              console.log("Converted EU percent to hours:", value, "for date:", date);
+            }
+            if (value > 0 && date) {
               punch_data.push({
-                punched_hours: hours,
+                punched_hours: value,
                 punch_date: date
               });
             }
           });
           const totalEffort = punch_data.reduce((sum, d) => sum + d.punched_hours, 0);
+          console.log("Row TDID:", tdid, "Total Effort:", totalEffort, "Punch Data:", punch_data);
           return {
             team_distribution_id: tdid,
             project_id: parseInt(tr.dataset.projectId),
@@ -2007,24 +2029,34 @@
             totalEffort: totalEffort
           };
         }).filter(row => row.totalEffort > 0 && row.punch_data.length > 0)
-          .map(({totalEffort, ...rest}) => rest); // Remove totalEffort from payload
+          .map(({totalEffort, ...rest}) => rest);
 
         if (selectedRows.length === 0) {
           showNotification('Select at least one row with non-zero effort in the week', 'warning');
           return;
         }
 
-        const yearSel = document.getElementById('yearSelect');
-        const monthSel = document.getElementById('monthSelect');
-        const monthStartEl = document.getElementById('hiddenMonthStart');
-        const monthStart = monthStartEl ? monthStartEl.value : '';
+        const firstPunchDate = selectedRows[0].punch_data[0]?.punch_date;
+        let year, month, month_start;
+        if (firstPunchDate) {
+          const dt = new Date(firstPunchDate);
+          year = dt.getFullYear();
+          month = dt.getMonth() + 1;
+          month_start = `${year}-${String(month).padStart(2, '0')}-01`;
+        } else {
+          const yearSel = document.getElementById('yearSelect');
+          const monthSel = document.getElementById('monthSelect');
+          year = parseInt(yearSel?.value);
+          month = parseInt(monthSel?.value);
+          month_start = document.getElementById('hiddenMonthStart')?.value || '';
+        }
 
         const payload = {
           status: status,
-          year: parseInt(yearSel?.value),
-          month: parseInt(monthSel?.value),
+          year: year,
+          month: month,
           week_num: parseInt(weekNum),
-          month_start: monthStart,
+          month_start: month_start,
           rows: selectedRows
         };
 
@@ -2037,7 +2069,6 @@
         }
 
         try {
-          console.log('Submitting payload:', payload);
           const res = await fetch('{% url "projects:bulk_update_week_status" %}', {
             method: 'POST',
             headers: {
@@ -2047,26 +2078,20 @@
             body: JSON.stringify(payload)
           });
 
-          console.log('Response status:', res.status, 'ok:', res.ok);
-
           let data;
           if (res.ok) {
             data = await res.json();
-            console.log('Success response data:', data);
           } else {
             try {
               data = await res.json();
-              console.log('Error response JSON:', data);
               showNotification(data.error || 'Submission failed', 'error');
             } catch (e) {
-              console.log('Error parsing JSON:', e, 'Status text:', res.statusText);
               showNotification(res.statusText || 'Submission failed', 'error');
             }
             return;
           }
 
           if (!data.ok) {
-            console.log('Backend returned ok:false:', data);
             showNotification(data.error || 'Submission failed', 'error');
             if (Array.isArray(data.zero_rows)) {
               data.zero_rows.forEach(row => {
@@ -2080,7 +2105,6 @@
           }
           showNotification(`Updated ${data.count} allocations to ${data.updated_status}`, 'success');
         } catch (err) {
-          console.log('Fetch error:', err);
           showNotification(err.message || 'Failed to update status', 'error');
         } finally {
           if (btnDisable) {

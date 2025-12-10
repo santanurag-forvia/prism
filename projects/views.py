@@ -2811,36 +2811,30 @@ def compute_weeks_for_tl_punch_review(billing_start, billing_end):
 
     return weeks
 
+
 def _get_billing_period_from_month(year, month):
     """
-    Returns canonical billing period (start_date, end_date) for a given year/month.
-    Uses FEAS logic: DB override from monthly_hours_limit, then adjusts start date
-    to include last Saturday/Sunday of previous month if needed.
+    Returns (billing_start, billing_end) for FEAS rules:
+    - Billing starts from the last Saturday before/on the 1st of the month (may be in previous month).
+    - Billing ends on the last Friday on/before the last day of the month.
+    - If the last day(s) of the month are Saturday/Sunday, they are NOT included in this month.
     """
-    from datetime import timedelta
+    # Start: last Saturday before/on 1st of month
+    first = date(year, month, 1)
+    billing_start = first
+    while billing_start.weekday() != 5:  # 5 = Saturday
+        billing_start -= timedelta(days=1)
 
-    # Try DB override first
-    with connection.cursor() as cur:
-        cur.execute(
-            "SELECT start_date, end_date FROM monthly_hours_limit WHERE year=%s AND month=%s LIMIT 1",
-            [year, month]
-        )
-        r = cur.fetchone()
-        if r and r[0] and r[1]:
-            start = _to_date(r[0])
-            end = _to_date(r[1])
+    # End: last Friday on/before last day of month
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    last = next_month - timedelta(days=1)
+    billing_end = last
+    while billing_end.weekday() != 4:  # 4 = Friday
+        billing_end -= timedelta(days=1)
 
-            # FEAS adjustment: if start is not Saturday, check previous month's last day
-            if start.weekday() != 5:  # 5 = Saturday
-                prev_month_last = start.replace(day=1) - timedelta(days=1)
-                if prev_month_last.weekday() in (5, 6):  # Saturday or Sunday
-                    # Go back to Saturday if it's Sunday
-                    sat = prev_month_last - timedelta(days=(prev_month_last.weekday() - 5))
-                    start = sat
-            return start, end
-
-    # Fallback: use FEAS canonical logic
-    billing_start, billing_end = get_billing_period(year, month)
     return billing_start, billing_end
 
 # -------------------------
@@ -3174,8 +3168,8 @@ def my_allocations(request):
         'monthly_max_hours': format(monthly_max_hours, '0.2f'),
         'all_weeks_list': all_weeks_list,
         'all_weeks_list_json': all_weeks_list_json,
-        'save_effort_url': reverse('projects:save_effort_draft'),
-        'submit_effort_url': reverse('projects:submit_effort'),
+        # 'save_effort_url': reverse('projects:save_effort_draft'),
+        # 'submit_effort_url': reverse('projects:submit_effort'),
         'add_allocation_url': reverse('projects:add_self_allocation'),
         'get_projects_url': reverse('projects:get_projects_for_allocation'),
         'day_order': day_order,
@@ -3256,33 +3250,42 @@ def _extract_year_month(payload):
 
 @require_POST
 def bulk_update_week_status(request):
+    print("=== bulk_update_week_status called ===")
     if not request.session.get("is_authenticated"):
+        print("User not authenticated")
         return JsonResponse({"ok": False, "error": "Unauthorized"}, status=401)
 
     try:
         payload = json.loads(request.body.decode("utf-8"))
-    except Exception:
+        print("Received payload from frontend:", payload)
+    except Exception as e:
+        print("Error decoding JSON:", e)
         return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
 
     status = payload.get("status")
     week_num = int(payload.get("week_num") or 0)
     rows = payload.get("rows") or []
+    print(f"Status: {status}, Week Num: {week_num}, Rows count: {len(rows)}")
     if not rows:
+        print("No rows selected in payload")
         return JsonResponse({"ok": False, "error": "No rows selected"}, status=400)
 
-    # Canonical billing period
     year, month = _extract_year_month(payload)
+    print(f"Extracted year: {year}, month: {month}")
     if not (year and month):
+        print("Missing year/month or month_start in payload")
         return JsonResponse({"ok": False, "error": "Missing year/month or month_start"}, status=400)
     billing_start, billing_end = _get_billing_period_from_month(year, month)
+    print(f"Billing period: start={billing_start}, end={billing_end}")
 
-    # Use canonical billing_start as month_start for all upserts
     month_start = billing_start.isoformat()
+    print(f"Using month_start for upserts: {month_start}")
 
     zero_rows = []
     for r in rows:
         punch_data = r.get("punch_data", [])
         total_punched = sum(Decimal(str(d.get("punched_hours", 0))) for d in punch_data)
+        print(f"Row {r.get('team_distribution_id')}: total_punched={total_punched}, punch_data={punch_data}")
         if total_punched == 0:
             zero_rows.append({
                 "team_distribution_id": r.get("team_distribution_id"),
@@ -3291,6 +3294,7 @@ def bulk_update_week_status(request):
             })
 
     if zero_rows:
+        print("Zero rows found (no valid punch hours):", zero_rows)
         return JsonResponse({
             "ok": False,
             "error": "No valid punch hours available for one or more selected rows.",
@@ -3305,12 +3309,16 @@ def bulk_update_week_status(request):
             subproj_id = int(r.get("subproject_id") or 0)
             user_email = request.session.get('ldap_username')
             punch_data = r.get("punch_data", [])
+            print(f"Processing row: tdid={tdid}, proj_id={proj_id}, subproj_id={subproj_id}, user_email={user_email}")
             if not tdid:
+                print("Skipping row with missing team_distribution_id")
                 continue
             for pd in punch_data:
                 punch_date = pd.get("punch_date")
                 punched_hours = Decimal(str(pd.get("punched_hours", 0)))
+                print(f"  Attempting upsert: punch_date={punch_date}, punched_hours={punched_hours}, status={status}")
                 if not punch_date or punched_hours == 0:
+                    print("  Skipping punch_data with missing date or zero hours")
                     continue
                 allocated_hours = Decimal(str(r.get("allocated_hours", 0)))
                 sql = """
@@ -3326,9 +3334,11 @@ def bulk_update_week_status(request):
                 params = (
                     user_email, tdid, proj_id, subproj_id, month_start, punch_date, punched_hours, status
                 )
+                print("  Executing SQL with params:", params)
                 cur.execute(sql, params)
                 updated += cur.rowcount
 
+    print(f"Total rows updated/inserted: {updated}")
     return JsonResponse({"ok": True, "count": updated, "updated_status": status})
 
 @require_http_methods(["POST"])
@@ -5856,31 +5866,6 @@ def tl_allocations_view(request):
     except Exception:
         month_start = date.today().replace(day=1)
 
-    def _get_billing_period_from_month(year, month):
-        """
-        Returns (billing_start, billing_end) for FEAS rules:
-        - Billing starts from the last Saturday before/on the 1st of the month (may be in previous month).
-        - Billing ends on the last Friday on/before the last day of the month.
-        - If the last day(s) of the month are Saturday/Sunday, they are NOT included in this month.
-        """
-        # Start: last Saturday before/on 1st of month
-        first = date(year, month, 1)
-        billing_start = first
-        while billing_start.weekday() != 5:  # 5 = Saturday
-            billing_start -= timedelta(days=1)
-
-        # End: last Friday on/before last day of month
-        if month == 12:
-            next_month = date(year + 1, 1, 1)
-        else:
-            next_month = date(year, month + 1, 1)
-        last = next_month - timedelta(days=1)
-        billing_end = last
-        while billing_end.weekday() != 4:  # 4 = Friday
-            billing_end -= timedelta(days=1)
-
-        return billing_start, billing_end
-
     def _compute_weeks_for_billing(billing_start, billing_end):
         """
         Returns list of weeks (dicts with num, start, end) for the billing period.
@@ -7392,7 +7377,10 @@ def tl_punch_review(request):
             return d
 
     grouped_str = {k: dict_keys_to_str(v) for k, v in grouped_final.items()}
-
+    # Get country code from session and check EU status
+    country_code = request.session.get('country_code')
+    is_eu_user = is_eu_country(country_code)
+    print("[my_allocations] country_code:", country_code, "is_eu_user:", is_eu_user)
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
@@ -7404,6 +7392,7 @@ def tl_punch_review(request):
         "weeks_list": weeks_list,
         "selected_week": selected_week,
         "current_week": current_week,
+        "is_eu_user": is_eu_user,
     })
 
 

@@ -5,95 +5,89 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>PRISM — Login</title>
-<link rel="stylesheet" href="{% static 'accounts/css/login.css' %}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<!--<link rel="stylesheet" href="{% static 'accounts/css/login.css' %}">-->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: linear-gradient(120deg, #2563eb 0%, #0b5cff 50%, #38bdf8 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: linear-gradient(120deg, #2563eb 0%, #0b5cff 50%, #38bdf8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .login-main-container {
   display: flex;
   width: 900px;
   max-width: 98vw;
   min-height: 600px;
-  box-shadow: 0 8px 32px rgba(37,99,235,0.13);
-  border-radius: 28px;
-  overflow: hidden;
+  gap: 32px;
   background: none;
 }
-.login-left {
+.login-left-card {
   flex: 1;
-  color: #fff;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
-  padding: 56px 44px;
-  position: relative;
-  background: linear-gradient(120deg, #2563eb 0%, #0b5cff 60%, #38bdf8 100%);
+  padding: 48px 38px 38px 38px;
+  background: rgba(255,255,255,0.10);
+  border-radius: 28px;
+  box-shadow: 0 8px 32px rgba(37,99,235,0.13);
+  min-width: 340px;
+  max-width: 400px;
+  margin-right: 0;
 }
-
 .usp-list {
   display: flex;
   flex-direction: column;
-  gap: 18px; /* More space between cards */
+  gap: 18px;
   margin-bottom: 38px;
-  max-width: 370px;
+  width: 100%;
 }
-
 .usp-card {
-  background: #2583e6; /* Softer blue */
+  background: rgba(255,255,255,0.18);
   border-radius: 16px;
   box-shadow: 0 4px 18px rgba(37,99,235,0.10);
   padding: 16px 22px;
   display: flex;
   align-items: center;
   gap: 14px;
-  border: 2px solid #e3f0ff; /* Subtle border */
+  border: 1.5px solid #e3f0ff;
   font-size: 17px;
   color: #fff;
   font-weight: 600;
   opacity: 0.97;
   transition: box-shadow 0.2s;
 }
-
 .usp-card:hover {
   box-shadow: 0 8px 32px rgba(37,99,235,0.18);
+  background: rgba(255,255,255,0.25);
 }
-
 .usp-icon {
   font-size: 24px;
   color: #fff;
   min-width: 32px;
   text-align: center;
 }
-
-.login-left h1 {
-  font-size: 40px;
+.login-left-title {
+  font-size: 32px;
   font-weight: 900;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
   letter-spacing: 1.2px;
   line-height: 1.1;
   color: #fff;
   text-shadow: 0 2px 8px rgba(37,99,235,0.10);
 }
-.login-left .company-footer {
-  position: absolute;
-  bottom: 24px;
-  left: 44px;
+.company-footer {
   font-size: 13px;
   opacity: 0.7;
   color: #fff;
+  margin-top: 18px;
 }
 .login-right {
   flex: 1;
-  background: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -258,78 +252,77 @@
   letter-spacing: 0.2px;
 }
 @media (max-width: 900px) {
-  .login-main-container { flex-direction: column; width: 98vw; min-height: 0; }
-  .login-left, .login-right { padding: 32px 12px; }
+  .login-main-container { flex-direction: column; width: 98vw; min-height: 0; gap: 0; }
+  .login-left-card, .login-right { padding: 32px 12px; min-width: 0; max-width: 98vw; }
   .login-card { max-width: 98vw; }
 }
 </style>
 </head>
 <body>
 <div class="login-main-container">
-<div class="login-left">
-  <div class="usp-list">
-  <div class="usp-card">
-    <span class="usp-icon"><i class="fa-regular fa-calendar-check"></i></span>
-    Convenient Punching &amp; self allocation
-  </div>
-  <div class="usp-card">
-    <span class="usp-icon"><i class="fa-solid fa-chart-line"></i></span>
-    Real-time resource bandwidth allocation &amp; utilization tracking
-  </div>
-  <div class="usp-card">
-    <span class="usp-icon"><i class="fa-solid fa-user-shield"></i></span>
-    LDAP-secured access &amp; role-based dashboards
-  </div>
-  <div class="usp-card">
-    <span class="usp-icon"><i class="fa-solid fa-file-excel"></i></span>
-    Excel export, analytics, and reporting for managers
-  </div>
-</div>
-  <h1>Welcome<br>Back!</h1>
-  <div class="company-footer">&copy; 2025 Forvia. All rights reserved.</div>
-</div>
-<div class="login-right">
-  <section class="login-card">
-    <div class="login-logo">
-      <img src="{% static 'logo/logo.png' %}" alt="Forvia Logo" />
+  <div class="login-left-card">
+    <div class="usp-list">
+      <div class="usp-card">
+        <span class="usp-icon"><i class="fa-regular fa-calendar-check"></i></span>
+        Convenient Punching &amp; self allocation
+      </div>
+      <div class="usp-card">
+        <span class="usp-icon"><i class="fa-solid fa-chart-line"></i></span>
+        Real-time resource bandwidth allocation &amp; utilization tracking
+      </div>
+      <div class="usp-card">
+        <span class="usp-icon"><i class="fa-solid fa-user-shield"></i></span>
+        LDAP-secured access &amp; role-based dashboards
+      </div>
+      <div class="usp-card">
+        <span class="usp-icon"><i class="fa-solid fa-file-excel"></i></span>
+        Excel export, analytics, and reporting for managers
+      </div>
     </div>
-    <div class="prism-fullform">PRISM</div>
-    <div class="prism-name">Program Resource Integration &amp; Smart Management</div>
-    <p class="login-sub">Sign in to continue</p>
-    {% if messages %}
-    {% endif %}
-      {% for msg in messages %}
-        <div class="alert {% if msg.tags %}{{ msg.tags }}{% endif %}">
-          {{ msg }}
+    <div class="login-left-title">Welcome<br>Back!</div>
+    <div class="company-footer">&copy; 2025 Forvia. All rights reserved.</div>
+  </div>
+  <div class="login-right">
+    <section class="login-card">
+      <div class="login-logo">
+        <img src="{% static 'logo/logo.png' %}" alt="Forvia Logo" />
+      </div>
+      <div class="prism-fullform">PRISM</div>
+      <div class="prism-name">Program Resource Integration &amp; Smart Management</div>
+      <p class="login-sub">Sign in to continue</p>
+      {% if messages %}
+      {% endif %}
+        {% for msg in messages %}
+          <div class="alert {% if msg.tags %}{{ msg.tags }}{% endif %}">
+            {{ msg }}
+          </div>
+        {% endfor %}
+      <form id="loginForm" method="post" class="login-form" autocomplete="off">
+        {% csrf_token %}
+        <div class="input-row">
+          <label for="username"><span class="icon">&#128100;</span></label>
+          <input id="username" name="username" type="text" required autofocus placeholder="Username"/>
         </div>
-      {% endfor %}
-    <form id="loginForm" method="post" class="login-form" autocomplete="off">
-      {% csrf_token %}
-      <div class="input-row">
-        <label for="username"><span class="icon">&#128100;</span></label>
-        <input id="username" name="username" type="text" required autofocus placeholder="Username"/>
-      </div>
-      <div class="input-row">
-        <label for="password"><span class="icon">&#128274;</span></label>
-        <div class="pw-wrap">
-          <input id="password" name="password" type="password" required placeholder="Password"/>
-          <button id="togglePw" type="button" aria-label="toggle password" class="pw-icon">
-            <span id="pwEye">&#128065;</span>
-          </button>
+        <div class="input-row">
+          <label for="password"><span class="icon">&#128274;</span></label>
+          <div class="pw-wrap">
+            <input id="password" name="password" type="password" required placeholder="Password"/>
+            <button id="togglePw" type="button" aria-label="toggle password" class="pw-icon">
+              <span id="pwEye">&#128065;</span>
+            </button>
+          </div>
         </div>
+        <div class="remember-row">
+          <input type="checkbox" id="remember" name="remember">
+          <label for="remember">Remember me</label>
+        </div>
+        <button class="btn primary" type="submit">Login</button>
+      </form>
+      <div class="copyright">
+        &copy; 2025 Forvia. All rights reserved.
       </div>
-      <div class="remember-row">
-        <input type="checkbox" id="remember" name="remember">
-        <label for="remember">Remember me</label>
-      </div>
-      <button class="btn primary" type="submit">Login</button>
-
-    </form>
-    <div class="copyright">
-      &copy; 2025 Forvia. All rights reserved.
-    </div>
-  </section>
-</div>
+    </section>
+  </div>
 </div>
 <script src="{% static 'accounts/js/login.js' %}"></script>
 </body>

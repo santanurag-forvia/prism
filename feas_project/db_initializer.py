@@ -54,7 +54,24 @@ class DatabaseInitializer:
             ("TEAM_LEAD", "Team Lead"),
             ("EMPLOYEE", "Employee"),
         ]
-
+    """
+        Design Explanation:
+            Most users get their role from LDAP (LEAD if they have reportees, EMPLOYEE otherwise).
+            Special roles (ADMIN, RMO, DIRECTOR) are assigned in feas_user_roles by an admin, not via LDAP.
+            feas_roles is a lookup table for all possible roles.
+            feas_user_roles allows multiple roles per user (if needed).
+            feas_director_scope stores extra info for directors (site/department).
+        How to Use:
+            On login, check LDAP for reportees: assign LEAD/EMPLOYEE.
+            Query feas_user_roles for any special roles (ADMIN, RMO, DIRECTOR).
+            Merge both sources to build the user's effective role set.
+            Use this merged set in your context processor and for menu rendering.
+        Why this works for FEAS:
+            LDAP remains the source of truth for org structure.
+            App-specific roles are managed locally, supporting exceptions and overrides.
+            No need to modify LDAP for FEAS-specific admin/privileged roles.
+            This pattern is robust, scalable, and fits your current context processor/menu logic.
+    """
     def _get_db_config_from_settings(self) -> Dict:
         if settings is None:
             raise RuntimeError(
@@ -633,7 +650,40 @@ class DatabaseInitializer:
                 CONSTRAINT `fk_user_self_subproject` FOREIGN KEY (`subproject_id`) 
                     REFERENCES `subprojects`(`id`) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                
+            """)
+        # 2a) FEAS app-specific roles (for hybrid LDAP + app roles)
+        print("Adding DDL for table: feas_roles")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `feas_roles` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `role_name` VARCHAR(32) NOT NULL UNIQUE,
+                `description` VARCHAR(255)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
+
+        print("Adding DDL for table: feas_user_roles")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `feas_user_roles` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `user_ldap` VARCHAR(128) NOT NULL,
+                `role_id` INT NOT NULL,
+                `assigned_by` VARCHAR(128),
+                `assigned_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (`role_id`) REFERENCES `feas_roles`(`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        print("Adding DDL for table: feas_director_scope")
+        ddls.append("""
+            CREATE TABLE IF NOT EXISTS `feas_director_scope` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `user_ldap` VARCHAR(128) NOT NULL,
+                `site` VARCHAR(64),
+                `department` VARCHAR(64)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
 
         # Final summary print
         print(f"Total tables to create: {len(ddls)}")
