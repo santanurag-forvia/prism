@@ -43,14 +43,14 @@ MENU_TREE = [
         "title": "Resource Management",
         "icon": "users-gear",
         "url": "#",
-        "roles": ["ADMIN", "PDL", "COE_LEADER", "TEAM_LEAD"],
+        "roles": ["ADMIN", "PDL", "COE_LEADER"],
         "submenus": [
             {
                 "key": "directory",
                 "title": "Employee Directory",
                 "icon": "address-book",
                 "url": reverse_lazy("resources:directory"),
-                "roles": ["ADMIN", "PDL", "COE_LEADER", "TEAM_LEAD"],
+                "roles": ["ADMIN", "PDL", "COE_LEADER"],
             },
             {
                 "key": "ldap_sync",
@@ -103,7 +103,7 @@ MENU_TREE = [
         "title": "COE & Domains",
         "icon": "sitemap",
         "url": "#",
-        "roles": ["ADMIN", "COE_LEADER", "TEAM_LEAD"],
+        "roles": ["ADMIN", "COE_LEADER"],
         "submenus": [
             {
                 "key": "coe_list",
@@ -126,7 +126,7 @@ MENU_TREE = [
         "title": "Reports & Analytics",
         "icon": "chart-bar",
         "url": "#",
-        "roles": ["ADMIN", "PDL", "COE_LEADER", "TEAM_LEAD"],
+        "roles": ["ADMIN"],
         "submenus": [
             {
                 "key": "util",
