@@ -678,8 +678,8 @@ th.week-header {
         <span class="pill"></span>Allocate Bandwidth
       </span>
       <div>
-        <label for="weekSelector" style="margin-right: 8px;">Week:</label>
-        <select id="weekSelector" class="input" style="min-width: 120px;">
+        <label for="weekSelector" style="margin-right: 8px;" >Week:</label>
+        <select id="weekSelector" class="input" style="min-width: 120px;" > >
           {% for w in weeks_info %}
             <option value="{{ w.num }}"
               {% if w.num == default_week_num %}selected{% endif %}>
@@ -768,7 +768,7 @@ th.week-header {
                     <option value="">-- select --</option>
                   </select>
                 </td>
-                <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>
+                <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}" disabled></td>
                 <td class="auto-fte">--</td>
                 {% for w in weeks_info %}
                 <td class="td-week" data-week="{{ w.num }}">
@@ -802,32 +802,58 @@ th.week-header {
       <section id="panel-two-allocation" class="feas-tab-panel" role="tabpanel" tabindex="1" hidden>
       <!-- Content for Tab Two -->
         <table class="alloc-table" id="allocTableByProject">
-        <thead>
-    <tr>
 
-      <th class="compact-project" style="position: sticky; left: 0; z-index: 14;">Program</th>
-      <th class="compact-subproject">Project</th>
-        <th >Resource</th>
-      <th>Hours</th>
-      <th>FTE</th>
-      {% for w in weeks_info %}
-        <th class="week-header">
-          <div class="week-top">
-            <span class="week-label">W{{ w.num }} (%)</span>
-<!--            <span class="max-pill">Max {{ w.max_pct }}%</span>-->
-          </div>
-          <div class="week-meta">
-            <span class="week-dates">
-              {{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }}
-            </span>
-            <span class="dot">•</span>
-            <span class="week-wd">{{ w.working_days }} WD</span>
-          </div>
-        </th>
-      {% endfor %}
-      <th class="action-cell">Action</th>
-    </tr>
-  </thead>
+<thead>
+  <tr>
+    <th class="compact-project" style="position: sticky; left: 0; z-index: 14;">Program</th>
+    <th class="compact-subproject">Project</th>
+    <th>Resource</th>
+    <th>Available Weekly Hrs.</th>
+    <th>FTE</th>
+    {% for w in weeks_info %}
+      <th class="week-header td-week-header" data-week="{{ w.num }}">
+        <div class="week-top">
+          <span class="week-label">W{{ w.num }} (%)</span>
+        </div>
+        <div class="week-meta">
+          <span class="week-dates">
+            {{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }}
+          </span>
+          <span class="dot">•</span>
+          <span class="week-wd">{{ w.working_days }} WD</span>
+        </div>
+      </th>
+    {% endfor %}
+    <th class="action-cell">Action</th>
+  </tr>
+</thead>
+
+<!--        <thead>-->
+<!--    <tr>-->
+
+<!--      <th class="compact-project" style="position: sticky; left: 0; z-index: 14;">Program</th>-->
+<!--      <th class="compact-subproject">Project</th>-->
+<!--        <th >Resource</th>-->
+<!--      <th>Available Weekly Hrs.</th>-->
+<!--      <th>FTE</th>-->
+<!--      {% for w in weeks_info %}-->
+<!--        <th class="week-header">-->
+<!--          <div class="week-top">-->
+<!--            <span class="week-label">W{{ w.num }} (%)</span>-->
+<!--&lt;!&ndash;            <span class="max-pill">Max {{ w.max_pct }}%</span>&ndash;&gt;-->
+<!--          </div>-->
+<!--          <div class="week-meta">-->
+<!--            <span class="week-dates">-->
+<!--              {{ w.start|slice:"5:10" }} → {{ w.end|slice:"5:10" }}-->
+<!--            </span>-->
+<!--            <span class="dot">•</span>-->
+<!--            <span class="week-wd">{{ w.working_days }} WD</span>-->
+<!--          </div>-->
+<!--        </th>-->
+<!--      {% endfor %}-->
+<!--      <th class="action-cell">Action</th>-->
+<!--    </tr>-->
+<!--  </thead>-->
 <tbody id="allocBodyByProject">
   {% for row in allocations %}
     <tr class="alloc-row" data-team-dist-id="{{ row.id }}" data-subproject-id="{{ row.subproject_id }}">
@@ -860,15 +886,20 @@ th.week-header {
           {% endfor %}
         </select>
       </td>
-      <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}"></td>
+      <td><input type="number" min="0" step="0.25" class="input inp-hours" value="{{ row.hours|floatformat:2 }}" disabled></td>
       <td class="auto-fte">--</td>
-      {% for w in weeks_info %}
-        <td>
-          <input class="input wpct" type="number" min="0" max="100"
-                 data-week="{{ w.num }}" "
-                 value="">
-        </td>
-      {% endfor %}
+
+        {% for w in weeks_info %}
+                <td class="td-week" data-week="{{ w.num }}">
+                  <input class="input wpct"
+                         type="number"
+                         min="0"
+                         max="100"
+                         data-week="{{ w.num }}"
+                         value="{{ row.week_perc|get_item:w.num|default:'0' }}">
+                </td>
+                {% endfor %}
+
       <td class="action-cell">
           <button class="btn btn-danger btn-remove">Remove</button></td>
         <td>
@@ -921,8 +952,9 @@ th.week-header {
     <td class="compact-subproject">
       <select class="input sel-subproject"><option value="">-- select --</option></select>
     </td>
-    <td><input type="number" min="0" step="0.25" class="input inp-hours" value="0"></td>
+    <td><input type="number" min="0" step="0.25" class="input inp-hours" value="0" disabled></td>
     <td class="auto-fte">--</td>
+
     {# --- per-row, render week inputs from row.weeks_list if available --- #}
     {% if row.weeks_list %}
      {% for w in weeks_info %}
@@ -976,7 +1008,7 @@ th.week-header {
         {% endfor %}
       </select>
     </td>
-    <td><input type="number" min="0" step="0.25" class="input inp-hours" value="0"></td>
+    <td><input type="number" min="0" step="0.25" class="input inp-hours" value="0" disabled></td>
     <td class="auto-fte">--</td>
     {% for w in weeks_info %}
       <td class="td-week text-center">
@@ -1077,6 +1109,11 @@ th.week-header {
   }
 
   // Create a new row (prefill optional)
+// Create a new row for Allocation by Team Member
+
+
+
+    //start of working code
   function createRow(prefill){
     const tpl = document.getElementById('tpl-alloc-row');
     const node = tpl.content.cloneNode(true);
@@ -1090,6 +1127,7 @@ th.week-header {
 if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function'){
   tl_alloc_helpers.populateWeekInputsForRow(tr, {}); // {} -> no existing week values
 }
+
 
     selProj.addEventListener('change', function(){
       fillSubprojectOptions(selSub, this.value, null);
@@ -1164,9 +1202,12 @@ document.addEventListener('click', function(e){
     }
 
     document.getElementById('allocBody').appendChild(tr);
+    const weekSelector = document.getElementById('weekSelector');
+  if (weekSelector) setInpHoursForRow(tr, weekSelector.value);
     return tr;
   }
 window.createRow = createRow;
+  //end of working code
 // end of a new row creation
 
  // Create a new row in allocation by project tab(prefill optional)
@@ -1179,8 +1220,12 @@ window.createRow = createRow;
     const selProj = tr.querySelector('.sel-project');
     const selSub  = tr.querySelector('.sel-subproject');
     const inpH   = tr.querySelector('.inp-hours');
+    // Remove any existing week input cells before adding new ones
+    Array.from(tr.querySelectorAll('td.td-week')).forEach(td => td.remove());
+
     // after inserting row into DOM:
 if(window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function'){
+
   tl_alloc_helpers.populateWeekInputsForRow(tr, {}); // {} -> no existing week values
 }
 
@@ -1245,6 +1290,8 @@ if(prefill){
     }
 
     document.getElementById('allocBodyByProject').appendChild(tr);
+const weekSelector = document.getElementById('weekSelector');
+  if (weekSelector) setInpHoursForRow(tr, weekSelector.value);
     return tr;
   }
   window.createRowByProject = createRowByProject;
@@ -1524,7 +1571,8 @@ if(prefill){
       if(data && data.ok){
           showAllocSuccessMsg('Allocation saved successfully');
         // reload to reflect server truth (idempotent upserts on server)
-        // location.reload(); -  Anurag commented this line to avoid page reload on save
+        //location.reload(); -  Anurag commented this line to avoid page reload on save
+          location.reload();
       } else {
         alert('Save failed: ' + (data && data.error ? data.error : 'Unknown error'));
       }
@@ -1624,7 +1672,47 @@ document.getElementById("btnExportExcel-project").addEventListener("click", func
 // ----- ensure this runs inside your IIFE ----- //
 const WEEKS = JSON.parse('{{ weeks_info_json|default:"[]"|escapejs }}' || '[]');
 
-function mkWeekInput(weekNum, maxPct, initialValue){
+// Helper to get current week number from selector
+function getCurrentWeekNum() {
+  const weekSelector = document.getElementById('weekSelector');
+  if (!weekSelector) return null;
+  const val = weekSelector.value;
+  if (!val || isNaN(val)) return null;
+  return parseInt(val, 10);
+}
+
+// Disable only .wpct inputs for week N and N-1
+
+// Disable .wpct inputs for current week and all previous weeks
+/*function updateWpctDisabledState() {
+  const currentWeekNum = getCurrentWeekNum();
+  document.querySelectorAll('.wpct').forEach(inp => {
+    const weekNum = parseInt(inp.getAttribute('data-week'), 10);
+    if (
+      typeof currentWeekNum === 'number' &&
+      !isNaN(currentWeekNum) &&
+      (weekNum === currentWeekNum || weekNum === currentWeekNum - 1)
+    ) {
+      inp.disabled = true;
+      inp.style.background = '#f3f4f6';
+      inp.style.cursor = 'not-allowed';
+    } else {
+      inp.disabled = false;
+      inp.style.background = '';
+      inp.style.cursor = '';
+    }
+  });
+}
+
+
+
+// Call on DOMContentLoaded and week change
+document.addEventListener('DOMContentLoaded', updateWpctDisabledState);
+document.getElementById('weekSelector').addEventListener('change', updateWpctDisabledState);
+*/
+
+// Update mkWeekInput to accept a disabled flag
+function mkWeekInput(weekNum, maxPct, initialValue,disabled=false) {
   const inp = document.createElement('input');
   inp.type = 'number';
   inp.min = 0;
@@ -1632,45 +1720,123 @@ function mkWeekInput(weekNum, maxPct, initialValue){
   inp.step = 0.01;
   inp.className = 'input wpct';
   inp.setAttribute('data-week', String(weekNum));
-  //inp.setAttribute('data-max', String(maxPct));
   inp.value = (initialValue !== undefined && initialValue !== null) ? String(initialValue) : '0.00';
-  inp.addEventListener('input', function(e){
-    // clamp to data-max visually; exact validation on save will run as before
-   // const maxv = parseFloat(inp.getAttribute('data-max')||'100');
-    //let v = parseFloat(inp.value||'0') || 0;
-   // if(v > maxv){ inp.value = String(maxv.toFixed(2)); inp.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.06)'; }
-   // else inp.style.boxShadow = '';
-    // recompute row totals if you have such logic:
-    const r = inp.closest('tr.alloc-row'); if(r) validateTotalPctForRow(r);
-  });
+ if (disabled) {
+    inp.disabled = true;
+    inp.style.background = '#f3f4f6';
+    inp.style.cursor = 'not-allowed';
+  }
+  // inp.addEventListener('input', function(e){
+    // your input event logic here
+ // });
   return inp;
 }
+// Helper to get today's date in YYYY-MM-DD format
+function getCurrentDateCode() {
+  const today = new Date();
+  return today.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
 
-// Only show input for the selected week
+// Update populateWeekInputsForRow to disable input if week end <= today
 function populateWeekInputsForRow(tr, existingValues) {
-  // Remove any existing week tds
   Array.from(tr.querySelectorAll('td.td-week')).forEach(td => td.remove());
-  // Get selected week from the dropdown
   const weekSelector = document.getElementById('weekSelector');
   const selectedWeek = weekSelector ? weekSelector.value : null;
   if (!selectedWeek) return;
-  // Find week info
   const weekInfo = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(selectedWeek));
   if (!weekInfo) return;
-  // Create only one input for the selected week
+
   const td = document.createElement('td');
   td.className = 'td-week text-center';
   td.setAttribute('data-week', weekInfo.num);
   const initial = (existingValues && typeof existingValues[String(weekInfo.num)] !== 'undefined')
     ? existingValues[String(weekInfo.num)]
     : (weekInfo.percent || '0.00');
-  const inp = mkWeekInput(weekInfo.num, weekInfo.max_pct || 100, initial);
+
+  const currentDateCode = getCurrentDateCode();
+  // Disable if week end date <= today
+
+  //const isDisabled = (weekInfo.end <= currentDateCode );
+  //   const isDisabled = (currentDateCode <= weekInfo.end) ;
+    const isDisabled = (currentDateCode > weekInfo.end);
+
+ // (currentDateCode >= weekInfo.start && currentDateCode <= weekInfo.end) ||
+  //(currentDateCode > weekInfo.end)
+    //cons
+  console.log('Week', weekInfo.num, 'end', weekInfo.end,'start', weekInfo.start, 'today', currentDateCode, 'disabled', isDisabled);
+
+  const inp = mkWeekInput(weekInfo.num, weekInfo.max_pct || 100, initial, isDisabled);
   td.appendChild(inp);
-  // Insert before action cell
   const actionCell = tr.querySelector('.action-cell');
   if (actionCell) tr.insertBefore(td, actionCell);
   else tr.appendChild(td);
 }
+
+
+// Only show input for the selected week, and disable for N and N-1
+// function populateWeekInputsForRow(tr, existingValues) {
+//   Array.from(tr.querySelectorAll('td.td-week')).forEach(td => td.remove());
+//   const weekSelector = document.getElementById('weekSelector');
+//   const selectedWeek = weekSelector ? weekSelector.value : null;
+//   if (!selectedWeek) return;
+//   const weekInfo = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(selectedWeek));
+//   if (!weekInfo) return;
+//
+//   const td = document.createElement('td');
+//   td.className = 'td-week text-center';
+//   td.setAttribute('data-week', weekInfo.num);
+//   const initial = (existingValues && typeof existingValues[String(weekInfo.num)] !== 'undefined')
+//     ? existingValues[String(weekInfo.num)]
+//     : (weekInfo.percent || '0.00');
+//
+//   const currentWeekNum = getCurrentWeekNum();
+//   const weekNum = parseInt(weekInfo.num, 10);
+//   // Disable input if weekNum === N or weekNum === N-1
+//   const isDisabled = (weekNum === currentWeekNum || weekNum === currentWeekNum - 1);
+//
+//   const inp = mkWeekInput(weekInfo.num, weekInfo.max_pct || 100, initial, isDisabled);
+//   td.appendChild(inp);
+//   const actionCell = tr.querySelector('.action-cell');
+//   if (actionCell) tr.insertBefore(td, actionCell);
+//   else tr.appendChild(td);
+// }
+
+// Expose helper globally
+window.tl_alloc_helpers = window.tl_alloc_helpers || {};
+window.tl_alloc_helpers.populateWeekInputsForRow = populateWeekInputsForRow;
+
+
+
+
+
+
+
+
+
+// function populateWeekInputsForRow(tr, existingValues) {
+//   // Remove any existing week tds
+//   Array.from(tr.querySelectorAll('td.td-week')).forEach(td => td.remove());
+//   // Get selected week from the dropdown
+//   const weekSelector = document.getElementById('weekSelector');
+//   const selectedWeek = weekSelector ? weekSelector.value : null;
+//   if (!selectedWeek) return;
+//   // Find week info
+//   const weekInfo = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(selectedWeek));
+//   if (!weekInfo) return;
+//   // Create only one input for the selected week
+//   const td = document.createElement('td');
+//   td.className = 'td-week text-center';
+//   td.setAttribute('data-week', weekInfo.num);
+//   const initial = (existingValues && typeof existingValues[String(weekInfo.num)] !== 'undefined')
+//     ? existingValues[String(weekInfo.num)]
+//     : (weekInfo.percent || '0.00');
+//   const inp = mkWeekInput(weekInfo.num, weekInfo.max_pct || 100, initial);
+//   td.appendChild(inp);
+//   // Insert before action cell
+//   const actionCell = tr.querySelector('.action-cell');
+//   if (actionCell) tr.insertBefore(td, actionCell);
+//   else tr.appendChild(td);
+// }
 
 // expose helper globally so the add-row handler can call it
 window.tl_alloc_helpers = window.tl_alloc_helpers || {};
@@ -1846,6 +2012,10 @@ document.getElementById('btnAddRow-project').addEventListener('click', function(
 
   // Append to project allocation table
   document.getElementById('allocBodyByProject').appendChild(tr);
+
+  // Auto-fill inp-hours with available weekly hours
+  const weekSelector = document.getElementById('weekSelector');
+  if (weekSelector) setInpHoursForRow(tr, weekSelector.value);
 
   // Focus resource select for quick input
   const sel = tr.querySelector('.sel-resource1');
@@ -2255,6 +2425,9 @@ function showAllocSuccessMsg(msg) {
 //   });
 // })();
 
+
+
+// Place this inside your DOMContentLoaded
 document.addEventListener('DOMContentLoaded', function() {
   const weekSelector = document.getElementById('weekSelector');
   if (!weekSelector) return;
@@ -2267,19 +2440,71 @@ document.addEventListener('DOMContentLoaded', function() {
       th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
     });
 
-    // Hide/show week input cells
-    document.querySelectorAll('#allocBody tr').forEach(tr => {
-      tr.querySelectorAll('td.td-week').forEach(td => {
-        td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
-      });
+    // For each row, remove all week input tds and re-create for selected week
+    document.querySelectorAll('#allocBody tr.alloc-row').forEach(tr => {
+      // Remove all week input tds
+      tr.querySelectorAll('td.td-week').forEach(td => td.remove());
+      // Re-create the week input td for the selected week
+      if (window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
+        window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
+      }
     });
   }
 
   weekSelector.addEventListener('change', updateWeekColumns);
   updateWeekColumns();
 });
+
+//start of working code
+// document.addEventListener('DOMContentLoaded', function() {
+//   const weekSelector = document.getElementById('weekSelector');
+//   if (!weekSelector) return;
+//
+//   function updateWeekColumns() {
+//     const selectedWeek = weekSelector.value;
+//
+//     // Hide/show week headers
+//     document.querySelectorAll('.td-week-header').forEach(th => {
+//       th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
+//     });
+//
+//     // Hide/show week input cells
+//     document.querySelectorAll('#allocBody tr').forEach(tr => {
+//       tr.querySelectorAll('td.td-week').forEach(td => {
+//         td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
+//       });
+//     });
+//     populateWeekInputsFromAllocations('#allocBody');
+//   }
+//
+//   weekSelector.addEventListener('change', updateWeekColumns);
+//   updateWeekColumns();
+// });
+//end of working code
+
 // Show only the selected week column in Allocation by Project tab
 document.addEventListener('DOMContentLoaded', function() {
+  const weekSelector = document.getElementById('weekSelector');
+  if (!weekSelector) return;
+
+  function updateProjectTabWeekColumns() {
+      const selectedWeek = weekSelector.value;
+    // For each row, remove all week input tds and re-create for selected week
+    document.querySelectorAll('#allocBodyByProject tr.alloc-row').forEach(tr => {
+         // Remove all previous week input cells
+      tr.querySelectorAll('td.td-week').forEach(td => td.remove());
+      if (window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
+        window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
+      }
+      setInpHoursForRow(tr, selectedWeek); // <-- Add this line
+    });
+  }
+
+  weekSelector.addEventListener('change', updateProjectTabWeekColumns);
+  updateProjectTabWeekColumns();
+});
+
+/*document.addEventListener('DOMContentLoaded', function() {
   const weekSelector = document.getElementById('weekSelector');
   if (!weekSelector) return;
 
@@ -2308,11 +2533,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
   weekSelector.addEventListener('change', updateProjectTabWeekColumns);
   updateProjectTabWeekColumns();
-});
+}); */
 // Helper to get working days for a week number
 function getWorkingDaysForWeek(weekNum) {
   const week = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(weekNum));
   return week ? week.working_days : 0;
+}
+
+// Set inp-hours value for a row
+function setInpHoursForRow(tr, weekNum) {
+  const inp = tr.querySelector('.inp-hours');
+  if (inp) {
+    const workingDays = getWorkingDaysForWeek(weekNum);
+    const maxHours = +(8.75 * workingDays).toFixed(2);
+    inp.value = maxHours;
+    inp.setAttribute('max', maxHours);
+    inp.setAttribute('data-week', weekNum);
+  }
 }
 
 // Update max hours and value for all rows based on selected week
@@ -2320,16 +2557,20 @@ function updateMaxHoursForCurrentWeek() {
   const weekSelector = document.getElementById('weekSelector');
   if (!weekSelector) return;
   const selectedWeek = weekSelector.value;
-  const workingDays = getWorkingDaysForWeek(selectedWeek);
-  const maxHours = +(8.75 * workingDays).toFixed(2);
+  //const workingDays = getWorkingDaysForWeek(selectedWeek);
+  //const maxHours = +(8.75 * workingDays).toFixed(2);
 
   ['#allocBody', '#allocBodyByProject'].forEach(selector => {
     document.querySelectorAll(selector + ' .alloc-row').forEach(tr => {
-      const inp = tr.querySelector('.inp-hours');
+         //setInpHoursForRow(tr, selectedWeek);
+    setInpHoursForRow(tr, document.getElementById('weekSelector').value);
+
+      /*const inp = tr.querySelector('.inp-hours');
       if (inp) {
         inp.value = maxHours; // Always set to max for selected week
         inp.setAttribute('max', maxHours);
-      }
+        inp.setAttribute('data-week', selectedWeek); // <-- Set the week number
+      }*/
     });
   });
 }
@@ -2424,6 +2665,11 @@ document.getElementById("month").addEventListener("change", function() {
 });
 
 //end of new code
+
+
+
+
+
 
 </script>
 
