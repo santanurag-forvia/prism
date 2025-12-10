@@ -212,36 +212,47 @@ def _get_user_roles(request):
     """
     Return a list of role strings for the logged-in user.
     """
+    print("[_get_user_roles] Called")
     roles = set()
     user = getattr(request, "user", None)
+    print(f"[_get_user_roles] user: {user}")
 
     if user and user.is_authenticated:
+        print("[_get_user_roles] User is authenticated")
         try:
             groups = user.groups.all()
+            print(f"[_get_user_roles] User groups: {groups}")
             for g in groups:
+                print(f"[_get_user_roles] Adding group role: {g.name}")
                 roles.add(str(g.name).upper())
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[_get_user_roles] Exception in groups: {e}")
 
         if getattr(user, "is_superuser", False):
+            print("[_get_user_roles] User is superuser, adding ADMIN")
             roles.add("ADMIN")
 
     sess = getattr(request, "session", None)
+    print(f"[_get_user_roles] session: {sess}")
     if sess:
         rlist = sess.get("roles") or sess.get("user_roles")
+        print(f"[_get_user_roles] session roles list: {rlist}")
         if isinstance(rlist, (list, tuple)):
             for r in rlist:
+                print(f"[_get_user_roles] Adding session role from list: {r}")
                 roles.add(str(r).upper())
         else:
             r = sess.get("role") or sess.get("user_role")
+            print(f"[_get_user_roles] session single role: {r}")
             if r:
                 roles.add(str(r).upper())
 
     if not roles:
+        print("[_get_user_roles] No roles found, defaulting to EMPLOYEE")
         roles.add("EMPLOYEE")
 
+    print(f"[_get_user_roles] Final roles: {roles}")
     return roles
-
 
 def _filter_menu_by_roles(menu_tree, roles):
     """
