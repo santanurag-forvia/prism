@@ -5943,15 +5943,24 @@ def tl_allocations_view(request):
             }
             reportees_list.append(reportees_map[lid])
 
-    # Determine if logged-in user is a PDL
+    # Determine if logged-in user is a PDL/Team lead
     logged_ldap = request.session.get("ldap_username")
     logged_cn = request.session.get("cn") or request.session.get("display_name") or logged_ldap
     is_pdl = False
     try:
         role_val = (request.session.get('role') or "").strip()
         role_norm = role_val.upper()
-        if role_norm == "PDL" or ",PDL" in "," + role_norm or "PDL," in role_norm or " PD L " in role_norm or "PDL" in role_norm:
-            is_pdl = True
+        if (
+                "PDL" in role_norm
+                or ",PDL" in "," + role_norm
+                or "PDL," in role_norm
+                or " PD L " in role_norm
+                or "TEAM_LEAD" in role_norm
+                or ",TEAM_LEAD" in "," + role_norm
+                or "TEAM_LEAD," in role_norm
+                or " TEAM LEAD " in role_norm
+            ):
+                is_pdl = True
     except Exception:
         is_pdl = False
     if is_pdl and logged_ldap:
@@ -7190,10 +7199,10 @@ def tl_punch_review(request):
 
     # Add logged-in user if PDL and not already in reportees
     role = (request.session.get("role") or "").upper()
-    if "PDL" in role:
-        logged_ldap = (session_ldap or "").lower()
+    logged_ldap = (session_ldap or "").lower()
+    if any(r in role for r in ("PDL", "TEAM_LEAD")):
         if not any(r["ldap"] == logged_ldap for r in reportees):
-            print(f"Adding logged-in user {logged_ldap} to reportees (PDL)")
+            print(f"Adding logged-in user {logged_ldap} to reportees (PDL/TEAM_LEAD)")
             reportees.insert(0, {
                 "ldap": logged_ldap,
                 "mail": session_ldap,
