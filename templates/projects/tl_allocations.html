@@ -1480,13 +1480,41 @@ const weekSelector = document.getElementById('weekSelector');
   // -----------------------
 
   // Add Resource button
-  document.getElementById('btnAddRow').addEventListener('click', function(e){
+
+
+// JavaScript
+document.getElementById('btnAddRow').addEventListener('click', function(e){
+  e.preventDefault();
+  const tr = createRow({});
+  const sel = tr.querySelector('.sel-resource');
+  if(sel) {
+    sel.focus();
+    sel.addEventListener('change', function() {
+      const weekSelector = document.getElementById('weekSelector');
+      const selectedWeek = weekSelector ? weekSelector.value : null;
+      const selectedResource = sel.value;
+      if (selectedResource && selectedWeek) {
+        const totalPct = getTotalWeekAllocationForResource(selectedResource, selectedWeek);
+        if (totalPct >= 100) {
+          alert('This resource already has 100% allocation for the selected week. Cannot allocate more.');
+          sel.value = ""; // Reset selection
+        }
+      }
+    });
+  }
+});
+
+
+
+    //working code for add resource button
+  /*document.getElementById('btnAddRow').addEventListener('click', function(e){
     e.preventDefault();
     const tr = createRow({});
     // focus on the resource select for quick input
     const sel = tr.querySelector('.sel-resource');
     if(sel) sel.focus();
-  });
+  });*/
+    //end of working code for add resource
 
 
   // Delegated event handling for dynamic elements:
@@ -2019,7 +2047,32 @@ document.getElementById('btnAddRow-project').addEventListener('click', function(
 
   // Focus resource select for quick input
   const sel = tr.querySelector('.sel-resource1');
-  if(sel) sel.focus();
+  if(sel) {
+
+      sel.focus();
+      //start of validation
+      sel.addEventListener('change', function() {
+    const weekSelector = document.getElementById('weekSelector');
+    const selectedWeek = weekSelector ? weekSelector.value : null;
+    const selectedResource = sel.value;
+    if (selectedResource && selectedWeek) {
+      // Helper function to sum allocations for this resource/week
+      let total = 0;
+      document.querySelectorAll('#allocBodyByProject .alloc-row').forEach(row => {
+        const ldap = (row.querySelector('.sel-resource1')?.value || '').toLowerCase();
+        if (ldap === selectedResource.toLowerCase()) {
+          const inp = row.querySelector('input.wpct[data-week="' + selectedWeek + '"]');
+          if (inp) total += parseFloat(inp.value || 0) || 0;
+        }
+      });
+      if (total >= 100) {
+        alert('This resource already has 100% allocation for the selected week. Cannot allocate more.');
+        sel.value = ""; // Reset selection
+      }
+    }
+  });
+}
+  //end of validation
 });
 //end of working code
 function recomputeSummaryTotals(){
@@ -2043,25 +2096,6 @@ function recomputeSummaryTotals(){
       if(hrsEl) ptgeEl.textContent = (hrs ? (hrs / MONTHLY_LIMIT * 100).toFixed(2) : '0.00' );
       // if(ptgeEl) hrsEl.textContent = hrs.toFixed(2);
     });
-
-    // document.querySelectorAll('#summaryBodyprojectview .alloc-row').forEach(rr => {
-    //   const ldap = (rr.getAttribute('data-ldap')||'').toLowerCase();
-    //   const hrs = totals[ldap] || 0;
-    //   const hrsEl = rr.querySelector('.r-hours');
-    //   const fteEl = rr.querySelector('.r-fte');
-    //   const ptgeEl = rr.querySelector('.r-ptge');
-    //   console.log('_____PRANIT hrsEl',hrsEl)
-    //   if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
-    //   if(hrsEl){
-    //         fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(1) : '0.0');
-    //         ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MONTHLY_LIMIT * 100).toFixed(1) : '0.0' );
-    //         console.log('_____PRANIT hrsEl',fteEl)
-    //         console.log('_____PRANIT hrsEl',ptgeEl)
-    //   }
-    // });
-
-    //JS:
-    //document.querySelectorAll('#summaryBodyallottmentview .reportee-row').forEach(rr => {
 
   }
 
@@ -2395,67 +2429,10 @@ function showAllocSuccessMsg(msg) {
   });
 })();
 
-// (function(){
-//   const PAGE_SIZE = 5; // Number of rows per page
-//   let currentPage = 1;
-//   let totalPages = 1;
-//
-//   function paginateProjectView() {
-//     const tbody = document.getElementById('summaryTable2');
-//     if (!tbody) return;
-//     const rows = Array.from(tbody.querySelectorAll('tr.alloc-row'));
-//     totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-//     rows.forEach(row => row.style.display = 'none');
-//     const start = (currentPage - 1) * PAGE_SIZE;
-//     const end = start + PAGE_SIZE;
-//     rows.slice(start, end).forEach(row => row.style.display = '');
-//     document.getElementById('prevProjectViewPageViewAllotment').disabled = currentPage === 1;
-//     document.getElementById('nextProjectViewPageViewAllotment').disabled = currentPage === totalPages;
-//     document.getElementById('projectViewPageInfoViewAllotment').textContent = `Page ${currentPage} of ${totalPages}`;
-//   }
-//
-//   document.addEventListener('DOMContentLoaded', function() {
-//     paginateProjectView();
-//     document.getElementById('prevProjectViewPageViewAllotment').addEventListener('click', function() {
-//       if (currentPage > 1) { currentPage--; paginateProjectView(); }
-//     });
-//     document.getElementById('nextProjectViewPageViewAllotment').addEventListener('click', function() {
-//       if (currentPage < totalPages) { currentPage++; paginateProjectView(); }
-//     });
-//   });
-// })();
 
 
 
 // Place this inside your DOMContentLoaded
-document.addEventListener('DOMContentLoaded', function() {
-  const weekSelector = document.getElementById('weekSelector');
-  if (!weekSelector) return;
-
-  function updateWeekColumns() {
-    const selectedWeek = weekSelector.value;
-
-    // Hide/show week headers
-    document.querySelectorAll('.td-week-header').forEach(th => {
-      th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
-    });
-
-    // For each row, remove all week input tds and re-create for selected week
-    document.querySelectorAll('#allocBody tr.alloc-row').forEach(tr => {
-      // Remove all week input tds
-      tr.querySelectorAll('td.td-week').forEach(td => td.remove());
-      // Re-create the week input td for the selected week
-      if (window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
-        window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
-      }
-    });
-  }
-
-  weekSelector.addEventListener('change', updateWeekColumns);
-  updateWeekColumns();
-});
-
-//start of working code
 // document.addEventListener('DOMContentLoaded', function() {
 //   const weekSelector = document.getElementById('weekSelector');
 //   if (!weekSelector) return;
@@ -2468,11 +2445,14 @@ document.addEventListener('DOMContentLoaded', function() {
 //       th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
 //     });
 //
-//     // Hide/show week input cells
-//     document.querySelectorAll('#allocBody tr').forEach(tr => {
-//       tr.querySelectorAll('td.td-week').forEach(td => {
-//         td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
-//       });
+//     // For each row, remove all week input tds and re-create for selected week
+//     document.querySelectorAll('#allocBody tr.alloc-row').forEach(tr => {
+//       // Remove all week input tds
+//       tr.querySelectorAll('td.td-week').forEach(td => td.remove());
+//       // Re-create the week input td for the selected week
+//       if (window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
+//         window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
+//       }
 //     });
 //     populateWeekInputsFromAllocations('#allocBody');
 //   }
@@ -2480,31 +2460,73 @@ document.addEventListener('DOMContentLoaded', function() {
 //   weekSelector.addEventListener('change', updateWeekColumns);
 //   updateWeekColumns();
 // });
-//end of working code
 
-// Show only the selected week column in Allocation by Project tab
+//start of working code
 document.addEventListener('DOMContentLoaded', function() {
   const weekSelector = document.getElementById('weekSelector');
   if (!weekSelector) return;
 
-  function updateProjectTabWeekColumns() {
-      const selectedWeek = weekSelector.value;
-    // For each row, remove all week input tds and re-create for selected week
-    document.querySelectorAll('#allocBodyByProject tr.alloc-row').forEach(tr => {
-         // Remove all previous week input cells
-      tr.querySelectorAll('td.td-week').forEach(td => td.remove());
-      if (window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
-        window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
-      }
-      setInpHoursForRow(tr, selectedWeek); // <-- Add this line
-    });
-  }
+  function updateWeekColumns() {
+    const selectedWeek = weekSelector.value;
 
-  weekSelector.addEventListener('change', updateProjectTabWeekColumns);
-  updateProjectTabWeekColumns();
+    // Hide/show week headers
+    document.querySelectorAll('.td-week-header').forEach(th => {
+      th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
+    });
+
+    // Hide/show week input cells
+    document.querySelectorAll('#allocBody tr').forEach(tr => {
+      tr.querySelectorAll('td.td-week').forEach(td => {
+       //td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
+      });
+      // For legacy rows, if week columns don't have td-week class, fallback:
+      tr.querySelectorAll('input.wpct').forEach(inp => {
+        const td = inp.closest('td');
+        if (td && inp.dataset.week) {
+         td.style.display = (inp.dataset.week === selectedWeek) ? '' : 'none';
+        }
+      });
+    });
+ // JavaScript
+document.querySelectorAll('#allocBody tr.alloc-row').forEach(tr => {
+  // If no td.td-week for the selected week, create it
+  const hasWeekInput = !!tr.querySelector('td.td-week input.wpct[data-week="' + selectedWeek + '"]');
+  if (!hasWeekInput && window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
+    window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
+  }
 });
 
-/*document.addEventListener('DOMContentLoaded', function() {
+    populateWeekInputsFromAllocations('#allocBody');
+  }
+
+  weekSelector.addEventListener('change', updateWeekColumns);
+  updateWeekColumns();
+});
+//end of working code
+
+// Show only the selected week column in Allocation by Project tab
+// document.addEventListener('DOMContentLoaded', function() {
+//   const weekSelector = document.getElementById('weekSelector');
+//   if (!weekSelector) return;
+//
+//   function updateProjectTabWeekColumns() {
+//       const selectedWeek = weekSelector.value;
+//     // For each row, remove all week input tds and re-create for selected week
+//     document.querySelectorAll('#allocBodyByProject tr.alloc-row').forEach(tr => {
+//          // Remove all previous week input cells
+//       tr.querySelectorAll('td.td-week').forEach(td => td.remove());
+//       if (window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
+//         window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
+//       }
+//       setInpHoursForRow(tr, selectedWeek); // <-- Add this line
+//     });
+//   }
+//
+//   weekSelector.addEventListener('change', updateProjectTabWeekColumns);
+//   updateProjectTabWeekColumns();
+// });
+
+document.addEventListener('DOMContentLoaded', function() {
   const weekSelector = document.getElementById('weekSelector');
   if (!weekSelector) return;
 
@@ -2512,28 +2534,39 @@ document.addEventListener('DOMContentLoaded', function() {
     const selectedWeek = weekSelector.value;
     // Hide/show week columns in header
     document.querySelectorAll('#allocTableByProject th.week-header').forEach(th => {
-      th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
+      //th.style.display = (th.dataset.week === selectedWeek) ? '' : 'none';
     });
     // Hide/show week input cells in each row
     document.querySelectorAll('#allocBodyByProject tr').forEach(tr => {
       tr.querySelectorAll('td').forEach(td => {
         if (td.classList.contains('td-week')) {
-          td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
+          //td.style.display = (td.dataset.week === selectedWeek) ? '' : 'none';
         }
       });
       // For legacy rows, if week columns don't have td-week class, fallback:
       tr.querySelectorAll('input.wpct').forEach(inp => {
         const td = inp.closest('td');
         if (td && inp.dataset.week) {
-          td.style.display = (inp.dataset.week === selectedWeek) ? '' : 'none';
+         td.style.display = (inp.dataset.week === selectedWeek) ? '' : 'none';
         }
       });
     });
+
+document.querySelectorAll('#allocBodyByProject tr.alloc-row').forEach(tr => {
+  const hasWeekInput = !!tr.querySelector('td.td-week input.wpct[data-week="' + selectedWeek + '"]');
+  if (!hasWeekInput && window.tl_alloc_helpers && typeof window.tl_alloc_helpers.populateWeekInputsForRow === 'function') {
+    window.tl_alloc_helpers.populateWeekInputsForRow(tr, {});
+  }
+});
+
+    populateWeekInputsFromAllocations('#allocBodyByProject');
   }
 
   weekSelector.addEventListener('change', updateProjectTabWeekColumns);
   updateProjectTabWeekColumns();
-}); */
+});
+
+
 // Helper to get working days for a week number
 function getWorkingDaysForWeek(weekNum) {
   const week = window.tl_alloc_helpers.WEEKS.find(w => String(w.num) === String(weekNum));
@@ -2667,9 +2700,30 @@ document.getElementById("month").addEventListener("change", function() {
 //end of new code
 
 
-
-
-
+// Helper to get total allocation percent for a resource for the selected week
+function getTotalWeekAllocationForResource(resourceLdap, weekNum) {
+  let total = 0;
+  document.querySelectorAll('#allocBody .alloc-row').forEach(tr => {
+    const ldap = (tr.querySelector('.sel-resource')?.value || '').toLowerCase();
+    if (ldap === resourceLdap.toLowerCase()) {
+      const inp = tr.querySelector('input.wpct[data-week="' + weekNum + '"]');
+      if (inp) total += parseFloat(inp.value || 0) || 0;
+    }
+  });
+  return total;
+}
+// Helper for Allocation by Project tab
+function getTotalWeekAllocationForResourceByProject(resourceLdap, weekNum) {
+  let total = 0;
+  document.querySelectorAll('#allocBodyByProject .alloc-row').forEach(tr => {
+    const ldap = (tr.querySelector('.sel-resource1')?.value || '').toLowerCase();
+    if (ldap === resourceLdap.toLowerCase()) {
+      const inp = tr.querySelector('input.wpct[data-week="' + weekNum + '"]');
+      if (inp) total += parseFloat(inp.value || 0) || 0;
+    }
+  });
+  return total;
+}
 
 </script>
 
