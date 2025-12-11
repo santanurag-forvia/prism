@@ -406,6 +406,11 @@ th.week-header {
 .highlight-header {
   background: #e0f2fe; /* Example: light blue */
 }
+/* Add to your CSS file */
+.feas-green { background: #d4f7d4 !important; }
+.feas-red { background: #ffeaea !important; }
+.feas-orange { background: #fff6e0 !important; }
+
 
 </style>
 
@@ -791,7 +796,7 @@ th.week-header {
           </tbody>
         </table>
          <div style="text-align:right; margin-top:14px;">
-             <button id="btnAddRow" class="btn btn-primary">Add Resource</button>
+             <button id="btnAddRow" class="btn btn-primary">Add Allocation</button>
 
           <button id="btnExportExcel" class="btn btn-primary" >Export to Excel</button>
         <button id="btnSaveAlloc" class="btn btn-primary">Save Allocations</button>
@@ -912,7 +917,7 @@ th.week-header {
 </tbody>
 </table>
              <div class="alloc-action-bar" style="text-align:right; margin-top:14px;">
-                   <button id="btnAddRow-project" class="btn btn-primary">Add Resource</button>
+                   <button id="btnAddRow-project" class="btn btn-primary">Add Allocation</button>
           <button id="btnExportExcel-project" class="btn btn-primary" >Export to Excel</button>
         <button id="btnSaveAlloc-project" class="btn btn-primary">Save Allocations</button>
       </div>
@@ -2724,6 +2729,36 @@ function getTotalWeekAllocationForResourceByProject(resourceLdap, weekNum) {
   });
   return total;
 }
+
+// Highlight Direct Reportees Summary rows by percent value
+document.addEventListener('DOMContentLoaded', function() {
+  function highlightReporteeRows() {
+    document.querySelectorAll('#summaryBody .reportee-row').forEach(row => {
+      const ptgeCell = row.querySelector('.r-ptge');
+      if (!ptgeCell) return;
+      const percent = parseFloat(ptgeCell.textContent) || 0;
+      row.style.background = '';
+      if (percent === 100) {
+        row.style.background = '#d4f7d4'; // light green
+      } else if (percent < 50) {
+        row.style.background = '#ffeaea'; // light red
+      } else if (percent >= 50 && percent < 100) {
+        row.style.background = '#fff6e0'; // light orange
+      }
+    });
+  }
+  highlightReporteeRows();
+  // Re-highlight after summary is recomputed
+  if (typeof recomputeSummaryTotals === 'function') {
+    const orig = recomputeSummaryTotals;
+    window.recomputeSummaryTotals = function() {
+      orig.apply(this, arguments);
+      highlightReporteeRows();
+    };
+  }
+});
+
+
 
 </script>
 
