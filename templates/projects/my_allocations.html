@@ -901,39 +901,6 @@
 
 {% block content %}
 <div class="page-container">
-    <!-- Page Header with Month/Year Picker -->
-<!--    <div class="page-header">-->
-<!--        <h1 class="page-title">My Weekly Allocations</h1>-->
-<!--        <div class="filter-controls">-->
-<!--            <div class="filter-group">-->
-<!--                <label for="yearSelect">Year:</label>-->
-<!--                <select id="yearSelect" class="filter-select">-->
-<!--                    {% for year in years %}-->
-<!--                        <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>-->
-<!--                            {{ year }}-->
-<!--                        </option>-->
-<!--                    {% endfor %}-->
-<!--                </select>-->
-<!--            </div>-->
-<!--            <div class="filter-group">-->
-<!--                <label for="monthSelect">Month:</label>-->
-<!--                <select id="monthSelect" class="filter-select">-->
-<!--                    {% for month in months %}-->
-<!--                        <option value="{{ month.num }}" {% if month.num == selected_month %}selected{% endif %}>-->
-<!--                            {{ month.name }}-->
-<!--                        </option>-->
-<!--                    {% endfor %}-->
-<!--                </select>-->
-<!--            </div>-->
-<!--            <button id="searchBtn" class="btn-search" onclick="changeMonthYear()">-->
-<!--                <i class="fas fa-search"></i>-->
-<!--                Search-->
-<!--            </button>-->
-<!--        </div>-->
-<!--    </div>-->
-
-    <!-- Action Bar with Week Selector and Buttons -->
-
 
         <!-- Action Bar with Week Selector and Buttons -->
 <input type="hidden" id="hiddenMonthStart" value="{{ billing_start|date:'Y-m-d' }}">
@@ -987,28 +954,15 @@
                 </select>
             </div>
             <div class="action-buttons">
-<!--                <button class="btn btn-save-draft" id="btnSaveDraft">-->
-<!--                    <i class="fas fa-save"></i>-->
-<!--                    Save Draft-->
-<!--                </button>-->
-<!--                <button class="btn btn-submit-effort" id="btnSubmit">-->
-<!--                    <i class="fas fa-check-circle"></i>-->
-<!--                    Submit Efforts-->
-<!--                </button>-->
+
                 <button class="btn btn-add-allocation" id="btnAddAllocation">
                     <i class="fas fa-plus-circle"></i>
                     Add Allocation
                 </button>
-<!--                <button class="btn btn-record-leave" id="btnRecordLeave">-->
-<!--                    <i class="fas fa-calendar-times"></i>-->
-<!--                    Record Leave-->
-<!--                </button>-->
+
             </div>
         </div>
     </div>
-
-    <!-- html -->
-    <!-- html -->
     <div class="allocations-container">
       {% for week in weeks %}
         {% if selected_week == 'all' or week.num|stringformat:"s" == selected_week|stringformat:"s" %}
@@ -1230,90 +1184,6 @@
     </div>
 </div>
 
-
-<!-- Record Leave Modal (Redesigned) -->
-<div id="recordLeaveModal" class="modal-overlay">
-    <div class="modal-dialog">
-        <div class="modal-header">
-            <h4 class="modal-title">
-                <i class="fas fa-calendar-times"></i>
-                Record Leave
-            </h4>
-            <button class="modal-close" id="btnLeaveModalClose">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <div class="modal-body">
-            <div class="form-section">
-                <div class="form-section-title">
-                    <i class="fas fa-info-circle"></i>
-                    Leave Details
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="leaveStartDate">
-                            From Date <span style="color: #e53e3e;">*</span>
-                        </label>
-                        <input type="date" id="leaveStartDate" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="leaveEndDate">
-                            To Date <span style="color: #e53e3e;">*</span>
-                        </label>
-                        <input type="date" id="leaveEndDate" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="leaveType">
-                            Leave Type <span style="color: #e53e3e;">*</span>
-                        </label>
-                        <select id="leaveType" required>
-                            <option value="">Select Type...</option>
-                            <option value="CASUAL">Casual Leave</option>
-                            <option value="SICK">Sick Leave</option>
-                            <option value="EARNED">Earned Leave</option>
-                            <option value="UNPAID">Unpaid Leave</option>
-                            <option value="MATERNITY">Maternity Leave</option>
-                            <option value="PATERNITY">Paternity Leave</option>
-                            <option value="COMPENSATORY">Compensatory Off</option>
-                            <option value="OTHER">Other</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="leaveDays">
-                            Leave Days (auto-calculated)
-                        </label>
-                        <input type="text"
-                               id="leaveDays"
-                               readonly
-                               style="background: #f7fafc;">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="leaveReason">
-                        Reason (Optional)
-                    </label>
-                    <textarea id="leaveReason"
-                              rows="3"
-                              maxlength="500"
-                              placeholder="Enter reason for leave..."
-                              style="width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
-                </div>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <input type="hidden" id="hiddenBillingStart" value="{{ billing_start|date:'Y-m-d' }}">
-            <input type="hidden" id="hiddenBillingEnd" value="{{ billing_end|date:'Y-m-d' }}">
-            <button class="btn btn-secondary" id="btnLeaveModalCancel">
-                <i class="fas fa-times"></i> Cancel
-            </button>
-            <button class="btn btn-primary" id="btnLeaveModalSave">
-                <i class="fas fa-check"></i> Save Leave
-            </button>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -1371,8 +1241,6 @@
     document.addEventListener('DOMContentLoaded', function () {
 // === DOM ELEMENTS ===
         const weekSelector = document.getElementById('weekSelector');
-        const btnSaveDraft = document.getElementById('btnSaveDraft');
-        const btnSubmit = document.getElementById('btnSubmit');
         const btnAddAllocation = document.getElementById('btnAddAllocation');
         //const btnRecordLeave = document.getElementById('btnRecordLeave');
         const monthSelect = document.getElementById('monthSelect');
@@ -1441,17 +1309,6 @@
             url.searchParams.set('week', this.value);
             window.location.href = url.toString();
         });
-
-        // Leave Recording     Modal Handlers
-        // Show Record Leave Modal on button click
-        // btnRecordLeave.addEventListener('click', function () {
-        //     leaveModal.classList.add('active');
-        //     leaveStartDate.value = '';
-        //     leaveEndDate.value = '';
-        //     leaveType.value = '';
-        //     leaveDays.value = '';
-        //     leaveReason.value = '';
-        // });
 
         function calculateLeaveDays() {
             const start = leaveStartDate.value;
@@ -1553,90 +1410,9 @@
             }
         });
 
-// --- Save Draft ---
-        btnSaveDraft.addEventListener('click', async function () {
-            const rawEfforts = collectEffortData();
-            const efforts = groupEfforts(rawEfforts);
-            if (efforts.length === 0) {
-                showNotification('No editable efforts to save', 'warning');
-                return;
-            }
-            try {
-                const response = await fetch('{{ save_effort_url }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    },
-                    body: JSON.stringify({efforts: efforts})
-                });
-                const data = await response.json();
-                if (data.ok) {
-                    showNotification('Draft saved!', 'success');
-                    setTimeout(() => window.location.reload(), 1000);
-                } else {
-                    showNotification('Error: ' + data.error, 'error');
-                }
-            } catch (err) {
-                showNotification('Network error occurred', 'error');
-                console.error(err);
-            }
-        });
 
-        btnSubmit.addEventListener('click', async function () {
-            const effortsData = [];
-            document.querySelectorAll('.allocation-card').forEach(card => {
-                const tdId = parseInt(card.dataset.tdid);
-                card.querySelectorAll('input[data-date][data-week]').forEach(input => {
-                    const date = input.dataset.date;
-                    const weekNum = parseInt(input.dataset.week);
-                    const punchedHours = parseFloat(input.value || 0);
-                    if (tdId && weekNum && date ) {
-                        effortsData.push({
-                            team_distribution_id: tdId,
-                            week_number: weekNum,
-                            date: date,
-                            punched_hours: punchedHours
-                        });
-                    }
-                });
-            });
-            if (effortsData.length === 0) {
-                showNotification('No punched hours to submit', 'warning');
-                return;
-            }
-            const billingStart = document.getElementById('hiddenMonthStart').value;
-            if (!billingStart) {
-                showNotification('Missing billing period information', 'error');
-                return;
-            }
-            const payload = {
-                billing_start: billingStart,
-                efforts: effortsData
-            };
-            try {
-                const response = await fetch('{{ submit_effort_url }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (data.ok) {
-                    showNotification('Efforts submitted!', 'success');
-                    setTimeout(() => window.location.reload(), 1000);
-                } else {
-                    showNotification('Error: ' + data.error, 'error');
-                }
-            } catch (err) {
-                showNotification('Network error occurred', 'error');
-                console.error(err);
-            }
-        });
 
-// --- Add Allocation Modal (with day-wise effort) ---
+        // --- Add Allocation Modal (with day-wise effort) ---
         btnAddAllocation.addEventListener('click', async function () {
             try {
                 const response = await fetch('{{ get_projects_url }}');

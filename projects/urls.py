@@ -92,6 +92,7 @@ urlpatterns = [
     path("tl-punch-review/approve/", views.tl_punch_approve, name="tl_punch_approve"),
     path("tl/punch/bulk-approve/", views.tl_punch_bulk_approve, name="tl_punch_bulk_approve"),
     path('api/punch-status/', views.punch_status_api, name='punch_status_api'),
+    path('api/add_tl_allocation/', views.add_tl_allocation, name='add_tl_allocation'),
     path('bulk-update-week-status/', views.bulk_update_week_status, name='bulk_update_week_status'),  # NEW
 ]
 
