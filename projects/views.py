@@ -3699,7 +3699,7 @@ def add_tl_allocation(request):
                 for alloc in filtered_allocations:
                     week_number = alloc.get('week_number')
                     hours = Decimal(str(alloc.get('hours', 0)))
-                    percent = Decimal(str(alloc.get('percent_effort', 0)))
+                    percent = Decimal(str(alloc.get('percent', 0)))
                     print(f"[add_tl_allocation] Inserting weekly_allocation: week_number={week_number}, hours={hours}, percent={percent}")
                     cur.execute(
                         """
@@ -7537,7 +7537,7 @@ def tl_punch_review(request):
         "selected_week": selected_week,
         "current_week": current_week,
         "is_eu_user": is_eu_user,
-        'add_allocation_url': reverse('projects:add_self_allocation'),
+        'add_allocation_url': reverse('projects:add_tl_allocation'),
         'get_projects_url': reverse('projects:get_projects_for_allocation'),
         "week_days": week_days,
     })

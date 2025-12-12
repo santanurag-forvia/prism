@@ -755,7 +755,36 @@ document.addEventListener("DOMContentLoaded", function() {
         }
 
         const totalHours = days.reduce((sum, d) => sum + d.punched_hours, 0);
-        const percent = 0; // Set as needed
+        console.log('Total hours calculated:', totalHours);
+
+        // Get allWeeksList from hidden input
+        const allWeeksList = JSON.parse(document.getElementById('hiddenWeeksData').value);
+        const week = allWeeksList.find(w => String(w.num) === String(weekNum));
+
+        let daysList = [];
+        if (week) {
+            // If days_list is missing or empty, build it from start/end
+            if (!week.days_list || week.days_list.length === 0) {
+                const start = new Date(week.start);
+                const end = new Date(week.end);
+                for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                    daysList.push({ date: d.toISOString().slice(0, 10) });
+                }
+            } else {
+                daysList = week.days_list;
+            }
+        }
+
+        let workingDays = 0;
+        if (daysList.length > 0) {
+            workingDays = daysList.filter(day => {
+                const d = new Date(day.date);
+                return d.getDay() !== 0 && d.getDay() !== 6; // Mon-Fri
+            }).length;
+        }
+        console.log('Working days in selected week:', workingDays);
+        const percent = workingDays > 0 ? (totalHours / (8.75 * workingDays)) * 100 : 0;
+        console.log('Percent calculated:', percent);
 
         const payload = {
             reportee_ldap: reporteeLdap,
@@ -783,7 +812,7 @@ document.addEventListener("DOMContentLoaded", function() {
             if (data.ok) {
                 showNotification('Allocation added successfully!', 'success');
                 closeModal();
-                setTimeout(() => window.location.reload(), 1500);
+                // setTimeout(() => window.location.reload(), 1500);
             } else {
                 showNotification('Error: ' + data.error, 'error');
             }
