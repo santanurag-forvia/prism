@@ -94,7 +94,7 @@ MENU_TREE = [
                 "title": "TL Punching Review",
                 "icon": "clock",
                 "url": reverse_lazy("projects:tl_punch_review"),
-                "roles": ["COE_LEADER", "TEAM_LEAD", "ADMIN", "PDL", "EMPLOYEE"],
+                "roles": ["COE_LEADER", "TEAM_LEAD", "ADMIN", "PDL"],
             },
         ],
     },
