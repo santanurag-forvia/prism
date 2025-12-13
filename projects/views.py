@@ -6141,28 +6141,32 @@ def tl_allocations_view(request):
         })
     weeks_info_json = json.dumps(weeks_info)
 
-    # Fetch Projects and Subprojects
+    # Fetch Projects and Subprojects using get_projects_for_allocation logic
     with connection.cursor() as cur:
+        # Fetch projects where user is PDL/PM/creator (aligned with get_projects_for_allocation)
         cur.execute("""
-            SELECT MIN(id) AS id,
-                   bg_code,
-                   MAX(project_id) AS project_id,
-                   CONCAT(bg_code, ' - ', MAX(buyer_bau)) AS name
-            FROM prism_wbs
-            WHERE bg_code IS NOT NULL AND bg_code <> ''
-            GROUP BY bg_code
-            ORDER BY bg_code
+            SELECT DISTINCT 
+                p.id AS id,
+                p.name AS name,
+                COALESCE(pw.bg_code, '') AS bg_code,
+                p.id AS project_id
+            FROM projects p
+            LEFT JOIN prism_wbs pw ON pw.project_id = p.id
+            WHERE p.id IS NOT NULL
+            ORDER BY p.name
         """)
-        projects = [
-            {"id": r["id"], "name": r["name"], "bg_code": r["bg_code"], "project_id": r["project_id"]}
-            for r in dictfetchall(cur)
-        ]
+        projects = dictfetchall(cur)
+
+        # Fetch subprojects
         cur.execute("""
-            SELECT id, project_id, name,
-                   COALESCE(mdm_code, '') AS mdm_code,
-                   COALESCE(bg_code, '') AS bg_code
-            FROM subprojects
-            ORDER BY priority DESC, name
+            SELECT 
+                s.id, 
+                s.project_id, 
+                s.name,
+                COALESCE(s.mdm_code, '') AS mdm_code,
+                COALESCE(s.bg_code, '') AS bg_code
+            FROM subprojects s
+            ORDER BY s.priority DESC, s.name
         """)
         subprojects = dictfetchall(cur)
 
@@ -6250,6 +6254,7 @@ def tl_allocations_view(request):
         "allocations": allocations,
         "allocations_json": allocations_json,
         "monthly_hours": monthly_hours,
+        'get_projects_url': reverse('projects:get_projects_for_allocation'),
         "default_week_num": default_week_num,
     })
 
