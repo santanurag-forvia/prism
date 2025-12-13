@@ -234,7 +234,13 @@
                     <tr>
                         <th style="width: 30%;">Day</th>
                         <th style="width: 40%;">Date</th>
-                        <th style="width: 30%;">Effort (hours)</th>
+                        <th style="width: 30%;">
+                            {% if is_eu_user %}
+                                Effort (%)
+                            {% else %}
+                                Effort (hours)
+                            {% endif %}
+                        </th>
                     </tr>
                     </thead>
                     <tbody>
@@ -257,334 +263,356 @@
 {% block extra_js %}
 <script>
     function showNotification(message, type) {
-            const colors = {
-                success: {bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e'},
-                error: {bg: '#fadbd8', border: '#a93226', text: '#a93226'},
-                warning: {bg: '#fef5e7', border: '#d68910', text: '#d68910'},
-                info: {bg: '#d6eaf8', border: '#1a5490', text: '#1a5490'}
-            };
-            const color = colors[type] || colors.info;
-            const notification = document.createElement('div');
-            notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        min-width: 300px;
-        max-width: 500px;
-        background: ${color.bg};
-        color: ${color.text};
-        border-left: 4px solid ${color.border};
-        padding: 16px 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-weight: 600;
-        animation: slideInRight 0.3s ease;
-    `;
-            const icons = {
-                success: 'fas fa-check-circle',
-                error: 'fas fa-exclamation-circle',
-                warning: 'fas fa-exclamation-triangle',
-                info: 'fas fa-info-circle'
-            };
-            notification.innerHTML = `
-        <i class="${icons[type]}" style="font-size: 20px;"></i>
-        <span>${message}</span>
-        <button onclick="this.parentElement.remove()"
-                style="margin-left: auto; background: none; border: none;
-                       color: ${color.text}; font-size: 20px; cursor: pointer;
-                       opacity: 0.7; padding: 0; width: 24px; height: 24px;">
-            ×
-        </button>
-    `;
-            document.body.appendChild(notification);
-            setTimeout(() => {
-                notification.style.animation = 'slideOutRight 0.3s ease';
-                setTimeout(() => notification.remove(), 300);
-            }, 5000);
+        const colors = {
+            success: {bg: '#d5f4e6', border: '#0e7c4e', text: '#0e7c4e'},
+            error: {bg: '#fadbd8', border: '#a93226', text: '#a93226'},
+            warning: {bg: '#fef5e7', border: '#d68910', text: '#d68910'},
+            info: {bg: '#d6eaf8', border: '#1a5490', text: '#1a5490'}
+        };
+        const color = colors[type] || colors.info;
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            min-width: 300px;
+            max-width: 500px;
+            background: ${color.bg};
+            color: ${color.text};
+            border-left: 4px solid ${color.border};
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 600;
+            animation: slideInRight 0.3s ease;
+        `;
+        const icons = {
+            success: 'fas fa-check-circle',
+            error: 'fas fa-exclamation-circle',
+            warning: 'fas fa-exclamation-triangle',
+            info: 'fas fa-info-circle'
+        };
+        notification.innerHTML = `
+            <i class="${icons[type]}" style="font-size: 20px;"></i>
+            <span>${message}</span>
+            <button onclick="this.parentElement.remove()"
+                    style="margin-left: auto; background: none; border: none;
+                           color: ${color.text}; font-size: 20px; cursor: pointer;
+                           opacity: 0.7; padding: 0; width: 24px; height: 24px;">
+                ×
+            </button>
+        `;
+        document.body.appendChild(notification);
+        setTimeout(() => {
+            notification.style.animation = 'slideOutRight 0.3s ease';
+            setTimeout(() => notification.remove(), 300);
+        }, 5000);
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        const btnAddAllocation = document.getElementById('btnAddAllocation');
+        const modal = document.getElementById('addAllocationModal');
+        const modalProject = document.getElementById('modalProject');
+        const modalSubproject = document.getElementById('modalSubproject');
+        const btnModalClose = document.getElementById('btnModalClose');
+        const btnModalCancel = document.getElementById('btnModalCancel');
+        const isEuUser = {{ is_eu_user|yesno:"true,false" }};
+        const HOURS_PER_DAY = 8.75;
+
+        // --- Helper function to convert percent to hours ---
+        function percentToHours(percent) {
+            return isEuUser ? (percent * HOURS_PER_DAY / 100) : percent;
         }
-document.addEventListener("DOMContentLoaded", function() {
-    const btnAddAllocation = document.getElementById('btnAddAllocation');
-    const modal = document.getElementById('addAllocationModal');
-    const modalProject = document.getElementById('modalProject');
-    const modalSubproject = document.getElementById('modalSubproject');
-    const btnModalClose = document.getElementById('btnModalClose');
-    const btnModalCancel = document.getElementById('btnModalCancel');
 
-    // --- Expand/Collapse Logic ---
-    function collapseAll() {
-        document.querySelectorAll(".collapse").forEach(function(el) {
-            el.classList.remove("show");
-            el.style.display = "none";
-        });
-        document.querySelectorAll(".expand-btn .expand-icon").forEach(function(ic) {
-            ic.classList.remove("fa-minus");
-            ic.classList.add("fa-plus");
-        });
-    }
-    function expandAll() {
-        document.querySelectorAll(".collapse").forEach(function(el) {
-            el.classList.add("show");
-            el.style.display = "";
-        });
-        document.querySelectorAll(".expand-btn .expand-icon").forEach(function(ic) {
-            ic.classList.remove("fa-plus");
-            ic.classList.add("fa-minus");
-        });
-    }
-    collapseAll();
+        // --- Helper function to convert hours to percent ---
+        function hoursToPercent(hours) {
+            return isEuUser ? (hours / HOURS_PER_DAY * 100) : hours;
+        }
 
-    // Individual expand/collapse
-    document.querySelectorAll(".expand-btn").forEach(function(btn) {
-        btn.addEventListener("click", function () {
-            var targetId = btn.getAttribute("data-target").replace(/^#/, "");
-            var target = document.getElementById(targetId);
-            if (!target) return;
-            var icon = btn.querySelector(".expand-icon");
-            var expanded = target.classList.contains("show") || target.style.display !== "none";
-            // Collapse all others
+        // --- Expand/Collapse Logic ---
+        function collapseAll() {
             document.querySelectorAll(".collapse").forEach(function(el) {
-                if (el !== target) {
-                    el.classList.remove("show");
-                    el.style.display = "none";
-                }
+                el.classList.remove("show");
+                el.style.display = "none";
             });
             document.querySelectorAll(".expand-btn .expand-icon").forEach(function(ic) {
                 ic.classList.remove("fa-minus");
                 ic.classList.add("fa-plus");
             });
-            // Toggle current
-            if (expanded) {
-                target.classList.remove("show");
-                target.style.display = "none";
-                btn.setAttribute("aria-expanded", "false");
-                if (icon) {
-                    icon.classList.remove("fa-minus");
-                    icon.classList.add("fa-plus");
-                }
-            } else {
-                target.classList.add("show");
-                target.style.display = "";
-                btn.setAttribute("aria-expanded", "true");
-                if (icon) {
-                    icon.classList.remove("fa-plus");
-                    icon.classList.add("fa-minus");
-                }
-            }
-        });
-    });
-
-    // Global expand/collapse
-    var globalBtn = document.getElementById("global-expand-btn");
-    var globalState = false;
-    if (globalBtn) {
-        globalBtn.addEventListener("click", function() {
-            globalState = !globalState;
-            if (globalState) {
-                expandAll();
-                globalBtn.querySelector(".expand-icon").classList.remove("fa-plus");
-                globalBtn.querySelector(".expand-icon").classList.add("fa-minus");
-            } else {
-                collapseAll();
-                globalBtn.querySelector(".expand-icon").classList.remove("fa-minus");
-                globalBtn.querySelector(".expand-icon").classList.add("fa-plus");
-            }
-        });
-    }
-
-    // Toggle punch table (if used)
-    document.querySelectorAll('.toggle-punch-table').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            var target = document.querySelector(btn.getAttribute('data-target'));
-            var icon = btn.querySelector('.toggle-icon');
-            if (target.style.display === 'none') {
-                target.style.display = '';
-                icon.textContent = '-';
-            } else {
-                target.style.display = 'none';
-                icon.textContent = '+';
-            }
-        });
-    });
-
-    // Week selector change
-    const weekSelector = document.getElementById('weekSelector');
-    if (weekSelector) {
-        weekSelector.addEventListener('change', function () {
-            const url = new URL(window.location.href);
-            url.searchParams.set('week', this.value);
-            window.location.href = url.toString();
-        });
-    }
-
-    // EU user percent display
-    const isEuUser = {{ is_eu_user|yesno:"true,false" }};
-    const HOURS_PER_DAY = 8.75;
-    if (isEuUser) {
-        document.querySelectorAll('.feas-tl-review-punch-input').forEach(function(input) {
-            if (input.value !== '') {
-                let hours = parseFloat(input.value);
-                let percent = hours > 0 ? (hours / HOURS_PER_DAY) * 100 : 0;
-                input.value = percent ? percent.toFixed(2) : '';
-            }
-            input.addEventListener('blur', function () {
-                if (this.value !== '') {
-                    this.value = parseFloat(this.value).toFixed(2);
-                }
-            });
-        });
-    }
-
-    // --- Calculate and update Act. Effort for each row ---
-    document.querySelectorAll(".week-row").forEach(function(row) {
-        function updateActualEffort() {
-            let sum = 0;
-            const tlAllocationCell = row.querySelector(".tl-allocation");
-            let tlAllocation = tlAllocationCell ? parseFloat(tlAllocationCell.textContent) : 0;
-            row.querySelectorAll(".punch-input").forEach(function(input) {
-                sum += parseFloat(input.value) || 0;
-            });
-            const percent = tlAllocation > 0 ? (sum / tlAllocation) * 100 : 0;
-            const cell = row.querySelector(".actual-weekly-effort");
-            if (cell) cell.textContent = `${sum.toFixed(2)} (${percent.toFixed(2)}%)`;
         }
-        row.querySelectorAll(".punch-input").forEach(function(input) {
-            input.addEventListener("input", updateActualEffort);
-            input.addEventListener("blur", updateActualEffort);
-        });
-        updateActualEffort();
-    });
 
-    // Approve button handler
-    document.querySelectorAll(".approve-btn").forEach(function(btn) {
-        btn.addEventListener("click", function(e) {
-            if (btn.hasAttribute("disabled")) return;
-            var punchId = btn.getAttribute("data-punch-id");
-            var input = document.querySelector('.punch-input[data-punch-id="' + punchId + '"]');
-            var punchedHours = input.value;
-            if (punchedHours === "" || isNaN(punchedHours) || Number(punchedHours) < 0) {
-                alert("Please enter a valid punched hours value.");
-                return;
-            }
-            var comments = prompt("Optional: Add comments for approval", "");
-            btn.disabled = true;
-            fetch("{% url 'projects:tl_punch_approve' %}", {
-                method: "POST",
-                headers: {
-                    "X-CSRFToken": "{{ csrf_token }}",
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    punch_id: punchId,
-                    punched_hours: punchedHours,
-                    comments: comments
-                })
-            }).then(resp => resp.json()).then(data => {
-                if (data.ok) {
-                    input.setAttribute("readonly", "readonly");
-                    var statusCell = btn.closest("td").previousElementSibling;
-                    if (statusCell) {
-                        statusCell.textContent = "APPROVED";
+        function expandAll() {
+            document.querySelectorAll(".collapse").forEach(function(el) {
+                el.classList.add("show");
+                el.style.display = "";
+            });
+            document.querySelectorAll(".expand-btn .expand-icon").forEach(function(ic) {
+                ic.classList.remove("fa-plus");
+                ic.classList.add("fa-minus");
+            });
+        }
+
+        collapseAll();
+
+        // Individual expand/collapse
+        document.querySelectorAll(".expand-btn").forEach(function(btn) {
+            btn.addEventListener("click", function () {
+                var targetId = btn.getAttribute("data-target").replace(/^#/, "");
+                var target = document.getElementById(targetId);
+                if (!target) return;
+                var icon = btn.querySelector(".expand-icon");
+                var expanded = target.classList.contains("show") || target.style.display !== "none";
+
+                document.querySelectorAll(".collapse").forEach(function(el) {
+                    if (el !== target) {
+                        el.classList.remove("show");
+                        el.style.display = "none";
                     }
-                    btn.remove();
+                });
+                document.querySelectorAll(".expand-btn .expand-icon").forEach(function(ic) {
+                    ic.classList.remove("fa-minus");
+                    ic.classList.add("fa-plus");
+                });
+
+                if (expanded) {
+                    target.classList.remove("show");
+                    target.style.display = "none";
+                    btn.setAttribute("aria-expanded", "false");
+                    if (icon) {
+                        icon.classList.remove("fa-minus");
+                        icon.classList.add("fa-plus");
+                    }
                 } else {
-                    alert("Error: " + (data.error || "Approval failed."));
-                    btn.disabled = false;
+                    target.classList.add("show");
+                    target.style.display = "";
+                    btn.setAttribute("aria-expanded", "true");
+                    if (icon) {
+                        icon.classList.remove("fa-plus");
+                        icon.classList.add("fa-minus");
+                    }
                 }
-            }).catch(function() {
-                alert("Network error. Please try again.");
-                btn.disabled = false;
             });
         });
-    });
 
-    // Select all checkboxes
-    document.querySelectorAll(".select-all").forEach(function(selectAll) {
-        selectAll.addEventListener("change", function() {
-            var rep = selectAll.getAttribute("data-rep");
-            document.querySelectorAll('.row-select[data-rep="' + rep + '"]').forEach(function(cb) {
-                cb.checked = selectAll.checked;
+        // Global expand/collapse
+        var globalBtn = document.getElementById("global-expand-btn");
+        var globalState = false;
+        if (globalBtn) {
+            globalBtn.addEventListener("click", function() {
+                globalState = !globalState;
+                if (globalState) {
+                    expandAll();
+                    globalBtn.querySelector(".expand-icon").classList.remove("fa-plus");
+                    globalBtn.querySelector(".expand-icon").classList.add("fa-minus");
+                } else {
+                    collapseAll();
+                    globalBtn.querySelector(".expand-icon").classList.remove("fa-minus");
+                    globalBtn.querySelector(".expand-icon").classList.add("fa-plus");
+                }
             });
-        });
-    });
+        }
 
-    // Bulk approve
-    document.querySelectorAll('.row-select').forEach(function(weekCb) {
-        weekCb.addEventListener('change', function() {
-            var rep = weekCb.getAttribute('data-rep');
-            var week = weekCb.getAttribute('data-week');
-            var dayCheckboxes = document.querySelectorAll('.row-select[data-rep="' + rep + '"][data-week="' + week + '"]');
-            dayCheckboxes.forEach(function(cb) {
-                cb.checked = weekCb.checked;
+        // Toggle punch table
+        document.querySelectorAll('.toggle-punch-table').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var target = document.querySelector(btn.getAttribute('data-target'));
+                var icon = btn.querySelector('.toggle-icon');
+                if (target.style.display === 'none') {
+                    target.style.display = '';
+                    icon.textContent = '-';
+                } else {
+                    target.style.display = 'none';
+                    icon.textContent = '+';
+                }
             });
         });
-    });
-    document.querySelectorAll(".bulk-approve").forEach(function(btn) {
-        btn.addEventListener("click", function() {
-            var rep = btn.getAttribute("data-rep");
-            var weekCheckboxes = document.querySelectorAll('.week-select[data-rep="' + rep + '"]:checked');
-            var punchIds = [];
-            weekCheckboxes.forEach(function(weekCb) {
-                var week = weekCb.getAttribute("data-week");
-                var dayPunches = document.querySelectorAll('.row-select[data-rep="' + rep + '"][data-week="' + week + '"]');
-                dayPunches.forEach(function(cb) {
-                    punchIds.push(cb.getAttribute("data-punch-id"));
+
+        // Week selector change
+        const weekSelector = document.getElementById('weekSelector');
+        if (weekSelector) {
+            weekSelector.addEventListener('change', function () {
+                const url = new URL(window.location.href);
+                url.searchParams.set('week', this.value);
+                window.location.href = url.toString();
+            });
+        }
+
+        // EU user percent display
+        if (isEuUser) {
+            document.querySelectorAll('.feas-tl-review-punch-input').forEach(function(input) {
+                if (input.value !== '') {
+                    let hours = parseFloat(input.value);
+                    let percent = hoursToPercent(hours);
+                    input.value = percent ? percent.toFixed(2) : '';
+                }
+                input.addEventListener('blur', function () {
+                    if (this.value !== '') {
+                        this.value = parseFloat(this.value).toFixed(2);
+                    }
                 });
             });
-            var dayChecked = document.querySelectorAll('.row-select[data-rep="' + rep + '"]:checked');
-            dayChecked.forEach(function(cb) {
-                var punchIdsAttr = cb.getAttribute("data-punch-ids");
-                if (punchIdsAttr) {
-                    punchIdsAttr.split(",").forEach(function(pid) {
-                        if (pid && !punchIds.includes(pid)) punchIds.push(pid);
-                    });
-                }
-            });
+        }
 
-            if (punchIds.length === 0) {
-                alert("Select at least one row to approve.");
-                return;
-            }
-            btn.disabled = true;
-            fetch("{% url 'projects:tl_punch_bulk_approve' %}", {
-                method: "POST",
-                headers: {
-                    "X-CSRFToken": "{{ csrf_token }}",
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ punch_ids: punchIds })
-            })
-            .then(resp => resp.json())
-            .then(data => {
-                if (data.ok) {
-                    punchIds.forEach(function(id) {
-                        var rowSelect = document.querySelector('.row-select[data-punch-id="' + id + '"]');
-                        if (!rowSelect) return;
-                        var row = rowSelect.closest("tr");
-                        if (!row) return;
-                        var approveBtn = row.querySelector(".approve-btn");
-                        if (approveBtn) approveBtn.remove();
-                        row.querySelector("td:nth-last-child(2)").textContent = "APPROVED";
-                        var input = row.querySelector(".punch-input");
-                        if (input) input.setAttribute("readonly", "readonly");
-                    });
-                    location.reload();
-                    alert(data.message || "Efforts Approved for selected weeks");
-                } else {
-                    alert("Error in bulk approval: " + (data.error || ""));
+        // Calculate and update Act. Effort for each row
+        document.querySelectorAll(".week-row").forEach(function(row) {
+            function updateActualEffort() {
+                let sum = 0;
+                const tlAllocationCell = row.querySelector(".tl-allocation");
+                let tlAllocation = tlAllocationCell ? parseFloat(tlAllocationCell.textContent) : 0;
+                row.querySelectorAll(".punch-input").forEach(function(input) {
+                    let inputValue = parseFloat(input.value) || 0;
+                    // Convert to hours if EU user
+                    sum += percentToHours(inputValue);
+                });
+                const percent = tlAllocation > 0 ? (sum / tlAllocation) * 100 : 0;
+                const cell = row.querySelector(".actual-weekly-effort");
+                if (cell) {
+                    let displayValue = isEuUser ? hoursToPercent(sum) : sum;
+                    cell.textContent = `${displayValue.toFixed(2)} (${percent.toFixed(2)}%)`;
                 }
-                btn.disabled = false;
-            })
-            .catch(function() {
-                alert("Network error. Please try again.");
-                btn.disabled = false;
+            }
+            row.querySelectorAll(".punch-input").forEach(function(input) {
+                input.addEventListener("input", updateActualEffort);
+                input.addEventListener("blur", updateActualEffort);
+            });
+            updateActualEffort();
+        });
+
+        // Approve button handler
+        document.querySelectorAll(".approve-btn").forEach(function(btn) {
+            btn.addEventListener("click", function(e) {
+                if (btn.hasAttribute("disabled")) return;
+                var punchId = btn.getAttribute("data-punch-id");
+                var input = document.querySelector('.punch-input[data-punch-id="' + punchId + '"]');
+                var inputValue = input.value;
+                if (inputValue === "" || isNaN(inputValue) || Number(inputValue) < 0) {
+                    alert("Please enter a valid value.");
+                    return;
+                }
+                // Convert percent to hours if EU user
+                var punchedHours = percentToHours(parseFloat(inputValue));
+                var comments = prompt("Optional: Add comments for approval", "");
+                btn.disabled = true;
+                fetch("{% url 'projects:tl_punch_approve' %}", {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": "{{ csrf_token }}",
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        punch_id: punchId,
+                        punched_hours: punchedHours,
+                        comments: comments
+                    })
+                }).then(resp => resp.json()).then(data => {
+                    if (data.ok) {
+                        input.setAttribute("readonly", "readonly");
+                        var statusCell = btn.closest("td").previousElementSibling;
+                        if (statusCell) {
+                            statusCell.textContent = "APPROVED";
+                        }
+                        btn.remove();
+                    } else {
+                        alert("Error: " + (data.error || "Approval failed."));
+                        btn.disabled = false;
+                    }
+                }).catch(function() {
+                    alert("Network error. Please try again.");
+                    btn.disabled = false;
+                });
             });
         });
-    });
-    // --- Add Allocation Modal (with day-wise effort) ---
+
+        // Select all checkboxes
+        document.querySelectorAll(".select-all").forEach(function(selectAll) {
+            selectAll.addEventListener("change", function() {
+                var rep = selectAll.getAttribute("data-rep");
+                document.querySelectorAll('.row-select[data-rep="' + rep + '"]').forEach(function(cb) {
+                    cb.checked = selectAll.checked;
+                });
+            });
+        });
+
+        // Bulk approve
+        document.querySelectorAll('.row-select').forEach(function(weekCb) {
+            weekCb.addEventListener('change', function() {
+                var rep = weekCb.getAttribute('data-rep');
+                var week = weekCb.getAttribute('data-week');
+                var dayCheckboxes = document.querySelectorAll('.row-select[data-rep="' + rep + '"][data-week="' + week + '"]');
+                dayCheckboxes.forEach(function(cb) {
+                    cb.checked = weekCb.checked;
+                });
+            });
+        });
+
+        document.querySelectorAll(".bulk-approve").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+                var rep = btn.getAttribute("data-rep");
+                var weekCheckboxes = document.querySelectorAll('.week-select[data-rep="' + rep + '"]:checked');
+                var punchIds = [];
+                weekCheckboxes.forEach(function(weekCb) {
+                    var week = weekCb.getAttribute("data-week");
+                    var dayPunches = document.querySelectorAll('.row-select[data-rep="' + rep + '"][data-week="' + week + '"]');
+                    dayPunches.forEach(function(cb) {
+                        punchIds.push(cb.getAttribute("data-punch-id"));
+                    });
+                });
+                var dayChecked = document.querySelectorAll('.row-select[data-rep="' + rep + '"]:checked');
+                dayChecked.forEach(function(cb) {
+                    var punchIdsAttr = cb.getAttribute("data-punch-ids");
+                    if (punchIdsAttr) {
+                        punchIdsAttr.split(",").forEach(function(pid) {
+                            if (pid && !punchIds.includes(pid)) punchIds.push(pid);
+                        });
+                    }
+                });
+
+                if (punchIds.length === 0) {
+                    alert("Select at least one row to approve.");
+                    return;
+                }
+                btn.disabled = true;
+                fetch("{% url 'projects:tl_punch_bulk_approve' %}", {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": "{{ csrf_token }}",
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ punch_ids: punchIds })
+                })
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.ok) {
+                        punchIds.forEach(function(id) {
+                            var rowSelect = document.querySelector('.row-select[data-punch-id="' + id + '"]');
+                            if (!rowSelect) return;
+                            var row = rowSelect.closest("tr");
+                            if (!row) return;
+                            var approveBtn = row.querySelector(".approve-btn");
+                            if (approveBtn) approveBtn.remove();
+                            row.querySelector("td:nth-last-child(2)").textContent = "APPROVED";
+                            var input = row.querySelector(".punch-input");
+                            if (input) input.setAttribute("readonly", "readonly");
+                        });
+                        location.reload();
+                        alert(data.message || "Efforts Approved for selected weeks");
+                    } else {
+                        alert("Error in bulk approval: " + (data.error || ""));
+                    }
+                    btn.disabled = false;
+                })
+                .catch(function() {
+                    alert("Network error. Please try again.");
+                    btn.disabled = false;
+                });
+            });
+        });
+
+        // Add Allocation Modal
         btnAddAllocation.addEventListener('click', async function () {
             try {
                 console.log('Add Allocation button clicked');
@@ -640,8 +668,8 @@ document.addEventListener("DOMContentLoaded", function() {
         function closeModal() {
             modal.classList.remove('active');
         }
+
         function buildDaysList(week) {
-            // week.start and week.end are ISO strings, convert to Date objects
             const start = new Date(week.start);
             const end = new Date(week.end);
             const days = [];
@@ -653,29 +681,25 @@ document.addEventListener("DOMContentLoaded", function() {
             }
             return days;
         }
-    // --- Modal Week Selector and Day Table ---
+
         function setupModalWeekSelector() {
             console.log("Setting up modal week selector");
-            // Defensive: remove any previous event listeners by replacing the element
             const oldSelector = document.getElementById('modalWeekSelector');
             if (!oldSelector) return;
             const newSelector = oldSelector.cloneNode(true);
             oldSelector.parentNode.replaceChild(newSelector, oldSelector);
 
-            // Populate week selector
             const allWeeksList = JSON.parse(document.getElementById('hiddenWeeksData').value);
             newSelector.innerHTML = '<option value="">Select Week...</option>';
             allWeeksList.forEach(w => {
                 newSelector.innerHTML += `<option value="${w.num}">Week ${w.num}: ${w.start} - ${w.end}</option>`;
             });
 
-            // Clear day table
             const dayTable = document.getElementById('modalDayTable');
             if (dayTable) {
                 dayTable.querySelector('tbody').innerHTML = '';
             }
 
-            // Attach event listener for week change
             newSelector.addEventListener('change', function () {
                 console.log("Week selected:", this.value);
                 const weekNum = this.value;
@@ -690,22 +714,22 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (week && week.days_list && week.days_list.length > 0) {
                     week.days_list.forEach(day => {
                         tbody.innerHTML += `
-                    <tr>
-                        <td>${day.weekday}</td>
-                        <td>${day.date}</td>
-                        <td>
-                            <input type="number"
-                                class="modal-day-effort"
-                                data-date="${day.date}"
-                                min="0"
-                                max="24"
-                                step="0.01"
-                                value="0"
-                                placeholder="0.00"
-                                style="width: 80px; text-align: right;">
-                        </td>
-                    </tr>
-                `;
+                            <tr>
+                                <td>${day.weekday}</td>
+                                <td>${day.date}</td>
+                                <td>
+                                    <input type="number"
+                                        class="modal-day-effort"
+                                        data-date="${day.date}"
+                                        min="0"
+                                        max="${isEuUser ? '100' : '24'}"
+                                        step="0.01"
+                                        value="0"
+                                        placeholder="${isEuUser ? '%' : '0.00'}"
+                                        style="width: 80px; text-align: right;">
+                                </td>
+                            </tr>
+                        `;
                     });
                 } else {
                     tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#a0aec0;">No days found for this week</td></tr>`;
@@ -713,123 +737,126 @@ document.addEventListener("DOMContentLoaded", function() {
             });
         }
 
-    // Modal Save/Cancel button handlers
-    document.getElementById('btnModalCancel').addEventListener('click', closeModal);
-    document.getElementById('btnModalSave').addEventListener('click', async function () {
-        const projectId = parseInt(document.getElementById('modalProject').value);
-        const subprojectId = parseInt(document.getElementById('modalSubproject').value);
-        const weekNum = parseInt(document.getElementById('modalWeekSelector').value);
-        const monthStart = document.getElementById('hiddenMonthStart').value; // Get month_start
-        // In btnModalSave click handler
-        const reporteeLdap = document.getElementById('modalReportee').value;
-        // print all above values to console for debugging
-        console.log('Saving allocation with values:', {
-            reporteeLdap,
-            projectId,
-            subprojectId,
-            weekNum,
-            monthStart
-        });
-        if (!reporteeLdap) {
-            showNotification('Please select a reportee', 'warning');
-            return;
-        }
-        if (!projectId || !subprojectId || !weekNum || !monthStart) {
-            showNotification('Please select project, subproject, week, and ensure billing period is set', 'warning');
-            return;
-        }
+        document.getElementById('btnModalCancel').addEventListener('click', closeModal);
+        document.getElementById('btnModalSave').addEventListener('click', async function () {
+            const projectId = parseInt(document.getElementById('modalProject').value);
+            const subprojectId = parseInt(document.getElementById('modalSubproject').value);
+            const weekNum = parseInt(document.getElementById('modalWeekSelector').value);
+            const monthStart = document.getElementById('hiddenMonthStart').value;
+            const reporteeLdap = document.getElementById('modalReportee').value;
 
-        const days = [];
-        document.querySelectorAll('.modal-day-effort').forEach(input => {
-            const hours = parseFloat(input.value) || 0;
-            if (hours > 0) {
-                days.push({
-                    punch_date: input.dataset.date,
-                    punched_hours: hours
-                });
-            }
-        });
-        if (days.length === 0) {
-            showNotification('Please enter effort for at least one day', 'warning');
-            return;
-        }
-
-        const totalHours = days.reduce((sum, d) => sum + d.punched_hours, 0);
-        console.log('Total hours calculated:', totalHours);
-
-        // Get allWeeksList from hidden input
-        const allWeeksList = JSON.parse(document.getElementById('hiddenWeeksData').value);
-        const week = allWeeksList.find(w => String(w.num) === String(weekNum));
-
-        let daysList = [];
-        if (week) {
-            // If days_list is missing or empty, build it from start/end
-            if (!week.days_list || week.days_list.length === 0) {
-                const start = new Date(week.start);
-                const end = new Date(week.end);
-                for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                    daysList.push({ date: d.toISOString().slice(0, 10) });
-                }
-            } else {
-                daysList = week.days_list;
-            }
-        }
-
-        let workingDays = 0;
-        if (daysList.length > 0) {
-            workingDays = daysList.filter(day => {
-                const d = new Date(day.date);
-                return d.getDay() !== 0 && d.getDay() !== 6; // Mon-Fri
-            }).length;
-        }
-        console.log('Working days in selected week:', workingDays);
-        const percent = workingDays > 0 ? (totalHours / (8.75 * workingDays)) * 100 : 0;
-        console.log('Percent calculated:', percent);
-
-        const payload = {
-            reportee_ldap: reporteeLdap,
-            project_id: projectId,
-            subproject_id: subprojectId,
-            month_start: monthStart,
-            allocations: [{
-                week_number: weekNum,
-                hours: totalHours,
-                percent: percent,
-                days: days
-            }]
-        };
-
-        try {
-            const response = await fetch("{% url 'projects:add_tl_allocation' %}", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token }}'
-                },
-                body: JSON.stringify(payload)
+            console.log('Saving allocation with values:', {
+                reporteeLdap,
+                projectId,
+                subprojectId,
+                weekNum,
+                monthStart
             });
-            const data = await response.json();
-            if (data.ok) {
-                showNotification('Allocation added successfully!', 'success');
-                closeModal();
-                // setTimeout(() => window.location.reload(), 1500);
-            } else {
-                showNotification('Error: ' + data.error, 'error');
+
+            if (!reporteeLdap) {
+                showNotification('Please select a reportee', 'warning');
+                return;
             }
-        } catch (err) {
-            showNotification('Network error occurred', 'error');
-            console.error(err);
-        }
-    });
-    // Keyboard accessibility for checkboxes and buttons
-    document.querySelectorAll("input[type=checkbox], button").forEach(function(el) {
-        el.addEventListener("keyup", function(e) {
-            if (e.key === "Enter" || e.key === " ") {
-                el.click();
+            if (!projectId || !subprojectId || !weekNum || !monthStart) {
+                showNotification('Please select project, subproject, week, and ensure billing period is set', 'warning');
+                return;
+            }
+
+            const days = [];
+            document.querySelectorAll('.modal-day-effort').forEach(input => {
+                let inputValue = parseFloat(input.value) || 0;
+                if (inputValue > 0) {
+                    // Convert percent to hours if EU user
+                    let hours = percentToHours(inputValue);
+                    console.log(`Day ${input.dataset.date}: inputValue=${inputValue}, converted hours=${hours}`);
+                    days.push({
+                        punch_date: input.dataset.date,
+                        punched_hours: hours
+                    });
+                }
+            });
+
+            if (days.length === 0) {
+                showNotification('Please enter effort for at least one day', 'warning');
+                return;
+            }
+
+
+            const totalHours = days.reduce((sum, d) => sum + d.punched_hours, 0);
+            console.log('Total hours calculated:', totalHours);
+
+            const allWeeksList = JSON.parse(document.getElementById('hiddenWeeksData').value);
+            const week = allWeeksList.find(w => String(w.num) === String(weekNum));
+
+            let daysList = [];
+            if (week) {
+                if (!week.days_list || week.days_list.length === 0) {
+                    const start = new Date(week.start);
+                    const end = new Date(week.end);
+                    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                        daysList.push({ date: d.toISOString().slice(0, 10) });
+                    }
+                } else {
+                    daysList = week.days_list;
+                }
+            }
+
+            let workingDays = 0;
+            if (daysList.length > 0) {
+                workingDays = daysList.filter(day => {
+                    const d = new Date(day.date);
+                    return d.getDay() !== 0 && d.getDay() !== 6;
+                }).length;
+            }
+            console.log('Working days in selected week:', workingDays);
+            const percent = workingDays > 0 ? (totalHours / (8.75 * workingDays)) * 100 : 0;
+            console.log('Percent calculated:', percent);
+
+            const payload = {
+                reportee_ldap: reporteeLdap,
+                project_id: projectId,
+                subproject_id: subprojectId,
+                month_start: monthStart,
+                allocations: [{
+                    week_number: weekNum,
+                    hours: totalHours,
+                    percent: percent,
+                    days: days
+                }]
+            };
+
+            try {
+                const response = await fetch("{% url 'projects:add_tl_allocation' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    showNotification('Allocation added successfully!', 'success');
+                    closeModal();
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showNotification('Error: ' + data.error, 'error');
+                }
+            } catch (err) {
+                showNotification('Network error occurred', 'error');
+                console.error(err);
             }
         });
+
+        // Keyboard accessibility
+        document.querySelectorAll("input[type=checkbox], button").forEach(function(el) {
+            el.addEventListener("keyup", function(e) {
+                if (e.key === "Enter" || e.key === " ") {
+                    el.click();
+                }
+            });
+        });
     });
-});
 </script>
 {% endblock %}
 

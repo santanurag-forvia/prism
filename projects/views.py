@@ -7527,6 +7527,8 @@ def tl_punch_review(request):
                 }
                 for i in range(7)
             ]
+
+    print("Rendering tl_punch_review with context:")
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
