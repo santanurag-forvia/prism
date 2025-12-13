@@ -3636,12 +3636,121 @@ def add_self_allocation(request):
         logging.getLogger(__name__).exception("add_self_allocation error")
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
+@require_http_methods(["POST"])
+def add_tl_allocation(request):
+    print("[add_tl_allocation] Entry")
+    if not request.session.get("is_authenticated"):
+        print("[add_tl_allocation] Not authenticated")
+        return JsonResponse({'ok': False, 'error': 'Not authenticated'}, status=401)
+
+    try:
+        print(f"[add_tl_allocation] Raw request.body: {request.body}")
+        data = json.loads(request.body)
+        tl_email = request.session['ldap_username']
+        reportee_ldap = data.get('reportee_ldap')
+        project_id = data.get('project_id')
+        subproject_id = data.get('subproject_id')
+        month_start = data.get('month_start')
+        allocations = data.get('allocations', [])
+
+        print(f"[add_tl_allocation] project_id: {project_id}, subproject_id: {subproject_id}, month_start: {month_start}, reportee_ldap: {reportee_ldap}")
+        print(f"[add_tl_allocation] allocations: {allocations}")
+
+        if not all([project_id, subproject_id, month_start, reportee_ldap]):
+            print("[add_tl_allocation] Missing required fields")
+            return JsonResponse({'ok': False, 'error': 'Missing required fields'}, status=400)
+        try:
+            datetime.strptime(month_start, '%Y-%m-%d')
+        except ValueError:
+            print(f"[add_tl_allocation] Invalid month_start format: {month_start}")
+            return JsonResponse({'ok': False, 'error': f'Invalid month_start format: {month_start}. Expected YYYY-MM-DD'}, status=400)
+        if not allocations:
+            print("[add_tl_allocation] No allocations provided")
+            return JsonResponse({'ok': False, 'error': 'No allocations provided'}, status=400)
+
+        filtered_allocations = []
+        for alloc in allocations:
+            days = alloc.get('days', [])
+            total_punched = sum(Decimal(str(day.get('punched_hours', 0))) for day in days)
+            if total_punched > 0:
+                filtered_allocations.append(alloc)
+
+        if not filtered_allocations:
+            print("[add_tl_allocation] No non-zero effort weeks")
+            return JsonResponse({'ok': False, 'error': 'No non-zero effort weeks'}, status=400)
+
+        with transaction.atomic():
+            total_hours = sum(Decimal(str(a.get('hours', 0))) for a in filtered_allocations)
+            print(f"[add_tl_allocation] Calculated total_hours for team_distributions: {total_hours}")
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO team_distributions
+                        (month_start, lead_ldap, project_id, subproject_id, reportee_ldap, hours, is_self_allocation, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    """,
+                    [month_start, tl_email, project_id, subproject_id, reportee_ldap, total_hours, False]
+                )
+                cur.execute("SELECT LAST_INSERT_ID()")
+                team_distribution_id = cur.fetchone()[0]
+                print(f"[add_tl_allocation] Inserted team_distribution_id: {team_distribution_id} (is_self_allocation=False)")
+
+            with connection.cursor() as cur:
+                for alloc in filtered_allocations:
+                    week_number = alloc.get('week_number')
+                    hours = Decimal(str(alloc.get('hours', 0)))
+                    percent = Decimal(str(alloc.get('percent', 0)))
+                    print(f"[add_tl_allocation] Inserting weekly_allocation: week_number={week_number}, hours={hours}, percent={percent}")
+                    cur.execute(
+                        """
+                        INSERT INTO weekly_allocations
+                            (allocation_id, team_distribution_id, week_number, hours, percent, status, created_at, updated_at)
+                        VALUES (NULL, %s, %s, %s, %s, 'PENDING', NOW(), NOW())
+                        """,
+                        [team_distribution_id, week_number, hours, percent]
+                    )
+
+            with connection.cursor() as cur:
+                for alloc in filtered_allocations:
+                    week_number = alloc.get('week_number')
+                    days = alloc.get('days', [])
+                    print(f"[add_tl_allocation] Processing week_number={week_number}, days={days}")
+                    for day in days:
+                        punch_date = day.get('punch_date')
+                        punched_hours = Decimal(str(day.get('punched_hours', 0)))
+                        print(f"[add_tl_allocation] Inserting punch_data: punch_date={punch_date}, punched_hours={punched_hours}")
+                        cur.execute(
+                            """
+                            INSERT INTO punch_data
+                                (user_email, team_distribution_id, project_id, subproject_id, month_start,
+                                 punch_date, allocated_hours, punched_hours, status, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'SUBMITTED', NOW(), NOW())
+                            """,
+                            [reportee_ldap, team_distribution_id, project_id, subproject_id, month_start,
+                             punch_date, 0, punched_hours]
+                        )
+
+        print("[add_tl_allocation] Success")
+        return JsonResponse({'ok': True})
+
+    except json.JSONDecodeError:
+        print("[add_tl_allocation] Invalid JSON")
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        print(f"[add_tl_allocation] Exception: {e}")
+        import logging
+        logging.getLogger(__name__).exception("add_tl_allocation error")
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
 
 @require_http_methods(["GET"])
 def get_projects_for_allocation(request):
     """Get projects and subprojects for add allocation modal."""
+    print("=== get_projects_for_allocation called ===")
     try:
         with connection.cursor() as cur:
+            print("Executing SQL to fetch projects and subprojects...")
             cur.execute("""
                 SELECT p.id as project_id, p.name as project_name,
                        sp.id as subproject_id, sp.name as subproject_name
@@ -3650,27 +3759,35 @@ def get_projects_for_allocation(request):
                 ORDER BY p.name, sp.name
             """)
             rows = dictfetchall(cur)
+            print(f"Rows fetched from DB: {len(rows)}")
+            for r in rows:
+                print(f"  Project: {r['project_id']} - {r['project_name']}, Subproject: {r['subproject_id']} - {r['subproject_name']}")
 
         # Group by project
         projects = {}
         for row in rows:
             pid = row['project_id']
             if pid not in projects:
+                print(f"Adding new project to dict: {pid} - {row['project_name']}")
                 projects[pid] = {
                     'id': pid,
                     'name': row['project_name'],
                     'subprojects': []
                 }
             if row['subproject_id']:
+                print(f"  Adding subproject to project {pid}: {row['subproject_id']} - {row['subproject_name']}")
                 projects[pid]['subprojects'].append({
                     'id': row['subproject_id'],
                     'name': row['subproject_name']
                 })
 
+        print(f"Total projects prepared for response: {len(projects)}")
         return JsonResponse({'ok': True, 'projects': list(projects.values())})
 
     except Exception as e:
+        print(f"Exception in get_projects_for_allocation: {e}")
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
 # -------------------------
 # my_allocations_vacation endpoint
 # -------------------------
@@ -7169,7 +7286,10 @@ def tl_punch_review(request):
 
     if not selected_week or selected_week == "all":
         selected_week = str(current_week) if current_week else "all"
-
+    all_weeks_list_json = json.dumps(
+        weeks_list,
+        default=lambda obj: obj.isoformat() if isinstance(obj, datetime) else str(obj)
+    )
     # Get reportees (reuse LDAP utility)
     creds = (session_ldap, request.session.get("ldap_password"))
     try:
@@ -7390,18 +7510,36 @@ def tl_punch_review(request):
     country_code = request.session.get('country_code')
     is_eu_user = is_eu_country(country_code)
     print("[my_allocations] country_code:", country_code, "is_eu_user:", is_eu_user)
+    week_days = []
+    if selected_week and selected_week != "all":
+        # Find the week object for the selected week
+        week_obj = next((w for w in weeks_list if str(w["num"]) == str(selected_week)), None)
+        if week_obj:
+            week_days = [
+                {
+                    "date": week_obj["start"] + timedelta(days=i),
+                    "day": (week_obj["start"] + timedelta(days=i)).strftime("%a")
+                }
+                for i in range(7)
+            ]
     return render(request, "projects/tl_punch_review.html", {
         "month_str": month_str,
         "reportees": reportees,
         "grouped": grouped_str,
         "expand_all": expand_all,
         'day_names': day_names,
+        'billing_start': billing_start,
+        'billing_end': billing_end,
         "fte_totals": dict(fte_totals),
         "month_limit": month_limit,
         "weeks_list": weeks_list,
+        'all_weeks_list_json': all_weeks_list_json,
         "selected_week": selected_week,
         "current_week": current_week,
         "is_eu_user": is_eu_user,
+        'add_allocation_url': reverse('projects:add_tl_allocation'),
+        'get_projects_url': reverse('projects:get_projects_for_allocation'),
+        "week_days": week_days,
     })
 
 
