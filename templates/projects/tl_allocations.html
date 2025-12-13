@@ -1349,10 +1349,10 @@ const weekSelector = document.getElementById('weekSelector');
       const fteEl = rr.querySelector('.r-fte');
       const ptgeEl = rr.querySelector('.r-ptge');
      // if(hrsEl) hrsEl.textContent = hrs.toFixed(2);
-     /* if(hrsEl){
+      if(hrsEl){
             fteEl.textContent = (MONTHLY_LIMIT ? (hrsEl.textContent / MONTHLY_LIMIT).toFixed(2) : '0.00');
-            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MONTHLY_LIMIT * 100).toFixed(1) : '0.00' );
-      }*/
+            ptgeEl.textContent = (hrsEl.textContent ? (hrsEl.textContent / MAX_FTE_PM * 100).toFixed(1) : '0.00' );
+      }
     });
   }
 

@@ -1245,7 +1245,6 @@
         //const btnRecordLeave = document.getElementById('btnRecordLeave');
         const monthSelect = document.getElementById('monthSelect');
         const yearSelect = document.getElementById('yearSelect');
-
 // Add Allocation Modal
         const modal = document.getElementById('addAllocationModal');
         const modalProject = document.getElementById('modalProject');
@@ -1273,6 +1272,29 @@
         const BILLING_START = '{{ month_start|date:"Y-m-d" }}';
         const BILLING_END = '{{ month_end|date:"Y-m-d" }}';
 
+        // --- Add Allocation Modal (with day-wise effort) ---
+        if (btnAddAllocation) {   // new line added to open the open the modal
+        btnAddAllocation.addEventListener('click', async function () {
+            try {
+                const response = await fetch('{{ get_projects_url }}');
+                const data = await response.json();
+                if (data.ok) {
+                    projectsData = data.projects;
+                    modalProject.innerHTML = '<option value="">Select Project...</option>';
+                    data.projects.forEach(proj => {
+                        modalProject.innerHTML += `<option value="${proj.id}">${proj.name}</option>`;
+                    });
+                    modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
+                    modalSubproject.disabled = true;
+                    modal.classList.add('active');
+                    setupModalWeekSelector();
+                }
+            } catch (err) {
+                showNotification('Failed to load projects', 'error');
+                console.error(err);
+            }
+        });
+    }
 
         // --- Main page event listeners ---
         // --- EU/Non-EU punch input display fix ---
@@ -1413,26 +1435,7 @@
 
 
         // --- Add Allocation Modal (with day-wise effort) ---
-        btnAddAllocation.addEventListener('click', async function () {
-            try {
-                const response = await fetch('{{ get_projects_url }}');
-                const data = await response.json();
-                if (data.ok) {
-                    projectsData = data.projects;
-                    modalProject.innerHTML = '<option value="">Select Project...</option>';
-                    data.projects.forEach(proj => {
-                        modalProject.innerHTML += `<option value="${proj.id}">${proj.name}</option>`;
-                    });
-                    modalSubproject.innerHTML = '<option value="">Select Subproject...</option>';
-                    modalSubproject.disabled = true;
-                    modal.classList.add('active');
-                    setupModalWeekSelector();
-                }
-            } catch (err) {
-                showNotification('Failed to load projects', 'error');
-                console.error(err);
-            }
-        });
+
 
         modalProject.addEventListener('change', function () {
             const projectId = parseInt(this.value);
